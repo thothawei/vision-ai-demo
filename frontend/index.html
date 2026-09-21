@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>視覺辨識 AI Demo</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f7;
+    --card-bg: #ffffff;
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --accent: #0071e3;
+    --border: #e5e5ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e;
+      --card-bg: #2c2c2e;
+      --text: #f5f5f7;
+      --muted: #a1a1a6;
+      --border: #3a3a3c;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.subtitle { color: var(--muted); margin-top: 0; margin-bottom: 24px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+  .card h2 { margin-top: 0; font-size: 17px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+  input[type="file"] { flex: 1; min-width: 200px; }
+  select, button {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .preview { max-width: 200px; max-height: 200px; border-radius: 8px; margin-top: 8px; display: none; }
+  .result { margin-top: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { width: 30%; color: var(--muted); font-weight: 500; }
+  .status { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .status.error { color: #ff3b30; }
+</style>
+</head>
+<body>
+
+<h1>視覺辨識 AI Demo</h1>
+<p class="subtitle">本機測試用：街景照片通用辨識 ／ 文件圖檔轉結構化資料</p>
+
+<div class="card">
+  <h2>① 街景照片辨識</h2>
+  <p style="color:var(--muted); font-size:13px;">上傳一張照片，AI 會判斷「這是什麼」（招牌、建築物、商品、場景等）</p>
+  <div class="row">
+    <input type="file" id="scan-file" accept="image/*">
+    <button id="scan-btn">開始辨識</button>
+  </div>
+  <img class="preview" id="scan-preview">
+  <div class="status" id="scan-status"></div>
+  <div class="result" id="scan-result"></div>
+</div>
+
+<div class="card">
+  <h2>② 文件／圖檔轉結構化資料</h2>
+  <p style="color:var(--muted); font-size:13px;">上傳文件或掃描圖檔，AI 會擷取內容並整理成 JSON 欄位</p>
+  <div class="row">
+    <input type="file" id="doc-file" accept="image/*">
+    <select id="doc-mode">
+      <option value="ocr">OCR + AI 結構化（預設）</option>
+      <option value="end_to_end">端到端（AI 直接讀圖）</option>
+    </select>
+    <button id="doc-btn">開始擷取</button>
+  </div>
+  <img class="preview" id="doc-preview">
+  <div class="status" id="doc-status"></div>
+  <div class="result" id="doc-result"></div>
+</div>
+
+<script>
+function setupPreview(fileInput, previewImg) {
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (!file) { previewImg.style.display = "none"; return; }
+    previewImg.src = URL.createObjectURL(file);
+    previewImg.style.display = "block";
+  });
+}
+
+function renderResult(container, data) {
+  container.innerHTML = "";
+  const table = document.createElement("table");
+  for (const [key, value] of Object.entries(data)) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = key;
+    const td = document.createElement("td");
+    td.textContent = typeof value === "object" ? JSON.stringify(value, null, 2) : value;
+    tr.appendChild(th);
+    tr.appendChild(td);
+    table.appendChild(tr);
+  }
+  container.appendChild(table);
+}
+
+async function callApi(url, formData, statusEl, resultEl, button) {
+  statusEl.textContent = "辨識中…請稍候";
+  statusEl.className = "status";
+  resultEl.innerHTML = "";
+  button.disabled = true;
+  try {
+    const res = await fetch(url, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "辨識失敗");
+    }
+    statusEl.textContent = "完成";
+    renderResult(resultEl, data);
+  } catch (err) {
+    statusEl.textContent = "錯誤：" + err.message;
+    statusEl.className = "status error";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+const scanFile = document.getElementById("scan-file");
+const scanPreview = document.getElementById("scan-preview");
+setupPreview(scanFile, scanPreview);
+
+document.getElementById("scan-btn").addEventListener("click", () => {
+  const file = scanFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi(
+    "/api/scan",
+    formData,
+    document.getElementById("scan-status"),
+    document.getElementById("scan-result"),
+    document.getElementById("scan-btn")
+  );
+});
+
+const docFile = document.getElementById("doc-file");
+const docPreview = document.getElementById("doc-preview");
+setupPreview(docFile, docPreview);
+
+document.getElementById("doc-btn").addEventListener("click", () => {
+  const file = docFile.files[0];
+  if (!file) { alert("請先選擇圖檔"); return; }
+  const mode = document.getElementById("doc-mode").value;
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi(
+    "/api/extract?mode=" + mode,
+    formData,
+    document.getElementById("doc-status"),
+    document.getElementById("doc-result"),
+    document.getElementById("doc-btn")
+  );
+});
+</script>
+
+</body>
+</html>
