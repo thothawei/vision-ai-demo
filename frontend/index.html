@@ -100,7 +100,7 @@
 <body>
 
 <h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 4：M4 換成 RapidOCR + Pydantic schema）</p>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 5：M6 PCB 瑕疵偵測 ／ M5 PPE 安全帽偵測）</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
@@ -109,6 +109,8 @@
   <button class="tab-btn" data-tab="codes">④ 追溯碼辨識</button>
   <button class="tab-btn" data-tab="measure">⑤ 計數與量測</button>
   <button class="tab-btn" data-tab="safety">⑥ 危險區域入侵</button>
+  <button class="tab-btn" data-tab="ppe">⑦ 安全帽偵測</button>
+  <button class="tab-btn" data-tab="defect">⑧ PCB 瑕疵偵測</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -235,6 +237,39 @@
     <canvas class="zone-canvas" id="safety-canvas"></canvas>
     <div class="status" id="safety-status"></div>
     <div class="result" id="safety-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-ppe">
+  <div class="card">
+    <h2>安全帽偵測（M5 PPE）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      監督式訓練（Hard Hat Workers 資料集，CC0 1.0）。只偵測「有沒有戴安全帽」，資料集沒有反光背心類別，這是資料集本身的限制。
+    </p>
+    <div class="row">
+      <input type="file" id="ppe-file" accept="image/*">
+      <button id="ppe-btn">開始偵測</button>
+    </div>
+    <img class="preview" id="ppe-preview">
+    <div class="status" id="ppe-status"></div>
+    <div class="result" id="ppe-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-defect">
+  <div class="card">
+    <h2>PCB 瑕疵偵測（M6）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      監督式訓練（DeepPCB 資料集，MIT License），偵測 6 種瑕疵：斷路、短路、缺口、毛刺、多餘銅箔、針孔。
+      跟 M3（非監督，只需良品）互補——M3 不需要 NG 樣本但只能說「哪裡異常」，M6 需要標註過的 NG 樣本但能講出「是哪一種瑕疵」。
+    </p>
+    <div class="row">
+      <input type="file" id="defect-file" accept="image/*">
+      <button id="defect-btn">開始偵測</button>
+    </div>
+    <img class="preview" id="defect-preview">
+    <div class="status" id="defect-status"></div>
+    <div class="result" id="defect-result"></div>
   </div>
 </div>
 
@@ -491,6 +526,30 @@ document.getElementById("safety-btn").addEventListener("click", () => {
   }
   callApi("/api/safety/intrusion", formData, document.getElementById("safety-status"),
     document.getElementById("safety-result"), document.getElementById("safety-btn"));
+});
+
+// ⑦ 安全帽偵測
+const ppeFile = document.getElementById("ppe-file");
+setupPreview(ppeFile, document.getElementById("ppe-preview"));
+document.getElementById("ppe-btn").addEventListener("click", () => {
+  const file = ppeFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi("/api/safety/ppe", formData, document.getElementById("ppe-status"),
+    document.getElementById("ppe-result"), document.getElementById("ppe-btn"));
+});
+
+// ⑧ PCB 瑕疵偵測
+const defectFile = document.getElementById("defect-file");
+setupPreview(defectFile, document.getElementById("defect-preview"));
+document.getElementById("defect-btn").addEventListener("click", () => {
+  const file = defectFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi("/api/defect/pcb", formData, document.getElementById("defect-status"),
+    document.getElementById("defect-result"), document.getElementById("defect-btn"));
 });
 </script>
 

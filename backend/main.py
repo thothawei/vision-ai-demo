@@ -13,6 +13,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from core.schemas import ModuleError  # noqa: E402
 from modules.anomaly.router import router as anomaly_router  # noqa: E402
 from modules.codes.router import router as codes_router  # noqa: E402
+from modules.defect.router import router as defect_router  # noqa: E402
 from modules.docs.router import router as docs_router  # noqa: E402
 from modules.general.router import router as general_router  # noqa: E402
 from modules.inspections.router import router as inspections_router  # noqa: E402
@@ -37,6 +38,7 @@ def handle_module_error(_: Request, exc: ModuleError):
 app.include_router(general_router)
 app.include_router(docs_router)
 app.include_router(anomaly_router)
+app.include_router(defect_router)
 app.include_router(codes_router)
 app.include_router(measure_router)
 app.include_router(safety_router)

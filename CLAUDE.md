@@ -57,6 +57,14 @@
 - **數字來源核對（防止 LLM 捏造數字）**：所有數字欄位都用 `{值, 原文片段}` 的格式，LLM 除了給數字還要附上「這是從原文哪裡抄的」；service 層（`_annotate_source_verification`）拿這段原文片段去對 OCR 真實文字做子字串比對，比對得到標「OK」，比對不到標「可疑：原文中找不到這段文字，數字可能是 LLM 捏造的」——這個檢查完全不靠 LLM 自己說了算。端到端模式沒有獨立 OCR 文字可以核對，誠實標記「無法驗證」，不假裝驗證過。
 - **文件類型判斷分兩段 LLM 呼叫**：先分類（`文件類型`），再依分類結果決定要不要套嚴格 schema、要用哪個 schema 專用 prompt。兩段式比一段式多一次 LLM 呼叫的延遲，換來的是每種文件類型可以給非常明確的目標 JSON 結構範例，而不是要 LLM 自己猜欄位名稱。
 
+## 技術決策與理由（Phase 5）
+
+- **M6 PCB 瑕疵偵測（`backend/modules/defect/`）**：監督式 YOLO11n，跟 M3（PatchCore，非監督）刻意互補——M3 不需要 NG 樣本但只能說「哪裡異常」，M6 需要標註過的 NG 樣本（DeepPCB）但能講出「是哪一種瑕疵」（斷路/短路/缺口/毛刺/多餘銅箔/針孔）。
+- **DeepPCB 官方沒有切分清單，自己切**：官方 README 只說「1000 張當訓練集，其餘當測試集」，沒附清單。`scripts/prepare_deeppcb.py` 用固定亂數種子（42）切 1000/250/250，可重現，並在程式註解與文件裡誠實寫「不是官方切分」。
+- **MPS 訓練 YOLO 沒有 M3 PatchCore 那個坑**：M3 的 coreset 演算法在 MPS 上因逐元素 `.item()` 同步而極慢；YOLO 的訓練是標準卷積+反向傳播，MPS 支援良好，實測 M1 Pro 上 1 epoch（1000 張、batch16）約 47 秒，PCB 模型 41 epoch（early stop）只花 32 分鐘。這跟 M3 的結論不衝突——「MPS 對某些特定演算法很慢」不等於「MPS 對深度學習訓練普遍很慢」。
+- **ultralytics 的 `project` 路徑陷阱（真的踩到，見下方測試紀錄）**：`project='models/defect'` 這種相對路徑會被 ultralytics 全域設定的 `runs_dir` 加上前綴，實際存到 `runs/detect/models/defect/...`，不是我以為的 `models/defect/...`。PPE 訓練改用絕對路徑 `project='/Users/.../models/ppe'` 避開這個陷阱。
+- **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，這是 Phase 0 就查證過的資料集限制，不是這個 Phase 漏做；沿用資料集自帶的 Train/Test 切分（不像 DeepPCB 要自己切）。
+
 ## 目錄結構
 
 ```
@@ -77,18 +85,26 @@ vision-ai-demo/
 │   │   ├── anomaly/              # M3 外觀瑕疵異常檢測
 │   │   ├── codes/                # M1 追溯碼辨識
 │   │   ├── measure/              # M2 計數與尺寸量測
-│   │   ├── safety/               # M5 危險區域入侵
+│   │   ├── safety/               # M5 危險區域入侵 + PPE 安全帽偵測
+│   │   ├── defect/               # M6 PCB 瑕疵偵測
 │   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁（6 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
+├── frontend/index.html         # 分頁式單頁（8 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
-│   └── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
+│   ├── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
+│   ├── prepare_deeppcb.py      # DeepPCB 官方標註 → YOLO 格式（M6）
+│   └── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
+├── notebooks/
+│   ├── train_pcb_defect.ipynb  # M6 訓練，Colab GPU 版（重用 scripts/prepare_deeppcb.py）
+│   └── train_ppe.ipynb         # M5 PPE 訓練，Colab GPU 版
 ├── models/
-│   ├── yolo/yolo11n.pt         # M5 用，YOLO 官方 release 下載，gitignore
-│   └── anomaly/<category>/     # M3 用，scripts/train_anomaly.py 產生，gitignore
-│       ├── weights/torch/model.pt   # 推論用（TorchInferencer 直接載入）
-│       └── metrics.json             # 實測 image-level AUROC、擬合耗時、測試集大小
+│   ├── yolo/yolo11n.pt         # M5 危險區域入侵用，YOLO 官方 release 下載，gitignore
+│   ├── anomaly/<category>/     # M3 用，scripts/train_anomaly.py 產生，gitignore
+│   │   ├── weights/torch/model.pt   # 推論用（TorchInferencer 直接載入）
+│   │   └── metrics.json             # 實測 image-level AUROC、擬合耗時、測試集大小
+│   ├── defect/pcb_yolo11n/     # M6 用，results.csv 有逐 epoch 訓練曲線，gitignore
+│   └── ppe/ppe_yolo11n/        # M5 PPE 用，gitignore
 ├── tests/
 │   ├── conftest.py
 │   ├── samples/make_samples.py # 程式生成測試圖（工單、警示標示、GS1條碼、零件、ArUco量測場景），不進版控
@@ -99,10 +115,14 @@ vision-ai-demo/
 │   ├── test_measure.py          # M2：計數分離、量測精度、OK/NG 公差
 │   ├── test_safety.py           # M5：多邊形入侵邏輯（假偵測結果）
 │   ├── test_docs.py              # M4：schema 驗證、來源核對邏輯（真跑 RapidOCR，假 LLM）
+│   ├── test_defect.py            # M6：假偵測結果驗證 OK/NG 判定
+│   ├── test_ppe.py               # M5 PPE：假偵測結果驗證 OK/NG 判定
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
-│   └── test_live_docs.py        # 真打 Ollama 跑完整 M4 兩段式流程，pytest -m live
+│   ├── test_live_docs.py        # 真打 Ollama 跑完整 M4 兩段式流程，pytest -m live
+│   ├── test_live_defect.py      # 真打訓練好的 PCB 模型 + DeepPCB 測試集，pytest -m live
+│   └── test_live_ppe.py         # 真打訓練好的 PPE 模型 + Hardhat 驗證集，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
 │   └── licenses.md
@@ -119,6 +139,8 @@ vision-ai-demo/
 - Tesseract OCR（macOS: `brew install tesseract tesseract-lang`，M4 OCR 模式與比較用）
 - YOLO11n 權重（`models/yolo/yolo11n.pt`，M5 用；`python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"` 下載後手動搬過去，5.6MB）
 - MVTec AD 資料集（M3 用，`data/mvtec_ad/<category>/`，下載連結見 `docs/licenses.md`，CC BY-NC-SA 4.0 僅供學習/作品集展示）+ 擬合權重（`python scripts/train_anomaly.py --category all`，CPU 約 22 分鐘，見已知限制的 MPS 說明）
+- DeepPCB 資料集（M6 用，`git clone https://github.com/tangsanli5201/DeepPCB.git data/deeppcb`，MIT，231MB）+ `python scripts/prepare_deeppcb.py` 轉 YOLO 格式 + 訓練（MPS 約 32 分鐘，見 CLAUDE.md 測試紀錄）
+- Hard Hat Workers 資料集（M5 PPE 用，下載連結見 `docs/licenses.md`，CC0 1.0，268MB rar，需要 `unar` 或 `unrar` 解壓）+ `python scripts/prepare_hardhat.py` 轉 YOLO 格式 + 訓練（MPS，5297 張訓練圖，比 PCB 久很多）
 - （可選）Google Gemini API key，存在 `.env` 的 `GEMINI_API_KEY`，`LLM_ENGINE=gemini` 時才需要
 
 ## 啟動方式
@@ -151,10 +173,13 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **16GB 記憶體**：同時載入 Ollama 模型與之後 Phase 3+ 的 PyTorch 模型會吃緊，模型皆採延遲載入（首次呼叫才載入）。
 - **M2 計數對背景要求高**：假設零件是畫面中的少數像素、跟背景有明顯亮度反差；零件間距小於約 25px（局部極大值種子的搜尋半徑）時仍可能分不開，見 `_binarize_foreground_minority` 的說明。
 - **M2 量測精度**：正視角下實測誤差約 0.3-0.6mm（50mm 零件上約 1%），假設待測物與 ArUco 標記共平面，手機斜角拍攝會讓誤差變大；預設公差 1.0mm。
-- **M5 只做單張圖片**：短影片逐幀抽樣留到 Phase 5 跟 PPE 一起做，不是遺漏。
+- **M5 只做單張圖片**：短影片逐幀抽樣目前仍未做，之後有需要再補，不是遺漏。
 - **PatchCore 在 M1 Pro 的 MPS 上反而比 CPU 慢**：coreset 篩選（greedy k-center）在 Python 迴圈裡逐元素呼叫 `.item()` 把純量搬回 CPU，每次都觸發一次 MPS 同步；用 `sample` 系統工具實測抓到呼叫堆疊卡在 `MPSStream::synchronize`，幾分鐘幾乎沒進度。`scripts/train_anomaly.py` 固定用 CPU（實測反而更快，metal_nut 擬合 322 秒／screw 664 秒／tile 406 秒），這不是「MPS 不支援」，是「這個演算法在 MPS 上特別慢」。
 - **M3 擬合耗時隨訓練集大小明顯增加**：metal_nut（220 張良品）5.4 分鐘、screw（320 張）11.1 分鐘、tile（230 張）6.8 分鐘，CPU 佔用可能衝到 400-500%（多執行緒）。
 - **M3 推論需要信任本機權重**：anomalib 的 `TorchInferencer` 預設拒絕 unpickle（防止惡意權重執行任意程式碼），服務層對 `scripts/train_anomaly.py` 自己訓練匯出的權重設定 `TRUST_REMOTE_CODE=1`——只信任本機訓練產生的檔案，不代表信任任意下載的權重。
+- **`ultralytics` 的 `project` 相對路徑陷阱**：`YOLO().train(project='models/xxx')` 這種相對路徑會被全域設定的 `runs_dir` 加前綴，實際存到 `runs/detect/models/xxx/`，不是字面上那個路徑；用絕對路徑就不會有這個問題。M6/M5 PPE 的服務層 `WEIGHTS_PATH`／`PPE_WEIGHTS_PATH` 都寫死指向 `models/defect/pcb_yolo11n/weights/best.pt`、`models/ppe/ppe_yolo11n/weights/best.pt`，重新訓練時要確保 `project` 用絕對路徑或訓練完手動核對/搬移產出位置。
+- **YOLO 監督式訓練耗時差異大**：跟資料量、裝置有關，M6（1000 張、CPU/MPS 皆可）32 分鐘；M5 PPE（5297 張）在 MPS 上跑滿 60 epoch 要 4.15 小時，重新訓練前要有心理準備。PatchCore（M3）的 MPS 慢是特例（逐元素同步），YOLO 訓練本身在 MPS 上表現正常。
+- **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，這是 Phase 0 就查證過的資料集限制。
 
 ## 待辦（Phase 進度）
 
@@ -163,7 +188,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 2：M1 追溯碼（zxing-cpp + GS1 解析 + 效期判斷）、M2 計數量測（OpenCV watershed 分離相黏零件 + ArUco 透視校正量測）、M5 危險區域入侵（YOLO11n person 偵測 + 前端 canvas 畫多邊形）。全部免訓練，已用真實資料（含真人照片）與真實瀏覽器驗證可用。
 - [x] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD）。三類別實測 image-level AUROC：metal_nut 0.9985、screw 0.9645、tile 0.9993（見下方測試紀錄）。已用真實測試集圖片與真實瀏覽器驗證可用，熱力圖能準確標出瑕疵位置。
 - [x] Phase 4：M4 換成 RapidOCR + Pydantic schema。實測 RapidOCR 修正了 Phase 1 記錄的 Tesseract 誤讀（工單號 `0915→0215`）；工單/出貨單/進料檢驗報告三種文件套嚴格 schema，數字欄位附「來源驗證」核對 LLM 有沒有捏造數字；Tesseract 保留當比較選項。
-- [ ] Phase 5：M6 NEU-DET/DeepPCB、M5 PPE（需訓練，附 Colab notebook）。
+- [x] Phase 5：M6 DeepPCB 瑕疵偵測（YOLO11n，mAP50 0.978，41 epoch/32 分鐘）、M5 PPE 安全帽偵測（YOLO11n，mAP50 0.977，60 epoch/4.15 小時）。附 Colab notebook（`notebooks/`），已用真實資料與真實瀏覽器驗證可用。
 - [ ] Phase 6：M7 銘牌／儀表。
 - [ ] Phase 7：M8 醫療相關（包裝檢核、MedMNIST 教學展示）。
 - [ ] Phase 8：收尾（README、CLAUDE.md、Demo 截圖）。
@@ -228,3 +253,33 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   - 進料檢驗報告：抽樣數 50、不良數 2、判定「合格」，全部正確
 - **瀏覽器實測**（真實 Chrome）：M4 分頁上傳進料檢驗報告圖片，8635ms 後正確顯示文件類型、供應商、料號、批號，數量欄位展開成 `{值, 原文片段, 來源驗證}` 巢狀物件並顯示「OK：原文中找得到這段文字」。
 - **未使用但已安裝的套件**：`rapid-layout` 裝了但這個 Phase 沒用到（三種文件都是單一區塊版面，不需要版面分析），誠實記錄在 CLAUDE.md 技術決策，不假裝有用上。
+
+### Phase 5：功能驗證
+
+- **M6 PCB 瑕疵偵測訓練實測**：`scripts/prepare_deeppcb.py` 把 1500 張官方標註轉成 YOLO 格式（1000 train / 250 val / 250 test，固定種子切分）。`YOLO11n` 在 MPS 上訓練，41 epoch 後 early stopping（`patience=15`，最佳結果在 epoch 26），總耗時 **32.1 分鐘**（0.535 小時）。官方測試集（250 張）實測：
+  | 類別 | mAP50 | mAP50-95 | Precision | Recall |
+  |---|---|---|---|---|
+  | 全部 | **0.978** | 0.735 | 0.964 | 0.945 |
+  | open（斷路） | 0.988 | 0.674 | 0.949 | 0.979 |
+  | short（短路） | 0.958 | 0.626 | 0.941 | 0.912 |
+  | mousebite（缺口） | 0.969 | 0.710 | 0.957 | 0.921 |
+  | spur（毛刺） | 0.977 | 0.711 | 0.961 | 0.948 |
+  | copper（多餘銅箔） | 0.982 | 0.845 | 0.992 | 0.944 |
+  | pin-hole（針孔） | 0.992 | 0.845 | 0.983 | 0.968 |
+
+  數字來自 `models/defect/pcb_yolo11n/results.csv`（逐 epoch 訓練曲線）與訓練結束時對 `best.pt` 在官方測試集切分上的驗證輸出，不是估計值。
+- **一開始以為訓練卡死，其實是我自己檢查錯路徑（真實 bug，不是猜的）**：訓練指令用 `project='models/defect'`（相對路徑），但 ultralytics 會把全域設定的 `runs_dir`（預設 `"runs"`）加在相對 `project` 路徑前面，實際輸出到 `runs/detect/models/defect/pcb_yolo11n/`，不是我以為的 `models/defect/pcb_yolo11n/`。我一直檢查後者有沒有 `results.csv`，30 分鐘都看不到檔案，一度以為訓練卡死（用 `sample` 系統工具反覆確認 CPU 真的在算 conv2d/autograd，排除死鎖），後來訓練其實已經在正確路徑正常寫入，41 epoch 全部跑完只花 32 分鐘。教訓：往後呼叫 `YOLO().train(project=...)` 一律用絕對路徑，PPE 訓練已經改用絕對路徑，沒有重踩這個坑。
+- **真實資料推論驗證**：直接呼叫 `detect_pcb_defects()`（不透過假推論）測 DeepPCB 測試集圖片，正確判定 NG 並抓出全部 8 個標註瑕疵，涵蓋 6 種類型全部命中。
+- **live 測試**：`pytest -m live`，DeepPCB 測試集抽樣 10 張，10 張全部判定 NG（資料集設計每張圖本來就有 3-12 個瑕疵）。
+- **瀏覽器實測**（真實 Chrome）：M6 分頁上傳測試圖，1513ms 判定 NG、偵測到 8 個瑕疵，標註圖用紅框精準框出每個瑕疵位置並標上類型與信心度，跟明細清單完全對應。
+- **M5 PPE 訓練實測**：`scripts/prepare_hardhat.py` 沿用資料集官方 Train(5297)/Test(1766) 切分，只留 helmet/head 兩類（跳過極少數的 person/others 類別）。訓練用絕對路徑 `project`（避開上面踩到的坑），資料量是 PCB 的 5.3 倍，跑滿全部 60 epoch（沒有提早停止，`patience=15` 全程都還在緩慢進步），總耗時 **4.15 小時**。官方測試集（1766 張）實測：
+  | 類別 | mAP50 | mAP50-95 | Precision | Recall |
+  |---|---|---|---|---|
+  | 全部 | **0.977** | 0.680 | 0.948 | 0.942 |
+  | helmet（已戴安全帽） | 0.982 | 0.682 | 0.959 | 0.942 |
+  | head（未戴安全帽） | 0.972 | 0.678 | 0.938 | 0.941 |
+
+  訓練曲線見 `models/ppe/ppe_yolo11n/results.csv`；mAP50 從 epoch1 的 0.913 緩步爬升到最終 0.977，中間沒有劇烈震盪，是穩定收斂，不是運氣。
+- **真實資料推論驗證**：直接呼叫 `detect_ppe()` 測 Hard Hat Workers 驗證集，good 案例（多人合照有安全帽）正確判 OK；抓 5 張標註含「未戴安全帽」的圖測試，4/5 正確判 NG（1 張漏判，跟 recall 0.941<1 的實測數字吻合，不是我瞎猜的容錯率）。
+- **live 測試**：`pytest -m live`，驗證集抽樣 10 張，全部成功偵測到人頭（2 張 NG、7 張 OK、1 張沒偵測到人頭判 INFO）。
+- **瀏覽器實測**（真實 Chrome）：M5 PPE 分頁上傳一張 8 人合照（官方標註全部未戴安全帽），993ms 判定 NG、8/8 正確抓到未戴安全帽，標註圖用紅框精準框出每個人頭並標「未戴安全帽 0.xx」信心度。

@@ -49,6 +49,7 @@
 | Tesseract OCR | 5.5.3（本機已裝＝GitHub 最新 release） | Apache-2.0 | 是 | M4 比較選項 | https://github.com/tesseract-ocr/tesseract |
 | Ollama | 0.33.3（本機已裝） | MIT | 是 | 本機 LLM 執行環境 | https://github.com/ollama/ollama |
 | uv | 本機已裝 | Apache-2.0 / MIT | 是 | 安裝 Python 3.11、建 venv | https://github.com/astral-sh/uv |
+| unar | 1.10.8（Phase 5 新裝） | LGPL-2.1（The Unarchiver 專案） | 是（僅開發期解壓工具，不隨產品散佈） | 解壓 Hard Hat Workers 資料集的 .rar | https://theunarchiver.com/command-line |
 
 ## 模型權重
 
@@ -71,8 +72,8 @@
 |---|---|---|---|---|
 | MVTec AD（metal_nut 157MB / screw 186MB / tile 335MB，Phase 3 已下載） | **CC BY-NC-SA 4.0**，官方頁明寫「not allowed to use the dataset for commercial purposes」 | 否 | M3，**僅供學習/作品集展示**，`data/mvtec_ad/`，不進版控 | 各類別分開下載連結：https://www.mvtec.com/research-teaching/datasets/mvtec-ad/downloads（總頁面轉址後的真實網址） |
 | NEU-DET（NEU surface defect database） | **官方頁沒有任何授權條款**，只寫「請引用論文」；下載走 Google Drive / 百度盤 | 未知（無授權＝預設保留所有權利） | M6，待使用者決定（見 Phase 0 回報） | http://faculty.neu.edu.cn/songkechen/zh_CN/zdylm/263270/list/index.htm |
-| DeepPCB | 資料放在 GitHub repo 內，repo 授權 **MIT** | 是 | M6 第二步（選做） | https://github.com/tangsanli5201/DeepPCB |
-| Hard Hat Workers | **CC0 1.0**（Harvard Dataverse API 回傳；Roboflow 頁標示 Public Domain） | 是 | M5 PPE（只有安全帽/頭/人，**沒有反光背心類別**） | https://doi.org/10.7910/DVN/7CBGOS |
+| DeepPCB（1500 張 640x640，Phase 5 已下載並用於訓練） | 資料放在 GitHub repo 內，repo 授權 **MIT** | 是 | M6（clone 整個 repo，231MB） | https://github.com/tangsanli5201/DeepPCB |
+| Hard Hat Workers（5297 train + 1766 test，Phase 5 已下載並用於訓練） | **CC0 1.0**（Harvard Dataverse API 回傳；Roboflow 頁標示 Public Domain） | 是 | M5 PPE（只有 helmet/head 兩類，**沒有反光背心類別**，資料集本身的限制） | https://doi.org/10.7910/DVN/7CBGOS（實際下載 https://dataverse.harvard.edu/api/access/datafile/3344658，268MB rar） |
 | Safety-Helmet-Wearing-Dataset（SHWD） | repo 為 MIT，但 README 寫正樣本圖片「從 Google/百度蒐集」，圖片本身版權不明 | 不明 | 不採用，改用 CC0 的 Hard Hat Workers | https://github.com/njvisionpower/Safety-Helmet-Wearing-Dataset |
 | MedMNIST（PneumoniaMNIST） | **CC BY 4.0**（DermaMNIST 例外為 CC BY-NC 4.0，本專案不用）；官方註明 NOT intended for clinical use | 是（需署名） | M8-2 教學展示 | https://github.com/MedMNIST/MedMNIST |
 | COCO（YOLO 預訓練所用） | 標註 CC BY 4.0；圖片依 Flickr 各自授權 | — | 只用預訓練權重，不下載資料集 | https://cocodataset.org/#termsofuse |

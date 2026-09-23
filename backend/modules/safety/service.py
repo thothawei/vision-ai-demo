@@ -1,7 +1,11 @@
-"""M5 工安：危險區域入侵偵測（免訓練）。
+"""M5 工安：危險區域入侵偵測（免訓練）+ PPE 安全帽偵測（Phase 5 監督式訓練）。
 
-YOLO COCO 預訓練模型偵測人員 → 使用者在前端畫多邊形危險區域 → 判斷人員的腳底參考點是否落在區內。
-Phase 2 只做單張圖片；短影片逐幀抽樣留到 Phase 5 跟 PPE 一起做（見 CLAUDE.md 待辦）。
+危險區域入侵：YOLO COCO 預訓練模型偵測人員 → 使用者在前端畫多邊形危險區域 →
+判斷人員的腳底參考點是否落在區內。只做單張圖片，短影片逐幀抽樣不在這個 Phase 做
+（見 CLAUDE.md 已知限制，是規劃內的範圍縮減，不是遺漏）。
+
+PPE：用 Hard Hat Workers 資料集（CC0 1.0）訓練的 YOLO 模型判斷有沒有戴安全帽。
+這個資料集只有 helmet／head 兩類，沒有反光背心類別，是資料集本身的限制。
 """
 
 import json
@@ -16,12 +20,15 @@ from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
 
 MODULE = "safety"
+PPE_MODULE = "ppe"
 
 WEIGHTS_PATH = Path(__file__).resolve().parents[3] / "models" / "yolo" / "yolo11n.pt"
+PPE_WEIGHTS_PATH = Path(__file__).resolve().parents[3] / "models" / "ppe" / "ppe_yolo11n" / "weights" / "best.pt"
 PERSON_CLASS_ID = 0
 CONF_THRESHOLD = 0.4
 
 _model = None
+_ppe_model = None
 
 
 def _get_model():
@@ -76,6 +83,59 @@ def _detect_persons(bgr: np.ndarray) -> list[dict]:
             "腳底參考點": [round((x1 + x2) / 2), round(y2)],
         })
     return persons
+
+
+def _get_ppe_model():
+    global _ppe_model
+    if _ppe_model is None:
+        if not PPE_WEIGHTS_PATH.exists():
+            raise ModuleError(
+                f"找不到 PPE 安全帽偵測權重 {PPE_WEIGHTS_PATH}，請先執行 "
+                "`python scripts/prepare_hardhat.py` 準備資料，再訓練 "
+                "`YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', ...)`（見 CLAUDE.md）",
+                503,
+            )
+        from ultralytics import YOLO
+
+        _ppe_model = YOLO(str(PPE_WEIGHTS_PATH))
+    return _ppe_model
+
+
+def detect_ppe(image_bytes: bytes) -> InspectionResult:
+    started = time.perf_counter()
+    image = load_image(image_bytes)
+    bgr = to_bgr(image)
+
+    model = _get_ppe_model()
+    results = model.predict(bgr, conf=CONF_THRESHOLD, verbose=False)
+
+    detections = []
+    for box in results[0].boxes:
+        cls_name = model.names[int(box.cls[0])]  # "helmet" 或 "head"
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        detections.append({
+            "類型": "已戴安全帽" if cls_name == "helmet" else "未戴安全帽",
+            "信心度": round(float(box.conf[0]), 3),
+            "邊界框": [round(x1), round(y1), round(x2), round(y2)],
+        })
+
+    n_no_helmet = sum(1 for d in detections if d["類型"] == "未戴安全帽")
+    verdict = "NG" if n_no_helmet > 0 else ("OK" if detections else "INFO")
+
+    annotated = _draw_ppe_annotations(bgr, detections)
+    item = {"偵測到人頭數": len(detections), "未戴安全帽數": n_no_helmet, "明細": detections}
+    return record_result(PPE_MODULE, verdict, [item], "yolo11n-hardhat", started, bgr_to_data_url(annotated))
+
+
+def _draw_ppe_annotations(bgr: np.ndarray, detections: list[dict]) -> np.ndarray:
+    canvas = bgr.copy()
+    for d in detections:
+        color = (0, 200, 0) if d["類型"] == "已戴安全帽" else (0, 0, 255)
+        x1, y1, x2, y2 = d["邊界框"]
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(canvas, f"{d['類型']} {d['信心度']:.2f}", (x1, max(y1 - 8, 15)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+    return canvas
 
 
 def _parse_zone(zone_json: str, image_w: int, image_h: int) -> np.ndarray:

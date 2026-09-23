@@ -119,6 +119,66 @@ def fake_person_detector(monkeypatch):
     monkeypatch.setattr("modules.safety.service._detect_persons", _fake)
 
 
+@pytest.fixture
+def fake_pcb_detector(monkeypatch):
+    """把 M6 PCB 瑕疵偵測換成假函式，回傳固定的偵測框。"""
+    class _FakeBox:
+        def __init__(self, cls, conf, xyxy):
+            import torch
+
+            self.cls = torch.tensor([cls])
+            self.conf = torch.tensor([conf])
+            self.xyxy = torch.tensor([xyxy])
+
+    class _FakeResult:
+        boxes = [_FakeBox(0, 0.9, [10, 10, 50, 50])]  # class 0 = "open"
+
+    class _FakeModel:
+        names = {0: "open", 1: "short", 2: "mousebite", 3: "spur", 4: "copper", 5: "pin-hole"}
+
+        def predict(self, bgr, conf=0.4, verbose=False):
+            return [_FakeResult()]
+
+    monkeypatch.setattr("modules.defect.service._get_model", lambda: _FakeModel())
+
+
+@pytest.fixture
+def fake_pcb_detector_no_defect(monkeypatch):
+    class _FakeResult:
+        boxes = []
+
+    class _FakeModel:
+        names = {0: "open", 1: "short", 2: "mousebite", 3: "spur", 4: "copper", 5: "pin-hole"}
+
+        def predict(self, bgr, conf=0.4, verbose=False):
+            return [_FakeResult()]
+
+    monkeypatch.setattr("modules.defect.service._get_model", lambda: _FakeModel())
+
+
+@pytest.fixture
+def fake_ppe_detector(monkeypatch):
+    """回傳 1 個 helmet + 1 個 head（未戴安全帽），驗證 NG 判定。"""
+    class _FakeBox:
+        def __init__(self, cls, conf, xyxy):
+            import torch
+
+            self.cls = torch.tensor([cls])
+            self.conf = torch.tensor([conf])
+            self.xyxy = torch.tensor([xyxy])
+
+    class _FakeResult:
+        boxes = [_FakeBox(0, 0.95, [10, 10, 50, 50]), _FakeBox(1, 0.88, [100, 10, 140, 50])]
+
+    class _FakeModel:
+        names = {0: "helmet", 1: "head"}
+
+        def predict(self, bgr, conf=0.4, verbose=False):
+            return [_FakeResult()]
+
+    monkeypatch.setattr("modules.safety.service._get_ppe_model", lambda: _FakeModel())
+
+
 class _FakeAnomalyPrediction:
     def __init__(self, score: float, is_anomalous: bool):
         import torch
