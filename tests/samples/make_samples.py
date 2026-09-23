@@ -125,11 +125,58 @@ def make_measure_scene(target_length_mm: float, target_width_mm: float, hole_dia
     return Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)), TEST_MARKER_SIZE_MM
 
 
+# ---------- M4 製造文件（RapidOCR + Pydantic schema） ----------
+
+INSPECTION_REPORT_LINES = [
+    "進料檢驗報告 INCOMING INSPECTION REPORT",
+    "供應商：台中精密螺絲有限公司",
+    "料號：SC-M6-20",
+    "批號：LOT2026A",
+    "抽樣數：50",
+    "不良數：2",
+    "判定：合格",
+]
+
+
+def make_inspection_report() -> Image.Image:
+    image = Image.new("RGB", (900, 500), "white")
+    draw = ImageDraw.Draw(image)
+    font = _font(36)
+    for i, line in enumerate(INSPECTION_REPORT_LINES):
+        draw.text((50, 40 + i * 60), line, fill="black", font=font)
+    return image
+
+
+def make_shipping_order() -> Image.Image:
+    """出貨單：標頭文字 + 品項表格（格線），給 RapidTable 表格辨識用。"""
+    image = Image.new("RGB", (900, 600), "white")
+    draw = ImageDraw.Draw(image)
+    font = _font(32)
+    header = ["出貨單 SHIPPING ORDER", "單號：SO-2026-0088", "客戶：中科精密工業", "日期：2026-09-22"]
+    for i, line in enumerate(header):
+        draw.text((50, 30 + i * 50), line, fill="black", font=font)
+
+    table_font = _font(26)
+    rows = [["料號", "品名", "數量", "單價"], ["SC-M6-20", "六角螺栓", "1000", "5"], ["SC-M8-30", "螺帽", "500", "3"]]
+    cell_w, cell_h = 190, 55
+    ox, oy = 50, 250
+    for r, row in enumerate(rows):
+        for c, val in enumerate(row):
+            x0, y0 = ox + c * cell_w, oy + r * cell_h
+            draw.rectangle([x0, y0, x0 + cell_w, y0 + cell_h], outline="black", width=2)
+            draw.text((x0 + 10, y0 + 12), val, fill="black", font=table_font)
+
+    draw.text((50, oy + len(rows) * cell_h + 30), "總額：6500", fill="black", font=font)
+    return image
+
+
 if __name__ == "__main__":
     for name, maker in [
         ("work_order.png", make_work_order),
         ("warning_sign.png", make_warning_sign),
         ("screws.png", make_screws_photo),
+        ("inspection_report.png", make_inspection_report),
+        ("shipping_order.png", make_shipping_order),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)

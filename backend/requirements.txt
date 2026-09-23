@@ -19,3 +19,8 @@ ultralytics==8.4.160
 
 # Phase 3：M3 異常檢測
 anomalib==2.6.2
+
+# Phase 4：M4 換成 RapidOCR + Pydantic schema
+rapidocr==3.9.2
+rapid-table==3.0.2
+rapid-layout==1.2.1

@@ -100,7 +100,7 @@
 <body>
 
 <h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 3：M3 外觀瑕疵異常檢測）</p>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 4：M4 換成 RapidOCR + Pydantic schema）</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
@@ -128,12 +128,16 @@
 <div class="panel" id="panel-docs">
   <div class="card">
     <h2>製造文件結構化（M4）</h2>
-    <p style="color:var(--muted); font-size:13px;">上傳工單、出貨單、檢驗報告等文件或掃描圖檔，AI 會擷取內容並整理成 JSON 欄位</p>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳工單、出貨單、進料檢驗報告等文件或掃描圖檔，AI 會判斷文件類型並整理成 JSON 欄位。
+      工單/出貨單/進料檢驗報告有嚴格 schema 驗證，數字欄位會附上「來源驗證」——核對這個數字是否真的能在 OCR 原文中找到。
+    </p>
     <div class="row">
       <input type="file" id="docs-file" accept="image/*">
       <select id="docs-mode">
-        <option value="ocr">OCR + AI 結構化（預設）</option>
-        <option value="end_to_end">端到端（AI 直接讀圖）</option>
+        <option value="ocr">RapidOCR + AI 結構化（預設）</option>
+        <option value="tesseract">Tesseract + AI 結構化（準確度比較用）</option>
+        <option value="end_to_end">端到端（AI 直接讀圖，無法驗證數字來源）</option>
       </select>
       <button id="docs-btn">開始擷取</button>
     </div>

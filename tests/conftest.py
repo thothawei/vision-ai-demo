@@ -22,6 +22,26 @@ def client(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def fake_llm_queue(monkeypatch):
+    """M4 一次請求會呼叫兩次 LLM（分類→結構化），依序把要回傳的內容放進佇列。
+
+    用法：responses.append(({"文件類型": "工單"}, "fake:classify"))
+         responses.append(({...}, "fake:extract"))
+    """
+    responses: list[tuple[dict, str]] = []
+    calls: list[dict] = []
+
+    def _fake(prompt, image=None):
+        calls.append({"prompt": prompt, "has_image": image is not None})
+        if not responses:
+            raise AssertionError("fake_llm_queue 已經用完，測試準備的回應數量不夠")
+        return responses.pop(0)
+
+    monkeypatch.setattr("core.llm.generate_json", _fake)
+    return responses, calls
+
+
+@pytest.fixture
 def fake_llm(monkeypatch):
     """把 LLM 換成假函式，記錄收到的 prompt，回傳固定 JSON。"""
     calls = []
@@ -52,6 +72,16 @@ def blank_png() -> bytes:
 @pytest.fixture(scope="session")
 def screws_png() -> bytes:
     return png_bytes(make_samples.make_screws_photo())
+
+
+@pytest.fixture(scope="session")
+def inspection_report_png() -> bytes:
+    return png_bytes(make_samples.make_inspection_report())
+
+
+@pytest.fixture(scope="session")
+def shipping_order_png() -> bytes:
+    return png_bytes(make_samples.make_shipping_order())
 
 
 def gs1_png_and_fields(days_from_today: int):

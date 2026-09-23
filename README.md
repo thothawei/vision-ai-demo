@@ -4,12 +4,12 @@
 
 技術決策、每個 Phase 的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。開發規劃原始需求見 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md)。
 
-## 目前功能（Phase 0-3 已完成）
+## 目前功能（Phase 0-4 已完成）
 
 | 模組 | 功能 | 技術 |
 |---|---|---|
 | M9 | 現場照片開放式辨識（機台、工具、零件、標示、安全觀察） | Ollama `qwen3.5:9b`（本機）／Gemini 備援 |
-| M4 | 製造文件結構化（工單、出貨單等，OCR 兩段式 / 端到端兩種模式） | Tesseract + Ollama／Gemini |
+| M4 | 製造文件結構化（工單／出貨單／進料檢驗報告有嚴格 schema + 數字來源核對，其餘文件類型自由格式） | RapidOCR + RapidTable + Ollama／Gemini（Tesseract 保留當比較選項） |
 | M3 | 外觀瑕疵異常檢測（非監督式，只需良品照片） | Anomalib PatchCore |
 | M1 | 追溯碼辨識（QR / 條碼 / DataMatrix / GS1 UDI，效期檢核） | zxing-cpp |
 | M2 | 零件計數（含相黏分離）與尺寸量測（ArUco 透視校正） | OpenCV |
@@ -29,7 +29,7 @@ M6-M8 待做（NEU-DET/DeepPCB 瑕疵偵測、銘牌儀表 OCR、醫療包裝檢
 ### 2. 系統套件
 
 ```bash
-brew install tesseract tesseract-lang   # M4 OCR，tesseract-lang 含繁中語言包
+brew install tesseract tesseract-lang   # M4 mode=tesseract 比較選項用，非預設路徑（預設是 RapidOCR，Python 套件自動下載模型）
 ollama pull qwen3.5:9b                  # M9/M4 預設本機 LLM，約 6.6GB
 ```
 
@@ -94,6 +94,7 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M2 量測精度**：正視角下實測誤差約 0.3-0.6mm（50mm 零件上約 1%），假設待測物與 ArUco 標記共平面。
 - **M3 用 CPU 而非 MPS**：PatchCore 的 coreset 篩選在 MPS 上因逐元素 GPU 同步而變得極慢，固定用 CPU（實測反而更快）。詳見 CLAUDE.md。
 - **M5 只做單張圖片**：短影片逐幀抽樣規劃在之後的 Phase 才做。
+- **M4 數字來源核對只在 OCR 模式生效**：端到端模式沒有獨立 OCR 原文可以核對，會誠實標記「無法驗證」而不是假裝驗證過。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -102,7 +103,8 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 vision-ai-demo/
 ├── backend/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
-│   ├── core/                   # 共用回應格式、LLM 抽象層、SQLite 檢驗紀錄
+│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、SQLite 檢驗紀錄
+│   ├── schemas/documents.py    # M4 工單/出貨單/進料檢驗報告 Pydantic schema
 │   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5) / inspections
 │   └── requirements.txt
 ├── frontend/index.html         # 分頁式單頁前端

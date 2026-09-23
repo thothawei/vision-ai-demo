@@ -58,7 +58,8 @@
 | `qwen3-vl:8b`（Ollama，多模態） | 6.1 GB | Apache-2.0 | 是 | 備選（若 qwen3.5 實測繁中/JSON 輸出不穩） | https://ollama.com/library/qwen3-vl |
 | `qwen3-vl:4b` | 3.3 GB | Apache-2.0 | 是 | 記憶體吃緊時的退路 | https://ollama.com/library/qwen3-vl |
 | YOLO11n COCO 預訓練（`yolo11n.pt`，5.6MB） | 5.6MB | **AGPL-3.0** | 需開源或商用授權 | M5 人員偵測（Phase 2 已採用）、M5/M6 微調起點 | https://github.com/ultralytics/assets/releases （tag v8.4.0） |
-| PP-OCR ONNX（RapidOCR 內建下載） | 數十 MB | Apache-2.0 | 是 | M4/M7 OCR | https://github.com/RapidAI/RapidOCR |
+| PP-OCRv6 det/cls/rec ONNX（`PP-OCRv6_det_small.onnx` 等，RapidOCR 內建自動下載，Phase 4 已用） | 數十 MB | Apache-2.0（RapidAI/RapidOCR repo 授權，GitHub API 查證） | 是 | M4/M7 OCR | https://github.com/RapidAI/RapidOCR |
+| `slanet-plus.onnx`（RapidTable 表格結構辨識模型，Phase 4 已用，7.4MB） | 7.4MB | Apache-2.0（RapidAI/RapidTable repo 授權，GitHub API 查證） | 是 | M4 出貨單等品項表格解析 | https://github.com/RapidAI/RapidTable（實際下載自 modelscope.cn/models/RapidAI/RapidTable） |
 | `wide_resnet50_2.racm_in1k` ImageNet 權重（anomalib PatchCore 預設骨幹，經 timm 下載） | 約 130 MB | **Apache-2.0**（`timm.get_pretrained_cfg` 查證，`license='apache-2.0'`） | 是 | M3 特徵擷取（不訓練，只做前向推論抽特徵） | https://github.com/huggingface/pytorch-image-models |
 | Gemini `gemini-3.6-flash` | 雲端 | Google API 條款 | 免費層 RPM=5 / RPD=20 | 僅備援 | https://aistudio.google.com/rate-limit |
 

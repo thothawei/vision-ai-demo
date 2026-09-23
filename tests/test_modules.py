@@ -22,37 +22,6 @@ def test_general_describe_returns_common_format_and_logs(client, fake_llm, warni
     assert logs[0]["summary"] == body["items"]
 
 
-def test_docs_ocr_mode_passes_real_tesseract_text_to_llm(client, fake_llm, work_order_png):
-    res = client.post("/api/docs/extract", params={"mode": "ocr"},
-                      files={"file": ("wo.png", work_order_png, "image/png")})
-
-    assert res.status_code == 200
-    body = res.json()
-    assert body["module"] == "docs"
-    assert body["engine"] == "tesseract+fake:model"
-    # OCR 模式送給 LLM 的是文字，不是圖片；且 Tesseract 真的讀到了料號
-    # （工單號 0915 常被 Tesseract 誤讀成 0215，屬已知限制，不拿它斷言）
-    assert fake_llm[0]["has_image"] is False
-    assert "SC-M6-20" in fake_llm[0]["prompt"]
-    assert "SC-M6-20" in body["items"][0]["_ocr原始文字"]
-
-
-def test_docs_end_to_end_sends_image(client, fake_llm, work_order_png):
-    res = client.post("/api/docs/extract", params={"mode": "end_to_end"},
-                      files={"file": ("wo.png", work_order_png, "image/png")})
-
-    assert res.status_code == 200
-    assert fake_llm[0]["has_image"] is True
-
-
-def test_docs_blank_image_is_rejected_before_llm(client, fake_llm, blank_png):
-    res = client.post("/api/docs/extract", files={"file": ("blank.png", blank_png, "image/png")})
-
-    assert res.status_code == 422
-    assert "端到端" in res.json()["detail"]
-    assert fake_llm == []
-
-
 def test_invalid_mode_empty_file_and_non_image(client, fake_llm, work_order_png):
     bad_mode = client.post("/api/docs/extract", params={"mode": "xyz"},
                            files={"file": ("wo.png", work_order_png, "image/png")})

@@ -49,6 +49,14 @@
 - **熱力圖標註**：`anomaly_map` 正規化到 0-1 後用 `cv2.COLORMAP_JET` 上色疊在原圖上（紅＝異常機率高），跟其他模組共用的 `annotated_image` 欄位格式一致。
 - **信任本機權重**：anomalib 的 `TorchInferencer` 預設拒絕 unpickle 權重檔（防惡意程式碼），只在載入自己訓練產生的權重時設定 `TRUST_REMOTE_CODE=1`，並在程式碼註解寫清楚為什麼這樣做是安全的（不是無條件關掉資安檢查）。
 
+## 技術決策與理由（Phase 4）
+
+- **M4 換成 RapidOCR（`backend/core/ocr.py`）**：取代 Phase 1-3 暫時沿用的 Tesseract。實測工單號 `WO-2026-0915`，Tesseract 會誤讀成 `WO-2026-0215`（數字 9→2），RapidOCR 讀得完全正確——這不是理論上的優勢，是同一張測試圖跑出來的真實差異。Tesseract 保留成 `mode=tesseract` 比較選項（`backend/core/tesseract_ocr.py`），不是直接砍掉。
+- **表格結構辨識（`RapidTable`）**：出貨單的品項表格用 `rapid-table`（`slanet-plus.onnx`）解析成 HTML 表格，當作額外上下文餵給 LLM，幫助多列品項的解析更準；表格辨識失敗時退回純文字，不讓整個請求掛掉。`rapid-layout` 裝了但這個 Phase 沒用到（目前三種文件都是單一區塊版面，不需要版面分析；留給之後 M7 銘牌/複雜版面用）。
+- **嚴格 schema（`backend/schemas/documents.py`）**：工單／出貨單／進料檢驗報告三種文件定義 Pydantic model，LLM 回傳的 JSON 一律過 `model_validate()`；驗證失敗回傳 `_驗證錯誤`（逐欄位列出問題），不會用預設值把錯誤蓋過去。報價單／名片／其他文件類型沿用原本的自由格式（不硬套 schema，因為欄位天生因文件而異）。
+- **數字來源核對（防止 LLM 捏造數字）**：所有數字欄位都用 `{值, 原文片段}` 的格式，LLM 除了給數字還要附上「這是從原文哪裡抄的」；service 層（`_annotate_source_verification`）拿這段原文片段去對 OCR 真實文字做子字串比對，比對得到標「OK」，比對不到標「可疑：原文中找不到這段文字，數字可能是 LLM 捏造的」——這個檢查完全不靠 LLM 自己說了算。端到端模式沒有獨立 OCR 文字可以核對，誠實標記「無法驗證」，不假裝驗證過。
+- **文件類型判斷分兩段 LLM 呼叫**：先分類（`文件類型`），再依分類結果決定要不要套嚴格 schema、要用哪個 schema 專用 prompt。兩段式比一段式多一次 LLM 呼叫的延遲，換來的是每種文件類型可以給非常明確的目標 JSON 結構範例，而不是要 LLM 自己猜欄位名稱。
+
 ## 目錄結構
 
 ```
@@ -59,7 +67,10 @@ vision-ai-demo/
 │   │   ├── schemas.py          # 共用回應格式 InspectionResult、ModuleError
 │   │   ├── image_io.py         # 讀圖、EXIF 轉正、縮圖、base64
 │   │   ├── llm.py              # Ollama / Gemini 抽象層
+│   │   ├── ocr.py               # RapidOCR + RapidTable（M4 主要 OCR 引擎）
+│   │   ├── tesseract_ocr.py     # Tesseract（M4 比較選項 mode=tesseract）
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄
+│   ├── schemas/documents.py    # M4 工單/出貨單/進料檢驗報告 Pydantic schema
 │   ├── modules/
 │   │   ├── general/            # M9 開放式辨識
 │   │   ├── docs/                # M4 製造文件結構化
@@ -87,9 +98,11 @@ vision-ai-demo/
 │   ├── test_codes.py            # M1：GS1 解析、效期判斷
 │   ├── test_measure.py          # M2：計數分離、量測精度、OK/NG 公差
 │   ├── test_safety.py           # M5：多邊形入侵邏輯（假偵測結果）
+│   ├── test_docs.py              # M4：schema 驗證、來源核對邏輯（真跑 RapidOCR，假 LLM）
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
-│   └── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
+│   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
+│   └── test_live_docs.py        # 真打 Ollama 跑完整 M4 兩段式流程，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
 │   └── licenses.md
@@ -132,7 +145,8 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 ## 已知限制
 
 - **Gemini 免費層速率限制**：`LLM_ENGINE=gemini` 時，`gemini-3.6-flash` 免費層實測 RPM=5、RPD=20，只當備援，不是核心路徑。
-- **Tesseract OCR 誤判**：M4 的 OCR 模式，Tesseract 會把數字誤讀（實測：`0915` 被讀成 `0215`），是已知弱點；端到端模式（AI 直接讀圖）準確度較高但較慢。
+- **Tesseract OCR 誤判（Phase 4 起已不是預設路徑）**：`mode=tesseract` 比較選項下，Tesseract 會把數字誤讀（實測：`0915` 被讀成 `0215`），這正是 Phase 4 把預設引擎換成 RapidOCR 的原因（RapidOCR 讀這張圖完全正確）；端到端模式（AI 直接讀圖）準確度也高但較慢，且無法做數字來源核對。
+- **M4 數字來源核對只在 OCR 模式生效**：端到端模式沒有獨立的 OCR 原文可以核對「原文片段」是否真實存在，這個欄位會誠實標記「無法驗證」，不是假裝驗證過。
 - **本機模型延遲**：`qwen3.5:9b` 在 M1 Pro 上單次辨識約 8-20 秒，比 Gemini 雲端 API 慢，是離線換取的代價。
 - **16GB 記憶體**：同時載入 Ollama 模型與之後 Phase 3+ 的 PyTorch 模型會吃緊，模型皆採延遲載入（首次呼叫才載入）。
 - **M2 計數對背景要求高**：假設零件是畫面中的少數像素、跟背景有明顯亮度反差；零件間距小於約 25px（局部極大值種子的搜尋半徑）時仍可能分不開，見 `_binarize_foreground_minority` 的說明。
@@ -148,7 +162,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 1：Python 3.11 venv 重建、目錄重構（`core/`、`modules/<模組>/`）、共用回應格式、LLM 抽象層（Ollama 預設／Gemini 備援）、SQLite 檢驗紀錄 + 查詢/CSV API、前端改分頁式。原有兩功能搬進 M9（開放式辨識，prompt 改製造業情境）／M4（文件結構化，欄位改製造業情境）且已用真實 Ollama 模型與真實瀏覽器驗證可用。
 - [x] Phase 2：M1 追溯碼（zxing-cpp + GS1 解析 + 效期判斷）、M2 計數量測（OpenCV watershed 分離相黏零件 + ArUco 透視校正量測）、M5 危險區域入侵（YOLO11n person 偵測 + 前端 canvas 畫多邊形）。全部免訓練，已用真實資料（含真人照片）與真實瀏覽器驗證可用。
 - [x] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD）。三類別實測 image-level AUROC：metal_nut 0.9985、screw 0.9645、tile 0.9993（見下方測試紀錄）。已用真實測試集圖片與真實瀏覽器驗證可用，熱力圖能準確標出瑕疵位置。
-- [ ] Phase 4：M4 換成 RapidOCR + Pydantic schema。
+- [x] Phase 4：M4 換成 RapidOCR + Pydantic schema。實測 RapidOCR 修正了 Phase 1 記錄的 Tesseract 誤讀（工單號 `0915→0215`）；工單/出貨單/進料檢驗報告三種文件套嚴格 schema，數字欄位附「來源驗證」核對 LLM 有沒有捏造數字；Tesseract 保留當比較選項。
 - [ ] Phase 5：M6 NEU-DET/DeepPCB、M5 PPE（需訓練，附 Colab notebook）。
 - [ ] Phase 6：M7 銘牌／儀表。
 - [ ] Phase 7：M8 醫療相關（包裝檢核、MedMNIST 教學展示）。
@@ -202,3 +216,15 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **live 測試（`pytest -m live`，用官方測試集抽樣，非人工挑選）**：3 個類別全過，screw 抽樣 11/13、tile 抽樣 13/13、metal_nut 抽樣全過（門檻 70% 正確率）。
 - **瀏覽器實測**（真實 Chrome）：M3 分頁上傳 metal_nut 的刮痕瑕疵圖，1668ms 判定 NG（分數 0.8291），熱力圖疊圖清楚把紅色熱區精準標在刮痕位置上；換成 tile 的裂痕瑕疵圖、切換下拉選單到 `tile` 類別，4081ms 判定 NG（分數 1.0）。
 - **磁碟清理**：訓練時 anomalib Engine 預設會把每一張測試圖的視覺化結果存到 `models/anomaly/_engine_logs/`，三個類別累積到 822MB，訓練完成、metrics.json 記錄下數字後就刪掉了（不影響推論，推論只需要 `weights/torch/model.pt`）。
+
+### Phase 4：功能驗證
+
+- **RapidOCR vs Tesseract 準確度實測對比**（同一張測試圖，非分別測不同圖）：工單號 `WO-2026-0915`，Tesseract 讀成 `WO-2026-0215`（0915 誤讀成 0215，跟 Phase 1 記錄的坑一樣），RapidOCR 完全讀對。這是這個 Phase 換引擎最直接的證據。
+- **表格辨識實測**：出貨單測試圖（2 列品項的格線表格）用 `RapidTable` 解析，正確輸出 `<table><tr><td>料號</td>...` 的 HTML，兩列資料一字不差；餵給 LLM 後兩個品項的料號/品名/數量/單價全部正確解析成 JSON。
+- **單元測試**：`pytest`，新增 `tests/test_docs.py` 11 項（RapidOCR 真的跑、LLM 用假佇列模擬兩段式呼叫），涵蓋：工單正常解析＋來源驗證 OK、來源片段查無此文字標「可疑」、缺必要欄位觸發 Pydantic 驗證錯誤（`_驗證錯誤` 列出所有缺漏欄位、不硬塞預設值）、出貨單表格解析、進料檢驗報告「判定」欄位限制合格/不合格（給無效值會被 Pydantic 拒絕）、報價單等自由格式類型不套 schema、端到端模式的「來源驗證」誠實標記「無法驗證」、Tesseract 比較模式的 engine 名稱正確、空白圖片在呼叫 LLM 之前就被擋下。全專案累計 41 項單元測試全過（11.5 秒）。
+- **live 測試（真打本機 Ollama，完整兩段式流程）**：`pytest -m live -s`，3 項全過（41 秒），三種嚴格 schema 文件都測了：
+  - 工單：`WO-2026-0915` 正確、數量 5000、來源驗證 OK
+  - 出貨單：2 個品項全部正確、總額 6500、來源驗證 OK（含表格解析）
+  - 進料檢驗報告：抽樣數 50、不良數 2、判定「合格」，全部正確
+- **瀏覽器實測**（真實 Chrome）：M4 分頁上傳進料檢驗報告圖片，8635ms 後正確顯示文件類型、供應商、料號、批號，數量欄位展開成 `{值, 原文片段, 來源驗證}` 巢狀物件並顯示「OK：原文中找得到這段文字」。
+- **未使用但已安裝的套件**：`rapid-layout` 裝了但這個 Phase 沒用到（三種文件都是單一區塊版面，不需要版面分析），誠實記錄在 CLAUDE.md 技術決策，不假裝有用上。
