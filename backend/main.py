@@ -1,19 +1,21 @@
-"""FastAPI 入口：兩個辨識 API + 靜態前端。"""
+"""FastAPI 入口：只負責掛載各模組 router、統一錯誤格式、服務前端靜態檔。"""
 
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from google.genai.errors import APIError
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from doc_extract import extract_end_to_end, extract_via_ocr  # noqa: E402
-from vision_scan import scan_image  # noqa: E402
+from core.schemas import ModuleError  # noqa: E402
+from modules.docs.router import router as docs_router  # noqa: E402
+from modules.general.router import router as general_router  # noqa: E402
+from modules.inspections.router import router as inspections_router  # noqa: E402
 
-app = FastAPI(title="Vision AI Demo")
+app = FastAPI(title="製造業 AI 辨識 Demo")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,40 +25,14 @@ app.add_middleware(
 )
 
 
-@app.post("/api/scan")
-async def api_scan(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="檔案是空的")
-
-    try:
-        result = scan_image(image_bytes, file.content_type or "image/jpeg")
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except APIError as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API 錯誤：{e.message}")
-
-    return result
+@app.exception_handler(ModuleError)
+def handle_module_error(_: Request, exc: ModuleError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
-@app.post("/api/extract")
-async def api_extract(file: UploadFile = File(...), mode: str = "ocr"):
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="檔案是空的")
-
-    try:
-        if mode == "end_to_end":
-            result = extract_end_to_end(image_bytes, file.content_type or "image/jpeg")
-        else:
-            result = extract_via_ocr(image_bytes)
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except APIError as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API 錯誤：{e.message}")
-
-    return result
-
+app.include_router(general_router)
+app.include_router(docs_router)
+app.include_router(inspections_router)
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")

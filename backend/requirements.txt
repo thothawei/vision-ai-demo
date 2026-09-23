@@ -1,7 +1,13 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-google-genai==0.3.0
+# 版本查證紀錄見 docs/licenses.md（2026-09-23）
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart==0.0.32
+python-dotenv==1.2.3
+pillow==12.3.0
+pydantic==2.13.5
+numpy==2.4.6
+ollama==0.6.2
+google-genai==2.25.0
 pytesseract==0.3.13
-pillow==10.4.0
-python-dotenv==1.0.1
-python-multipart==0.0.9
+pytest==9.1.1
+httpx==0.28.1

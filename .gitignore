@@ -2,3 +2,12 @@
 venv/
 __pycache__/
 *.pyc
+
+# 大檔：模型權重、資料集、訓練輸出、SQLite 檢驗紀錄
+models/
+data/
+runs/
+.pytest_cache/
+
+# 測試圖由 tests/samples/make_samples.py 生成，不進版控
+tests/samples/*.png

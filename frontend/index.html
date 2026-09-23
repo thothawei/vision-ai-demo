@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>視覺辨識 AI Demo</title>
+<title>製造業 AI 辨識 Demo</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -33,6 +33,19 @@
   }
   h1 { font-size: 22px; margin-bottom: 4px; }
   p.subtitle { color: var(--muted); margin-top: 0; margin-bottom: 24px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
+  .tab-btn {
+    padding: 10px 16px;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; }
+  .panel.active { display: block; }
   .card {
     background: var(--card-bg);
     border: 1px solid var(--border);
@@ -65,42 +78,71 @@
   th { width: 30%; color: var(--muted); font-weight: 500; }
   .status { color: var(--muted); font-size: 13px; margin-top: 8px; }
   .status.error { color: #ff3b30; }
+  .verdict-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .verdict-OK { background: #34c75933; color: #248a3d; }
+  .verdict-NG { background: #ff3b3033; color: #d70015; }
+  .verdict-INFO { background: #0071e333; color: #0071e3; }
 </style>
 </head>
 <body>
 
-<h1>視覺辨識 AI Demo</h1>
-<p class="subtitle">本機測試用：街景照片通用辨識 ／ 文件圖檔轉結構化資料</p>
+<h1>製造業 AI 辨識 Demo</h1>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 1：M9 開放式辨識 ／ M4 文件結構化）</p>
 
-<div class="card">
-  <h2>① 街景照片辨識</h2>
-  <p style="color:var(--muted); font-size:13px;">上傳一張照片，AI 會判斷「這是什麼」（招牌、建築物、商品、場景等）</p>
-  <div class="row">
-    <input type="file" id="scan-file" accept="image/*">
-    <button id="scan-btn">開始辨識</button>
-  </div>
-  <img class="preview" id="scan-preview">
-  <div class="status" id="scan-status"></div>
-  <div class="result" id="scan-result"></div>
+<div class="tabs">
+  <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
+  <button class="tab-btn" data-tab="docs">② 製造文件結構化</button>
 </div>
 
-<div class="card">
-  <h2>② 文件／圖檔轉結構化資料</h2>
-  <p style="color:var(--muted); font-size:13px;">上傳文件或掃描圖檔，AI 會擷取內容並整理成 JSON 欄位</p>
-  <div class="row">
-    <input type="file" id="doc-file" accept="image/*">
-    <select id="doc-mode">
-      <option value="ocr">OCR + AI 結構化（預設）</option>
-      <option value="end_to_end">端到端（AI 直接讀圖）</option>
-    </select>
-    <button id="doc-btn">開始擷取</button>
+<div class="panel active" id="panel-general">
+  <div class="card">
+    <h2>現場照片開放式辨識（M9）</h2>
+    <p style="color:var(--muted); font-size:13px;">上傳機台、工具、零件或標示的照片，AI 會判斷「這是什麼」，並標註可見文字與安全觀察</p>
+    <div class="row">
+      <input type="file" id="general-file" accept="image/*">
+      <button id="general-btn">開始辨識</button>
+    </div>
+    <img class="preview" id="general-preview">
+    <div class="status" id="general-status"></div>
+    <div class="result" id="general-result"></div>
   </div>
-  <img class="preview" id="doc-preview">
-  <div class="status" id="doc-status"></div>
-  <div class="result" id="doc-result"></div>
+</div>
+
+<div class="panel" id="panel-docs">
+  <div class="card">
+    <h2>製造文件結構化（M4）</h2>
+    <p style="color:var(--muted); font-size:13px;">上傳工單、出貨單、檢驗報告等文件或掃描圖檔，AI 會擷取內容並整理成 JSON 欄位</p>
+    <div class="row">
+      <input type="file" id="docs-file" accept="image/*">
+      <select id="docs-mode">
+        <option value="ocr">OCR + AI 結構化（預設）</option>
+        <option value="end_to_end">端到端（AI 直接讀圖）</option>
+      </select>
+      <button id="docs-btn">開始擷取</button>
+    </div>
+    <img class="preview" id="docs-preview">
+    <div class="status" id="docs-status"></div>
+    <div class="result" id="docs-result"></div>
+  </div>
 </div>
 
 <script>
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
 function setupPreview(fileInput, previewImg) {
   fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
@@ -112,8 +154,15 @@ function setupPreview(fileInput, previewImg) {
 
 function renderResult(container, data) {
   container.innerHTML = "";
+  const badge = document.createElement("span");
+  badge.textContent = `${data.module} · ${data.verdict} · ${data.engine} · ${data.elapsed_ms}ms`;
+  badge.className = "verdict-badge verdict-" + data.verdict;
+  container.appendChild(badge);
+
   const table = document.createElement("table");
-  for (const [key, value] of Object.entries(data)) {
+  table.style.marginTop = "10px";
+  const item = data.items[0] || {};
+  for (const [key, value] of Object.entries(item)) {
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.textContent = key;
@@ -127,7 +176,7 @@ function renderResult(container, data) {
 }
 
 async function callApi(url, formData, statusEl, resultEl, button) {
-  statusEl.textContent = "辨識中…請稍候";
+  statusEl.textContent = "辨識中…請稍候（本機模型第一次呼叫較慢）";
   statusEl.className = "status";
   resultEl.innerHTML = "";
   button.disabled = true;
@@ -147,40 +196,36 @@ async function callApi(url, formData, statusEl, resultEl, button) {
   }
 }
 
-const scanFile = document.getElementById("scan-file");
-const scanPreview = document.getElementById("scan-preview");
-setupPreview(scanFile, scanPreview);
-
-document.getElementById("scan-btn").addEventListener("click", () => {
-  const file = scanFile.files[0];
+const generalFile = document.getElementById("general-file");
+setupPreview(generalFile, document.getElementById("general-preview"));
+document.getElementById("general-btn").addEventListener("click", () => {
+  const file = generalFile.files[0];
   if (!file) { alert("請先選擇照片"); return; }
   const formData = new FormData();
   formData.append("file", file);
   callApi(
-    "/api/scan",
+    "/api/general/describe",
     formData,
-    document.getElementById("scan-status"),
-    document.getElementById("scan-result"),
-    document.getElementById("scan-btn")
+    document.getElementById("general-status"),
+    document.getElementById("general-result"),
+    document.getElementById("general-btn")
   );
 });
 
-const docFile = document.getElementById("doc-file");
-const docPreview = document.getElementById("doc-preview");
-setupPreview(docFile, docPreview);
-
-document.getElementById("doc-btn").addEventListener("click", () => {
-  const file = docFile.files[0];
+const docsFile = document.getElementById("docs-file");
+setupPreview(docsFile, document.getElementById("docs-preview"));
+document.getElementById("docs-btn").addEventListener("click", () => {
+  const file = docsFile.files[0];
   if (!file) { alert("請先選擇圖檔"); return; }
-  const mode = document.getElementById("doc-mode").value;
+  const mode = document.getElementById("docs-mode").value;
   const formData = new FormData();
   formData.append("file", file);
   callApi(
-    "/api/extract?mode=" + mode,
+    "/api/docs/extract?mode=" + mode,
     formData,
-    document.getElementById("doc-status"),
-    document.getElementById("doc-result"),
-    document.getElementById("doc-btn")
+    document.getElementById("docs-status"),
+    document.getElementById("docs-result"),
+    document.getElementById("docs-btn")
   );
 });
 </script>

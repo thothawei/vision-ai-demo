@@ -1,61 +1,80 @@
-# vision-ai-demo — 視覺辨識 AI 專案
+# vision-ai-demo — 台中製造業 AI 辨識 Demo
 
 ## 專案目標
 
-本機網頁 Demo，兩個獨立功能：
+本機執行的網頁 Demo，展示台中／中科製造業常見的 AI 影像辨識功能（工具機與精密機械、手工具、螺絲扣件、自行車零件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝），作為應徵台中製造業 AI／ERP／MIS 工程師的作品集。之後會和 `manufacturing-erp`（ASP.NET Core + SQL Server，含品檢查詢）串接，所以每個模組的辨識結果都走共用的 JSON 結構，並寫入 SQLite 檢驗紀錄。
 
-1. **街景照片通用辨識**：上傳一張照片，AI 用開放式描述回答「這是什麼」（招牌店名、建築物、商品品牌、場景描述等），不是固定類別框選。
-2. **文件/圖檔轉結構化資料**：上傳文件或掃描圖檔，AI 擷取內容並整理成 JSON/表格資料（例如發票的品項/金額/日期）。
+完整規劃見 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md)；套件與資料集授權查證見 [docs/licenses.md](docs/licenses.md)。
 
-## 技術決策與理由
+## 硬性規則
 
-- **辨識引擎：Google Gemini API（`gemini-3.6-flash`），免費層**
-  - 註：原本規劃用 `gemini-2.0-flash`，實測時 API 回報該模型已下架（404 NOT_FOUND），官方訊息指示改用 `gemini-3.6-flash`，已修正並重新驗證通過。
-  - 理由：本地 YOLOv8 這類傳統 CV 模型只認得 COCO 等預訓練的固定類別（車/人/狗…），無法做「這是什麼招牌/品牌/建築物」這種開放式理解。多模態 LLM 才能做到通用辨識。
-  - 免費層透過 [Google AI Studio](https://aistudio.google.com/apikey) 申請 API key，無需信用卡。
-- **文件 OCR：Tesseract（pytesseract）+ Gemini 二段式**
-  - 先用 Tesseract 本地擷取原始文字（免費、離線、支援繁中），再把文字丟給 Gemini 依文件類型解析成 JSON 欄位。
-  - 同時保留「直接把圖片丟給 Gemini 端到端辨識」的模式（更準，尤其手寫或複雜版面），兩種模式可比較效果。
-- **後端：FastAPI + Uvicorn**（本機執行，不需部署雲端）
-- **前端：純 HTML/CSS/JS**，不用框架，降低複雜度，單頁上傳介面即可
+1. 只用免費工具；找不到免費方案的功能直接跳過，寫進 README「未納入功能」並說明原因，不寫假的 stub。
+2. 核心功能完全離線執行（本機 Ollama 模型），不依賴 Gemini 配額；Gemini 免費層只當可選備援（`.env` 的 `LLM_ENGINE=ollama|gemini` 切換）。
+3. 每個套件/模型/資料集安裝前先查官方來源確認版本與授權，寫進 `docs/licenses.md`，不憑記憶填版本號。
+4. 非商用授權的資料集（如 MVTec AD 的 CC BY-NC-SA）在 README 註明「僅供學習/作品集展示」。
+5. 分階段執行，每個 Phase 結束回報實際測試結果，等確認再進下一階段。
+6. 測試結果不可捏造：準確率/推論時間/截圖只記錄實際跑出的數字，沒跑過就寫「未測試」。
+7. 大檔（模型權重、資料集、訓練輸出、SQLite）放 `models/`、`data/`、`runs/`，已加進 `.gitignore`。commit 前用 grep 掃過沒有 API key。
+8. Apple Silicon Mac：PyTorch 用 `mps`，不支援時自動退回 `cpu`。
+9. Python 3.11（Anomalib 等套件需要 ≥3.10）。
+
+## 技術決策與理由（Phase 1）
+
+- **後端：FastAPI + Uvicorn**，Python 3.11（`uv venv --python 3.11`，系統原生只有 3.9/3.10/3.13/3.14，改用 uv 裝 3.11）。
+- **LLM 抽象層**（[backend/core/llm.py](backend/core/llm.py)）：`LLM_ENGINE=ollama`（預設）或 `gemini`（備援），模組只呼叫 `generate_json(prompt, image)`，不需要知道底層引擎。
+  - Ollama 預設模型 `qwen3.5:9b`（6.6GB、Apache-2.0，2026-09 查證版本，多模態）。`qwen3-vl:8b` 為備選。`qwen3.6`／`qwen3.8` 最小為 27B，16GB Mac 跑不動，不採用。
+  - `ollama.Client.chat(..., format="json", think=False)` 強制輸出 JSON，關閉思考模式減少延遲；找不到模型或連不上 Ollama 時回傳清楚的錯誤訊息（提示 `ollama pull` 或 `ollama serve`）。
+  - JSON 解析失敗會回傳 502 錯誤，不會硬塞假資料掩蓋問題。
+- **共用回應格式**（[backend/core/schemas.py](backend/core/schemas.py)）：`{module, verdict, items, annotated_image, engine, elapsed_ms, inspection_id}`，所有模組一致，方便之後 ERP 串接。
+- **檢驗紀錄**（[backend/core/inspection_log.py](backend/core/inspection_log.py)）：SQLite（`data/inspections.db`，不進版控），每次辨識寫一筆，`GET /api/inspections?module=&verdict=&date_from=&date_to=` 查詢，`/api/inspections/export.csv` 匯出（含 BOM，Excel 開啟中文不亂碼）。
+- **目錄結構**：`backend/core/`（共用工具）、`backend/modules/<模組>/{router.py,service.py}`（每個模組獨立）、`tests/`（pytest，測試圖由 `tests/samples/make_samples.py` 程式生成，不依賴外部授權圖片，不進版控）。
+- **M9 開放式辨識**：原「街景辨識」改為現場照片辨識，prompt 改成機台/工具/零件/標示/安全觀察情境，新增「可見文字」「安全觀察」欄位。
+- **M4 製造文件結構化**：Phase 1 沿用 Tesseract 兩段式 + 端到端兩種模式（欄位命名改成工單/出貨單/檢驗報告情境），改走 LLM 抽象層。Phase 4 會換成 RapidOCR + Pydantic schema（理由見下方套件決策）。
+- **套件版本鎖定不用 PaddleOCR**：用 `uv pip compile` 實測，Python 3.11 環境下 `paddlex` 要求 `numpy<2.4`，會把 `paddleocr` 拖回 2.10.0 舊版且 macOS 只有 CPU 版；改用 RapidOCR（同樣是 PP-OCR 模型的 ONNX 版，Apache-2.0，相依乾淨）。
+- **測試策略**：單元測試（`pytest`，預設執行）用假的 `core.llm.generate_json` 隔離 LLM，只驗證 API 契約、SQLite 寫入、錯誤處理；`-m live` 標記的測試會真的呼叫本機 Ollama，驗證 prompt 品質與真實延遲，預設不跑（避免每次測試都要等模型）。
 
 ## 目錄結構
 
 ```
 vision-ai-demo/
 ├── backend/
-│   ├── main.py              # FastAPI 入口，路由掛載
-│   ├── vision_scan.py       # 街景辨識邏輯（呼叫 Gemini）
-│   ├── doc_extract.py       # 文件 OCR + 結構化（Tesseract + Gemini）
+│   ├── main.py                 # FastAPI 入口，只負責掛載各模組 router、統一錯誤格式
+│   ├── core/
+│   │   ├── schemas.py          # 共用回應格式 InspectionResult、ModuleError
+│   │   ├── image_io.py         # 讀圖、EXIF 轉正、縮圖、base64
+│   │   ├── llm.py              # Ollama / Gemini 抽象層
+│   │   └── inspection_log.py   # SQLite 檢驗紀錄
+│   ├── modules/
+│   │   ├── general/            # M9 開放式辨識
+│   │   ├── docs/                # M4 製造文件結構化
+│   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
 │   └── requirements.txt
-├── frontend/
-│   └── index.html           # 單頁上傳介面
-├── .env                     # GEMINI_API_KEY（不進版控）
-└── CLAUDE.md                # 本檔案
+├── frontend/index.html         # 分頁式單頁（現場照片辨識 / 製造文件結構化）
+├── tests/
+│   ├── conftest.py
+│   ├── samples/make_samples.py # 程式生成測試圖（工單、警示標示），不進版控
+│   ├── test_modules.py         # API 契約、SQLite（假 LLM）
+│   ├── test_llm.py             # LLM 抽象層錯誤處理（假 LLM / 假連線）
+│   └── test_live_ollama.py     # 真打 Ollama，pytest -m live
+├── docs/
+│   ├── manufacturing-ai-plan-prompt.md
+│   └── licenses.md
+├── data/                       # SQLite，gitignore
+└── .env / .env.example
 ```
 
 ## 環境需求
 
-- Python 3.10+
-- Tesseract OCR 執行檔（macOS: `brew install tesseract tesseract-lang` 以支援繁中）
-- Google Gemini API key（存在 `.env` 的 `GEMINI_API_KEY`）
-
-## 待辦（規劃完成後的實作順序）
-
-- [x] `backend/requirements.txt`：fastapi, uvicorn, google-genai, pytesseract, pillow, python-dotenv, python-multipart
-- [x] `backend/vision_scan.py`：接收圖片 → base64 → Gemini prompt（要求 JSON 輸出：物件名稱、描述、額外資訊）
-- [x] `backend/doc_extract.py`：接收圖片 → Tesseract 擷取文字 → Gemini 結構化 JSON；另提供純端到端模式
-- [x] `backend/main.py`：兩個 API 路由 `/api/scan`、`/api/extract`，掛載 CORS，靜態檔案服務 frontend
-- [x] `frontend/index.html`：兩個上傳區塊，各自顯示辨識結果（JSON 轉表格顯示）
-- [x] 已安裝：Homebrew 裝好 Tesseract 5.5.3（含 chi_tra 繁中語言包），Python venv 裝好所有套件
-- [x] 手動測試：啟動 uvicorn 後 curl 打 `/api/scan`、`/api/extract` 皆正常回應（含缺 API key 時的錯誤處理、OCR 抓不到文字時的提前擋下），瀏覽器截圖確認前端畫面正常渲染
-- [x] `.env` 已填入真實 API key，透過真實 Chrome 瀏覽器（非 headless 內建瀏覽器，該環境不支援模擬檔案選擇對話框）實際上傳圖片測試，`/api/scan` 成功回傳正確的開放式辨識結果（正確讀出畫面中的專案名稱、UI 文字等細節），`/api/extract` 兩種模式（OCR 兩段式、端到端）皆測試成功
-- [x] 修掉一個真實 bug：`main.py` 原本只 `except RuntimeError`，沒接住 Gemini SDK 丟出的 `google.genai.errors.APIError`（涵蓋 `ClientError`/`ServerError`），導致 Gemini 過載時回傳純文字 `Internal Server Error`，前端 `JSON.parse` 直接爆錯、看不出真正原因。已改為額外 `except APIError` 回傳結構化 JSON 錯誤（HTTP 502 + 清楚的中文訊息）。
+- Python 3.11（用 `uv venv --python 3.11` 建立，系統原生無 3.11）
+- [Ollama](https://ollama.com) 已安裝並執行，模型 `qwen3.5:9b`（`ollama pull qwen3.5:9b`，約 6.6GB）
+- Tesseract OCR（macOS: `brew install tesseract tesseract-lang`，M4 OCR 模式與比較用）
+- （可選）Google Gemini API key，存在 `.env` 的 `GEMINI_API_KEY`，`LLM_ENGINE=gemini` 時才需要
 
 ## 啟動方式
 
 ```bash
 cd ~/Documents/vision-ai-demo
+ollama serve &        # 若尚未執行
 source venv/bin/activate
 cd backend
 uvicorn main:app --reload
@@ -63,28 +82,45 @@ uvicorn main:app --reload
 
 瀏覽器開 http://127.0.0.1:8000
 
+## 測試方式
+
+```bash
+source venv/bin/activate
+python tests/samples/make_samples.py   # 產生測試圖（需要，未進版控）
+pytest                                  # 單元測試，假 LLM，約 1 秒
+pytest -m live -s                       # 真打本機 Ollama，需先 ollama serve，約 1 分鐘
+```
+
 ## 已知限制
 
-- **Gemini 免費層速率限制（實測查證，非猜測）**：`gemini-3.6-flash` 免費層是 **RPM=5（每分鐘 5 次）、RPD=20（每日 20 次）**，數字來自 [Google AI Studio Rate Limit 儀表板](https://aistudio.google.com/rate-limit) 而非錯誤訊息文字猜測。RPD 只有 20 次，demo 開發階段密集測試（一個 session 裡測多張圖、多種模式）很容易當天就把配額用光，用完後無論等多久重試都不會恢復，只能等隔天重置或設定計費方案。
-- Tesseract 對低品質掃描件辨識率有限，複雜版面建議直接用 Gemini 端到端模式
-- 本機 Demo 僅供 localhost 存取，若要手機上傳需另外部署（不在本次規劃範圍內）
+- **Gemini 免費層速率限制**：`LLM_ENGINE=gemini` 時，`gemini-3.6-flash` 免費層實測 RPM=5、RPD=20，只當備援，不是核心路徑。
+- **Tesseract OCR 誤判**：M4 的 OCR 模式，Tesseract 會把數字誤讀（實測：`0915` 被讀成 `0215`），是已知弱點；端到端模式（AI 直接讀圖）準確度較高但較慢。
+- **本機模型延遲**：`qwen3.5:9b` 在 M1 Pro 上單次辨識約 8-20 秒，比 Gemini 雲端 API 慢，是離線換取的代價。
+- **16GB 記憶體**：同時載入 Ollama 模型與之後 Phase 3+ 的 PyTorch 模型會吃緊，模型皆採延遲載入（首次呼叫才載入）。
 
-## 測試紀錄（真實照片／文件驗證）
+## 待辦（Phase 進度）
 
-- **街景辨識**：用真實紐約時代廣場照片（非截圖，Wikimedia Commons 授權，3904x2602 實拍照）測試 `/api/scan`，正確認出地標名稱、杜菲神父紀念碑、時報廣場一號大樓，以及多個看板品牌（TOSHIBA、TDK、麥當勞、Bank of America 等），信心程度標示「高」且理由合理。第一次呼叫遇到 Gemini 502（免費層流量過載），等 5 秒重試後成功——證實已知限制欄位所述的速率限制是真實會發生的狀況，錯誤處理也正確顯示原因而非白屏或亂碼。
-- **文件擷取兩種模式比較**：用同一張含 API 金鑰的截圖分別測 OCR 模式與端到端模式。
-  - OCR 模式：正確解析出文件類型與四個欄位，但金鑰字串裡出現一處 `0`/`o` 誤判（Tesseract 常見弱點，符合已知限制記載）。
-  - 端到端模式：金鑰字串逐字元核對完全正確，無誤判。
-  - 結論：端到端模式準確度較高，OCR 模式速度較快且保留原始文字供人工核對，兩者互補，README 已這樣說明。
-- **冷門場景測試（非知名地標）**：用台灣旗山老街真實照片（Wikimedia Commons 授權，Sony NEX-7 實拍，5918x3946）測試 `/api/scan`。AI 沒有認出「旗山老街」這個具體地名（知名度遠低於時代廣場），但正確描述出台灣特有的「石拱騎樓／亭仔腳」建築結構、YAMAHA 機車、店面招牌內容，信心程度仍標示「高」且理由合理。證實這是**通用場景理解**而非死背地標資料庫查表——認不出小眾地名時仍能準確描述實際看到的物件與建築型態，符合當初「開放式理解」的設計目標，不是靠固定類別硬套答案。
+- [x] Phase 0：查證套件/模型/資料集授權，寫入 `docs/licenses.md`；確認 Mac 安裝風險（PaddleOCR 在 py3.11 相依衝突、OpenCV 三套件共用 cv2 命名空間、16GB 記憶體限制）。
+- [x] Phase 1：Python 3.11 venv 重建、目錄重構（`core/`、`modules/<模組>/`）、共用回應格式、LLM 抽象層（Ollama 預設／Gemini 備援）、SQLite 檢驗紀錄 + 查詢/CSV API、前端改分頁式。原有兩功能搬進 M9（開放式辨識，prompt 改製造業情境）／M4（文件結構化，欄位改製造業情境）且已用真實 Ollama 模型與真實瀏覽器驗證可用。
+- [ ] Phase 2：M1 追溯碼、M2 計數量測、M5 危險區域入侵（免訓練）。
+- [ ] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD，實測 AUROC）。
+- [ ] Phase 4：M4 換成 RapidOCR + Pydantic schema。
+- [ ] Phase 5：M6 NEU-DET/DeepPCB、M5 PPE（需訓練，附 Colab notebook）。
+- [ ] Phase 6：M7 銘牌／儀表。
+- [ ] Phase 7：M8 醫療相關（包裝檢核、MedMNIST 教學展示）。
+- [ ] Phase 8：收尾（README、CLAUDE.md、Demo 截圖）。
 
-- **自動化測試腳本（`backend/test_all.sh`）**：把街景辨識與文件擷取（兩種模式）整合成一支腳本，遇到 Gemini 配額/過載錯誤會自動間隔重試。
-  - 第一次執行：4 項只成功 1 項，當時誤判成「手動 curl 跟腳本搶每分鐘配額」，但這個判斷後來證實是錯的。
-  - 第二次執行（完全沒有手動介入、重試次數拉高到 10 次、間隔拉到 20 秒，總共等了將近 20 分鐘）：**4 項全部失敗**。這個結果推翻了「每分鐘配額」的假設——如果真的只是每分鐘限制，20 分鐘的重試窗早該恢復。
-  - 查 [Google AI Studio Rate Limit 儀表板](https://aistudio.google.com/rate-limit) 才發現真相：`gemini-3.6-flash` 免費層是 **RPM=5、RPD=20**，當時 RPD 用量已經 19/20，撞到的是**每日**配額，不是每分鐘，難怪等再久都沒用。之前寫的「每分鐘 20 次」是根據錯誤訊息文字內容做的錯誤推論，已修正（見上方「已知限制」）。
-  - 教訓：Gemini quota 錯誤不能只憑錯誤訊息猜測是哪種限制（RPM/TPM/RPD），要查官方儀表板的即時用量才是真相來源。自動化重試腳本如果重試 3-4 次仍失敗，應該懷疑是日配額用完，而非繼續盲目重試。
+## 測試紀錄（真實驗證，非猜測）
 
-## 版控狀態
+### Phase 0：套件安裝查證
+- 用 `uv pip compile` 在暫存 venv 對 Python 3.11 / macOS arm64 實際解析整組套件相依，並實裝驗證 import：`torch 2.14`（`torch.backends.mps.is_available() == True`）、`anomalib 2.6.2`（`Patchcore` 可 import）、`ultralytics 8.4.160`、`rapidocr`、`onnxruntime 1.30`、`zxingcpp`、`medmnist`、`cv2 5.0`（`cv2.aruco.ArucoDetector` 存在）全部成功。
+- 查出 PaddleOCR 在此環境會被相依解析器拖回 2.10.0 舊版（`paddlex` 要求 `numpy<2.4`），改用 RapidOCR。
 
-- 已推送到 GitHub（公開）：https://github.com/thothawei/vision-ai-demo
-- `.env`（含真實 API key）與 `venv/` 已被 `.gitignore` 排除，未進版控，每次 commit 前都用 `grep` 掃過待提交內容確認沒有金鑰字串混入
+### Phase 1：功能驗證
+- **單元測試**：`pytest`，13 項全過（0.98 秒），涵蓋 M9/M4 兩個 API 的正常路徑、共用回應格式欄位、SQLite 寫入與查詢/CSV 匯出、空檔案/非圖片/錯誤 mode 的錯誤處理、LLM 抽象層的無效引擎/連線失敗/模型不存在/缺 API key 錯誤訊息。
+- **Live 測試（真打本機 Ollama `qwen3.5:9b`）**：`pytest -m live -s`，3 項全過（52 秒）。
+  - M9：警示標示測試圖，正確讀出「危險 DANGER」「機台運轉中 請勿靠近」等可見文字，信心程度「高」且理由合理，耗時約 20 秒（第一次呼叫含模型載入）。
+  - M4 OCR 模式：正確判斷文件類型「工單」，料號 `SC-M6-20` 正確；但 Tesseract 把工單號 `WO-2026-0915` 誤讀成 `WO-2026-0215`，LLM 照抄了這個錯誤（符合設計：LLM 不能捏改 OCR 原文）。耗時約 14 秒。
+  - M4 端到端模式：同一張圖，AI 直接讀圖，工單號 `WO-2026-0915` 正確、品名 `六角螺栓 M6x20` 也比 OCR 模式的 `Mox20` 準確。耗時約 17 秒。
+  - **結論驗證**：這組結果重現了原本 README 記載的「端到端準確度較高、OCR 較快但可能誤判」的結論，這次的錯誤案例（`0915→0215`）具體可追蹤到 Tesseract 的數字誤讀，不是 LLM 捏造的。
+- **瀏覽器實測**（真實 Chrome，`mcp__claude-in-chrome__*`，內嵌瀏覽器不支援檔案選擇對話框）：兩個分頁都實際上傳圖片並點擊按鈕，M9 分頁 8.4 秒後正確顯示結果卡片（含 engine/verdict/耗時徽章），M4 分頁 13.5 秒後正確顯示工單欄位；`GET /api/inspections` 確認該次辨識已寫入 SQLite。
