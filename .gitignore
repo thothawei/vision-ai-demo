@@ -11,3 +11,6 @@ runs/
 
 # 測試圖由 tests/samples/make_samples.py 生成，不進版控
 tests/samples/*.png
+
+# Phase 2 live 測試用照片，見 tests/live_samples/README.md
+tests/live_samples/*.jpg

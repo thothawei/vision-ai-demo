@@ -3,6 +3,7 @@
 import base64
 import io
 
+import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core.schemas import ModuleError
@@ -38,3 +39,17 @@ def to_data_url(image: Image.Image) -> str:
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def to_bgr(image: Image.Image) -> np.ndarray:
+    """PIL(RGB) → OpenCV 慣用的 BGR numpy array。"""
+    return np.array(image)[:, :, ::-1].copy()
+
+
+def from_bgr(array: np.ndarray) -> Image.Image:
+    """OpenCV BGR numpy array → PIL(RGB)。"""
+    return Image.fromarray(array[:, :, ::-1].copy())
+
+
+def bgr_to_data_url(array: np.ndarray) -> str:
+    return to_data_url(from_bgr(array))

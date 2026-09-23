@@ -47,3 +47,43 @@ def warning_sign_png() -> bytes:
 @pytest.fixture(scope="session")
 def blank_png() -> bytes:
     return png_bytes(make_samples.make_blank())
+
+
+@pytest.fixture(scope="session")
+def screws_png() -> bytes:
+    return png_bytes(make_samples.make_screws_photo())
+
+
+def gs1_png_and_fields(days_from_today: int):
+    image, fields = make_samples.make_gs1_datamatrix(days_from_today)
+    return png_bytes(image), fields
+
+
+@pytest.fixture(scope="session")
+def gs1_valid_png_fields():
+    return gs1_png_and_fields(200)
+
+
+@pytest.fixture(scope="session")
+def gs1_expired_png_fields():
+    return gs1_png_and_fields(-10)
+
+
+@pytest.fixture(scope="session")
+def gs1_expiring_soon_png_fields():
+    return gs1_png_and_fields(10)
+
+
+@pytest.fixture(scope="session")
+def measure_scene_png_marker():
+    image, marker_mm = make_samples.make_measure_scene(target_length_mm=50, target_width_mm=20, hole_diameter_mm=5)
+    return png_bytes(image), marker_mm
+
+
+@pytest.fixture
+def fake_person_detector(monkeypatch):
+    """把 YOLO 換成假函式，回傳固定的偵測框（單位 px，對應 800x600 測試圖）。"""
+    def _fake(bgr):
+        return [{"信心度": 0.9, "邊界框": [100, 100, 200, 500], "腳底參考點": [150, 500]}]
+
+    monkeypatch.setattr("modules.safety.service._detect_persons", _fake)

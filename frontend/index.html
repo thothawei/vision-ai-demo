@@ -89,16 +89,25 @@
   .verdict-OK { background: #34c75933; color: #248a3d; }
   .verdict-NG { background: #ff3b3033; color: #d70015; }
   .verdict-INFO { background: #0071e333; color: #0071e3; }
+  .annotated { max-width: 100%; border-radius: 8px; margin-top: 12px; display: block; }
+  .zone-canvas { max-width: 100%; border-radius: 8px; margin-top: 8px; display: none; cursor: crosshair; touch-action: none; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .field-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .field-row label { font-size: 13px; color: var(--muted); }
+  input[type="number"] { width: 90px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
 </style>
 </head>
 <body>
 
 <h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 1：M9 開放式辨識 ／ M4 文件結構化）</p>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 2：M1 追溯碼 ／ M2 計數量測 ／ M5 危險區域入侵）</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
   <button class="tab-btn" data-tab="docs">② 製造文件結構化</button>
+  <button class="tab-btn" data-tab="codes">③ 追溯碼辨識</button>
+  <button class="tab-btn" data-tab="measure">④ 計數與量測</button>
+  <button class="tab-btn" data-tab="safety">⑤ 危險區域入侵</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -130,6 +139,75 @@
     <img class="preview" id="docs-preview">
     <div class="status" id="docs-status"></div>
     <div class="result" id="docs-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-codes">
+  <div class="card">
+    <h2>追溯碼辨識（M1）</h2>
+    <p style="color:var(--muted); font-size:13px;">上傳含 QR / 條碼 / DataMatrix 的照片，會解析 GS1 UDI（批號/效期/序號），效期已過標紅、30 天內到期標黃</p>
+    <div class="row">
+      <input type="file" id="codes-file" accept="image/*">
+      <button id="codes-btn">開始解碼</button>
+    </div>
+    <img class="preview" id="codes-preview">
+    <div class="status" id="codes-status"></div>
+    <div class="result" id="codes-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-measure">
+  <div class="card">
+    <h2>零件計數（M2-1）</h2>
+    <p style="color:var(--muted); font-size:13px;">白底、零件與背景對比明顯的照片效果最好；相黏零件會用 watershed 分離</p>
+    <div class="row">
+      <input type="file" id="count-file" accept="image/*">
+      <label class="hint">預期數量（選填，用來判斷 OK/NG）</label>
+      <input type="number" id="count-expected" min="0">
+      <button id="count-btn">開始計數</button>
+    </div>
+    <img class="preview" id="count-preview">
+    <div class="status" id="count-status"></div>
+    <div class="result" id="count-result"></div>
+  </div>
+  <div class="card">
+    <h2>尺寸量測（M2-2）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      畫面需放一個 ArUco 標記當比例尺（用專案的 <code>scripts/make_aruco.py</code> 產生可列印 PDF），
+      會用標記四角做透視校正後再量測
+    </p>
+    <div class="row">
+      <input type="file" id="measure-file" accept="image/*">
+    </div>
+    <div class="field-row">
+      <label>標記邊長(mm)</label><input type="number" id="measure-marker" value="30">
+      <label>目標長度(mm，選填)</label><input type="number" id="measure-length">
+      <label>目標寬度(mm，選填)</label><input type="number" id="measure-width">
+      <label>公差(mm)</label><input type="number" id="measure-tol" value="1">
+      <button id="measure-btn">開始量測</button>
+    </div>
+    <img class="preview" id="measure-preview">
+    <div class="status" id="measure-status"></div>
+    <div class="result" id="measure-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-safety">
+  <div class="card">
+    <h2>危險區域入侵（M5）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳照片後，在圖上依序點擊 3 個以上的點畫出危險區域，按「完成區域」封閉多邊形（不畫區域就只做人員偵測，不判斷入侵）
+    </p>
+    <div class="row">
+      <input type="file" id="safety-file" accept="image/*">
+      <button id="safety-zone-done-btn" type="button">完成區域</button>
+      <button id="safety-zone-clear-btn" type="button">清除區域</button>
+      <button id="safety-btn">開始偵測</button>
+    </div>
+    <div class="hint" id="safety-zone-hint">尚未選擇圖片</div>
+    <canvas class="zone-canvas" id="safety-canvas"></canvas>
+    <div class="status" id="safety-status"></div>
+    <div class="result" id="safety-result"></div>
   </div>
 </div>
 
@@ -173,6 +251,13 @@ function renderResult(container, data) {
     table.appendChild(tr);
   }
   container.appendChild(table);
+
+  if (data.annotated_image) {
+    const img = document.createElement("img");
+    img.src = data.annotated_image;
+    img.className = "annotated";
+    container.appendChild(img);
+  }
 }
 
 async function callApi(url, formData, statusEl, resultEl, button) {
@@ -227,6 +312,144 @@ document.getElementById("docs-btn").addEventListener("click", () => {
     document.getElementById("docs-result"),
     document.getElementById("docs-btn")
   );
+});
+
+// ③ 追溯碼辨識
+const codesFile = document.getElementById("codes-file");
+setupPreview(codesFile, document.getElementById("codes-preview"));
+document.getElementById("codes-btn").addEventListener("click", () => {
+  const file = codesFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi(
+    "/api/codes/decode",
+    formData,
+    document.getElementById("codes-status"),
+    document.getElementById("codes-result"),
+    document.getElementById("codes-btn")
+  );
+});
+
+// ④ 計數
+const countFile = document.getElementById("count-file");
+setupPreview(countFile, document.getElementById("count-preview"));
+document.getElementById("count-btn").addEventListener("click", () => {
+  const file = countFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  const expected = document.getElementById("count-expected").value;
+  const url = "/api/measure/count" + (expected ? "?expected_count=" + expected : "");
+  callApi(url, formData, document.getElementById("count-status"),
+    document.getElementById("count-result"), document.getElementById("count-btn"));
+});
+
+// ④ 量測
+const measureFile = document.getElementById("measure-file");
+setupPreview(measureFile, document.getElementById("measure-preview"));
+document.getElementById("measure-btn").addEventListener("click", () => {
+  const file = measureFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  const params = new URLSearchParams();
+  params.set("marker_size_mm", document.getElementById("measure-marker").value || "30");
+  const len = document.getElementById("measure-length").value;
+  const wid = document.getElementById("measure-width").value;
+  if (len) params.set("target_length_mm", len);
+  if (wid) params.set("target_width_mm", wid);
+  params.set("tolerance_mm", document.getElementById("measure-tol").value || "1");
+  callApi("/api/measure/measure?" + params.toString(), formData,
+    document.getElementById("measure-status"), document.getElementById("measure-result"),
+    document.getElementById("measure-btn"));
+});
+
+// ⑤ 危險區域入侵：canvas 點擊畫多邊形
+const safetyFile = document.getElementById("safety-file");
+const safetyCanvas = document.getElementById("safety-canvas");
+const safetyCtx = safetyCanvas.getContext("2d");
+const safetyHint = document.getElementById("safety-zone-hint");
+let safetyImg = null;
+let zonePoints = []; // 正規化座標 [[x,y],...]
+let zoneClosed = false;
+
+function redrawSafetyCanvas() {
+  safetyCtx.clearRect(0, 0, safetyCanvas.width, safetyCanvas.height);
+  safetyCtx.drawImage(safetyImg, 0, 0, safetyCanvas.width, safetyCanvas.height);
+  if (zonePoints.length === 0) return;
+  safetyCtx.beginPath();
+  zonePoints.forEach(([x, y], i) => {
+    const px = x * safetyCanvas.width, py = y * safetyCanvas.height;
+    if (i === 0) safetyCtx.moveTo(px, py); else safetyCtx.lineTo(px, py);
+  });
+  if (zoneClosed) safetyCtx.closePath();
+  safetyCtx.strokeStyle = "#ff3b30";
+  safetyCtx.lineWidth = 2;
+  safetyCtx.stroke();
+  if (zoneClosed) {
+    safetyCtx.fillStyle = "rgba(255,59,48,0.2)";
+    safetyCtx.fill();
+  }
+  zonePoints.forEach(([x, y]) => {
+    safetyCtx.beginPath();
+    safetyCtx.arc(x * safetyCanvas.width, y * safetyCanvas.height, 4, 0, Math.PI * 2);
+    safetyCtx.fillStyle = "#ff3b30";
+    safetyCtx.fill();
+  });
+}
+
+safetyFile.addEventListener("change", () => {
+  const file = safetyFile.files[0];
+  if (!file) return;
+  zonePoints = [];
+  zoneClosed = false;
+  safetyImg = new Image();
+  safetyImg.onload = () => {
+    const maxW = 860;
+    const scale = Math.min(1, maxW / safetyImg.width);
+    safetyCanvas.width = safetyImg.width * scale;
+    safetyCanvas.height = safetyImg.height * scale;
+    safetyCanvas.style.display = "block";
+    safetyHint.textContent = "在圖上點擊至少 3 個點畫出危險區域，再按「完成區域」";
+    redrawSafetyCanvas();
+  };
+  safetyImg.src = URL.createObjectURL(file);
+});
+
+safetyCanvas.addEventListener("click", (e) => {
+  if (zoneClosed || !safetyImg) return;
+  const rect = safetyCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  zonePoints.push([x, y]);
+  redrawSafetyCanvas();
+});
+
+document.getElementById("safety-zone-done-btn").addEventListener("click", () => {
+  if (zonePoints.length < 3) { alert("至少要點 3 個點才能構成區域"); return; }
+  zoneClosed = true;
+  safetyHint.textContent = `區域已完成（${zonePoints.length} 個頂點）`;
+  redrawSafetyCanvas();
+});
+
+document.getElementById("safety-zone-clear-btn").addEventListener("click", () => {
+  zonePoints = [];
+  zoneClosed = false;
+  safetyHint.textContent = safetyImg ? "在圖上點擊至少 3 個點畫出危險區域，再按「完成區域」" : "尚未選擇圖片";
+  if (safetyImg) redrawSafetyCanvas();
+});
+
+document.getElementById("safety-btn").addEventListener("click", () => {
+  const file = safetyFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  if (zoneClosed && zonePoints.length >= 3) {
+    formData.append("zone", JSON.stringify(zonePoints));
+  }
+  callApi("/api/safety/intrusion", formData, document.getElementById("safety-status"),
+    document.getElementById("safety-result"), document.getElementById("safety-btn"));
 });
 </script>
 

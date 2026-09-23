@@ -57,7 +57,7 @@
 | `qwen3.5:9b`（Ollama，多模態） | 6.6 GB | Apache-2.0 | 是 | M4 結構化、M9 開放式描述（預設候選） | https://ollama.com/library/qwen3.5 |
 | `qwen3-vl:8b`（Ollama，多模態） | 6.1 GB | Apache-2.0 | 是 | 備選（若 qwen3.5 實測繁中/JSON 輸出不穩） | https://ollama.com/library/qwen3-vl |
 | `qwen3-vl:4b` | 3.3 GB | Apache-2.0 | 是 | 記憶體吃緊時的退路 | https://ollama.com/library/qwen3-vl |
-| YOLO26n / YOLO11n COCO 預訓練（`yolo26n.pt`、`yolo11n.pt`） | 數 MB | **AGPL-3.0** | 需開源或商用授權 | M5 人員偵測、M5/M6 微調起點 | https://github.com/ultralytics/assets/releases （最新 tag v8.4.0） |
+| YOLO11n COCO 預訓練（`yolo11n.pt`，5.6MB） | 5.6MB | **AGPL-3.0** | 需開源或商用授權 | M5 人員偵測（Phase 2 已採用）、M5/M6 微調起點 | https://github.com/ultralytics/assets/releases （tag v8.4.0） |
 | PP-OCR ONNX（RapidOCR 內建下載） | 數十 MB | Apache-2.0 | 是 | M4/M7 OCR | https://github.com/RapidAI/RapidOCR |
 | WideResNet50 ImageNet 權重（anomalib PatchCore 骨幹，經 timm 下載） | 約 130 MB | 依 timm/torchvision 權重說明 | 需另確認 | M3 特徵擷取 | https://github.com/huggingface/pytorch-image-models |
 | Gemini `gemini-3.6-flash` | 雲端 | Google API 條款 | 免費層 RPM=5 / RPD=20 | 僅備援 | https://aistudio.google.com/rate-limit |
@@ -75,3 +75,4 @@
 | Safety-Helmet-Wearing-Dataset（SHWD） | repo 為 MIT，但 README 寫正樣本圖片「從 Google/百度蒐集」，圖片本身版權不明 | 不明 | 不採用，改用 CC0 的 Hard Hat Workers | https://github.com/njvisionpower/Safety-Helmet-Wearing-Dataset |
 | MedMNIST（PneumoniaMNIST） | **CC BY 4.0**（DermaMNIST 例外為 CC BY-NC 4.0，本專案不用）；官方註明 NOT intended for clinical use | 是（需署名） | M8-2 教學展示 | https://github.com/MedMNIST/MedMNIST |
 | COCO（YOLO 預訓練所用） | 標註 CC BY 4.0；圖片依 Flickr 各自授權 | — | 只用預訓練權重，不下載資料集 | https://cocodataset.org/#termsofuse |
+| 《Worker operates machinery in a factory setting》（Wikimedia Commons） | **CC BY 2.0** | 是（需署名） | Phase 2 `tests/live_samples/`：M5 真人偵測的 live 測試/手動驗證用照片，不進版控 | https://commons.wikimedia.org/wiki/File:Worker_operates_machinery_in_a_factory_setting.jpg |

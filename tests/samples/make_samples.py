@@ -4,8 +4,12 @@
     python tests/samples/make_samples.py
 """
 
+from datetime import date, timedelta
 from pathlib import Path
 
+import cv2
+import numpy as np
+import zxingcpp
 from PIL import Image, ImageDraw, ImageFont
 
 SAMPLES_DIR = Path(__file__).resolve().parent
@@ -54,7 +58,86 @@ def make_blank() -> Image.Image:
     return Image.new("RGB", (400, 300), "white")
 
 
+# ---------- M1 追溯碼 ----------
+
+def make_gs1_datamatrix(days_from_today: int) -> tuple[Image.Image, dict]:
+    """產生一個 GS1 DataMatrix：(01)GTIN (17)效期 (10)批號 (21)序號。
+
+    days_from_today 可為負（已過期）、0~30（即將到期）、>30（正常），對應 service.py 的效期判斷。
+    """
+    expiry = date.today() + timedelta(days=days_from_today)
+    yymmdd = expiry.strftime("%y%m%d")
+    fields = {"gtin": "04912345123457", "expiry": expiry, "batch": "LOT2026A", "serial": "SN00042"}
+    content = f"(01){fields['gtin']}(17){yymmdd}(10){fields['batch']}(21){fields['serial']}"
+
+    barcode = zxingcpp.create_barcode(content, zxingcpp.DataMatrix, gs1=True)
+    marker = zxingcpp.write_barcode_to_image(barcode, scale=8)
+    marker_rgb = Image.fromarray(np.array(marker)).convert("RGB")
+
+    canvas = Image.new("RGB", (marker_rgb.width + 80, marker_rgb.height + 80), "white")
+    canvas.paste(marker_rgb, (40, 40))
+    return canvas, fields
+
+
+# ---------- M2 計數與量測 ----------
+
+def make_screws_photo() -> Image.Image:
+    """白底黑色圓形零件：6 顆分開 + 2 顆相黏（測試 watershed 分離），給計數模組用。"""
+    image = Image.new("RGB", (900, 500), "white")
+    draw = ImageDraw.Draw(image)
+    centers = [(100, 100), (250, 100), (400, 100), (100, 250), (250, 250), (400, 250)]
+    for cx, cy in centers:
+        draw.ellipse((cx - 35, cy - 35, cx + 35, cy + 35), fill="black")
+    # 兩顆相黏：圓心距小於兩倍半徑
+    draw.ellipse((600 - 35, 200 - 35, 600 + 35, 200 + 35), fill="black")
+    draw.ellipse((655 - 35, 200 - 35, 655 + 35, 200 + 35), fill="black")
+    return image
+
+
+TEST_PX_PER_MM = 4
+TEST_MARKER_SIZE_MM = 30.0
+
+
+def make_measure_scene(target_length_mm: float, target_width_mm: float, hole_diameter_mm: float | None = None):
+    """正視角（無透視變形）場景：ArUco 標記 + 已知實際尺寸的矩形零件，供量測模組驗證精度。
+
+    回傳 (PIL Image, marker_size_mm)；用固定的 TEST_PX_PER_MM 換算，讓 service.py 算出的
+    mm 值理論上該等於 target_length_mm / target_width_mm（正視角下無透視誤差）。
+    """
+    marker_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    marker_px = round(TEST_MARKER_SIZE_MM * TEST_PX_PER_MM)
+    marker_img = cv2.aruco.generateImageMarker(marker_dict, 0, marker_px)
+
+    canvas_w, canvas_h = 900, 700
+    canvas = np.ones((canvas_h, canvas_w, 3), dtype=np.uint8) * 255
+    mx, my = 40, 40
+    canvas[my:my + marker_px, mx:mx + marker_px] = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2BGR)
+
+    rect_w = round(target_length_mm * TEST_PX_PER_MM)
+    rect_h = round(target_width_mm * TEST_PX_PER_MM)
+    rx, ry = mx + marker_px + 120, my
+    cv2.rectangle(canvas, (rx, ry), (rx + rect_w, ry + rect_h), (0, 0, 0), -1)
+
+    if hole_diameter_mm:
+        hole_r = round(hole_diameter_mm * TEST_PX_PER_MM / 2)
+        cv2.circle(canvas, (rx + rect_w // 2, ry + rect_h // 2), hole_r, (255, 255, 255), -1)
+
+    return Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)), TEST_MARKER_SIZE_MM
+
+
 if __name__ == "__main__":
-    for name, maker in [("work_order.png", make_work_order), ("warning_sign.png", make_warning_sign)]:
+    for name, maker in [
+        ("work_order.png", make_work_order),
+        ("warning_sign.png", make_warning_sign),
+        ("screws.png", make_screws_photo),
+    ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)
+
+    gs1_img, _ = make_gs1_datamatrix(days_from_today=200)
+    gs1_img.save(SAMPLES_DIR / "gs1_valid.png")
+    print("已產生", SAMPLES_DIR / "gs1_valid.png")
+
+    measure_img, marker_mm = make_measure_scene(target_length_mm=50, target_width_mm=20, hole_diameter_mm=5)
+    measure_img.save(SAMPLES_DIR / "measure_scene.png")
+    print("已產生", SAMPLES_DIR / "measure_scene.png", f"(marker={marker_mm}mm)")

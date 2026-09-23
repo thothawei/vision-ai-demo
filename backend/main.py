@@ -11,9 +11,12 @@ from fastapi.staticfiles import StaticFiles
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from core.schemas import ModuleError  # noqa: E402
+from modules.codes.router import router as codes_router  # noqa: E402
 from modules.docs.router import router as docs_router  # noqa: E402
 from modules.general.router import router as general_router  # noqa: E402
 from modules.inspections.router import router as inspections_router  # noqa: E402
+from modules.measure.router import router as measure_router  # noqa: E402
+from modules.safety.router import router as safety_router  # noqa: E402
 
 app = FastAPI(title="製造業 AI 辨識 Demo")
 
@@ -32,6 +35,9 @@ def handle_module_error(_: Request, exc: ModuleError):
 
 app.include_router(general_router)
 app.include_router(docs_router)
+app.include_router(codes_router)
+app.include_router(measure_router)
+app.include_router(safety_router)
 app.include_router(inspections_router)
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"

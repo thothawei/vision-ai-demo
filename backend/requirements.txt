@@ -11,3 +11,8 @@ google-genai==2.25.0
 pytesseract==0.3.13
 pytest==9.1.1
 httpx==0.28.1
+
+# Phase 2：M1 追溯碼 / M2 計數量測 / M5 危險區域入侵
+zxing-cpp==3.1.1
+opencv-python-headless==5.0.0.93
+ultralytics==8.4.160
