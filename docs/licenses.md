@@ -59,7 +59,7 @@
 | `qwen3-vl:4b` | 3.3 GB | Apache-2.0 | 是 | 記憶體吃緊時的退路 | https://ollama.com/library/qwen3-vl |
 | YOLO11n COCO 預訓練（`yolo11n.pt`，5.6MB） | 5.6MB | **AGPL-3.0** | 需開源或商用授權 | M5 人員偵測（Phase 2 已採用）、M5/M6 微調起點 | https://github.com/ultralytics/assets/releases （tag v8.4.0） |
 | PP-OCR ONNX（RapidOCR 內建下載） | 數十 MB | Apache-2.0 | 是 | M4/M7 OCR | https://github.com/RapidAI/RapidOCR |
-| WideResNet50 ImageNet 權重（anomalib PatchCore 骨幹，經 timm 下載） | 約 130 MB | 依 timm/torchvision 權重說明 | 需另確認 | M3 特徵擷取 | https://github.com/huggingface/pytorch-image-models |
+| `wide_resnet50_2.racm_in1k` ImageNet 權重（anomalib PatchCore 預設骨幹，經 timm 下載） | 約 130 MB | **Apache-2.0**（`timm.get_pretrained_cfg` 查證，`license='apache-2.0'`） | 是 | M3 特徵擷取（不訓練，只做前向推論抽特徵） | https://github.com/huggingface/pytorch-image-models |
 | Gemini `gemini-3.6-flash` | 雲端 | Google API 條款 | 免費層 RPM=5 / RPD=20 | 僅備援 | https://aistudio.google.com/rate-limit |
 
 備註：`qwen3.6`、`qwen3.8` 在 Ollama 上最小是 27B（查證當日），16 GB 記憶體的 Mac 無法流暢執行，不採用。
@@ -68,7 +68,7 @@
 
 | 名稱 | 授權（原文出處） | 可商用 | 本專案用法 | 來源 |
 |---|---|---|---|---|
-| MVTec AD（metal_nut / screw / tile） | **CC BY-NC-SA 4.0**，官方頁明寫「not allowed to use the dataset for commercial purposes」 | 否 | M3，**僅供學習/作品集展示**，不進版控 | https://www.mvtec.com/company/research/datasets/mvtec-ad |
+| MVTec AD（metal_nut 157MB / screw 186MB / tile 335MB，Phase 3 已下載） | **CC BY-NC-SA 4.0**，官方頁明寫「not allowed to use the dataset for commercial purposes」 | 否 | M3，**僅供學習/作品集展示**，`data/mvtec_ad/`，不進版控 | 各類別分開下載連結：https://www.mvtec.com/research-teaching/datasets/mvtec-ad/downloads（總頁面轉址後的真實網址） |
 | NEU-DET（NEU surface defect database） | **官方頁沒有任何授權條款**，只寫「請引用論文」；下載走 Google Drive / 百度盤 | 未知（無授權＝預設保留所有權利） | M6，待使用者決定（見 Phase 0 回報） | http://faculty.neu.edu.cn/songkechen/zh_CN/zdylm/263270/list/index.htm |
 | DeepPCB | 資料放在 GitHub repo 內，repo 授權 **MIT** | 是 | M6 第二步（選做） | https://github.com/tangsanli5201/DeepPCB |
 | Hard Hat Workers | **CC0 1.0**（Harvard Dataverse API 回傳；Roboflow 頁標示 Public Domain） | 是 | M5 PPE（只有安全帽/頭/人，**沒有反光背心類別**） | https://doi.org/10.7910/DVN/7CBGOS |

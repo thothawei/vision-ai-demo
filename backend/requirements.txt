@@ -16,3 +16,6 @@ httpx==0.28.1
 zxing-cpp==3.1.1
 opencv-python-headless==5.0.0.93
 ultralytics==8.4.160
+
+# Phase 3：M3 異常檢測
+anomalib==2.6.2

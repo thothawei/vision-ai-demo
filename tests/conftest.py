@@ -87,3 +87,36 @@ def fake_person_detector(monkeypatch):
         return [{"信心度": 0.9, "邊界框": [100, 100, 200, 500], "腳底參考點": [150, 500]}]
 
     monkeypatch.setattr("modules.safety.service._detect_persons", _fake)
+
+
+class _FakeAnomalyPrediction:
+    def __init__(self, score: float, is_anomalous: bool):
+        import torch
+
+        self.pred_score = score
+        self.pred_label = is_anomalous
+        self.anomaly_map = torch.rand(1, 1, 32, 32) * score
+
+
+@pytest.fixture
+def fake_anomaly_inferencer(monkeypatch):
+    """把 anomalib 推論換成假函式，回傳固定分數，記錄被問到哪個 category。"""
+    calls = []
+
+    class _FakeInferencer:
+        def __init__(self, score, is_anomalous):
+            self._score = score
+            self._is_anomalous = is_anomalous
+
+        def predict(self, image):
+            calls.append(image)
+            return _FakeAnomalyPrediction(self._score, self._is_anomalous)
+
+    def _fake_get_inferencer(category):
+        calls.append(category)
+        # 用 category 名稱決定假分數：帶 "ng" 的當異常，其餘正常，方便測試指定結果
+        return _FakeInferencer(0.9, True) if "ng" in category else _FakeInferencer(0.1, False)
+
+    monkeypatch.setattr("modules.anomaly.service._get_inferencer", _fake_get_inferencer)
+    monkeypatch.setattr("modules.anomaly.service.CATEGORIES", ["metal_nut", "screw", "tile", "metal_nut_ng"])
+    return calls

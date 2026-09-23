@@ -100,14 +100,15 @@
 <body>
 
 <h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 2：M1 追溯碼 ／ M2 計數量測 ／ M5 危險區域入侵）</p>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 3：M3 外觀瑕疵異常檢測）</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
   <button class="tab-btn" data-tab="docs">② 製造文件結構化</button>
-  <button class="tab-btn" data-tab="codes">③ 追溯碼辨識</button>
-  <button class="tab-btn" data-tab="measure">④ 計數與量測</button>
-  <button class="tab-btn" data-tab="safety">⑤ 危險區域入侵</button>
+  <button class="tab-btn" data-tab="anomaly">③ 外觀瑕疵異常檢測</button>
+  <button class="tab-btn" data-tab="codes">④ 追溯碼辨識</button>
+  <button class="tab-btn" data-tab="measure">⑤ 計數與量測</button>
+  <button class="tab-btn" data-tab="safety">⑥ 危險區域入侵</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -139,6 +140,28 @@
     <img class="preview" id="docs-preview">
     <div class="status" id="docs-status"></div>
     <div class="result" id="docs-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-anomaly">
+  <div class="card">
+    <h2>外觀瑕疵異常檢測（M3）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      非監督式：模型只用良品照片擬合，不需要 NG 樣本。用 MVTec AD 資料集示範（<code>metal_nut</code> 螺帽／<code>screw</code> 螺絲／<code>tile</code> 磁磚），
+      CC BY-NC-SA 4.0 僅供學習/作品集展示，實際 AUROC 見 <code>models/anomaly/&lt;類別&gt;/metrics.json</code>
+    </p>
+    <div class="row">
+      <input type="file" id="anomaly-file" accept="image/*">
+      <select id="anomaly-category">
+        <option value="metal_nut">metal_nut（螺帽）</option>
+        <option value="screw">screw（螺絲）</option>
+        <option value="tile">tile（磁磚）</option>
+      </select>
+      <button id="anomaly-btn">開始檢測</button>
+    </div>
+    <img class="preview" id="anomaly-preview">
+    <div class="status" id="anomaly-status"></div>
+    <div class="result" id="anomaly-result"></div>
   </div>
 </div>
 
@@ -312,6 +335,20 @@ document.getElementById("docs-btn").addEventListener("click", () => {
     document.getElementById("docs-result"),
     document.getElementById("docs-btn")
   );
+});
+
+// ⑥ 異常檢測
+const anomalyFile = document.getElementById("anomaly-file");
+setupPreview(anomalyFile, document.getElementById("anomaly-preview"));
+document.getElementById("anomaly-btn").addEventListener("click", () => {
+  const file = anomalyFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  const category = document.getElementById("anomaly-category").value;
+  callApi("/api/anomaly/inspect?category=" + category, formData,
+    document.getElementById("anomaly-status"), document.getElementById("anomaly-result"),
+    document.getElementById("anomaly-btn"));
 });
 
 // ③ 追溯碼辨識

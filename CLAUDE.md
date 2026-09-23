@@ -41,6 +41,14 @@
 - **M5 危險區域入侵（`backend/modules/safety/`）**：YOLO 選用 `yolo11n.pt`（成熟穩定、COCO person 類別）而非同批發布的 `yolo26n.pt`（2026-09 才發布的最新架構，尚無足夠驗證案例）；人員判定用「邊界框底邊中點（腳底參考點）」是否落在使用者畫的多邊形內（`cv2.pointPolygonTest`），而非用整個框判斷，理由是危險區域通常畫在地面，用腳底位置比整個人形框更符合實際「站在哪裡」的語意。Phase 2 只做單張圖片，短影片逐幀抽樣留到 Phase 5 跟 PPE 一起做。
 - **live 測試用真實照片**：M5 的自動偵測準確度用合成圖驗證不出意義（YOLO 認的是真人特徵），改抓 Wikimedia Commons 的 CC BY 2.0 授權工廠照片（`tests/live_samples/`，不進版控，來源見 `docs/licenses.md`），95.1% 信心度正確偵測到人。
 
+## 技術決策與理由（Phase 3）
+
+- **M3 異常檢測（`backend/modules/anomaly/`）**：Anomalib PatchCore，非監督式——只用良品照片擬合一個特徵記憶庫（memory bank），不需要 NG 樣本，這正對應工廠現場「良品多、NG 樣本稀少」的真實情境。骨幹網路用預設的 `wide_resnet50_2`（ImageNet 預訓練，Apache-2.0，只做前向推論抽特徵，不重新訓練）。
+- **PatchCore 固定用 CPU，不用 MPS**：實測 MPS 反而比 CPU 慢很多，原因是 coreset 貪婪演算法逐元素呼叫 `.item()` 觸發 GPU 同步（見已知限制、Phase 3 測試紀錄的除錯過程）。這跟 Phase 0 原本規劃的「MPS 優先，不支援才退回 CPU」不同——MPS 是支援的，只是這個特定演算法在 MPS 上特別慢，所以固定用 CPU。
+- **訓練與推論分離**：`scripts/train_anomaly.py` 離線擬合＋用 `anomalib.deploy.ExportType.TORCH` 匯出成 `TorchInferencer` 可直接載入的 `.pt`（包好 pre-processor 與門檻值），服務層（`backend/modules/anomaly/service.py`）只做推論、不依賴完整的 Lightning 訓練環境概念，載入後常駐記憶體、依 category 分開快取。
+- **熱力圖標註**：`anomaly_map` 正規化到 0-1 後用 `cv2.COLORMAP_JET` 上色疊在原圖上（紅＝異常機率高），跟其他模組共用的 `annotated_image` 欄位格式一致。
+- **信任本機權重**：anomalib 的 `TorchInferencer` 預設拒絕 unpickle 權重檔（防惡意程式碼），只在載入自己訓練產生的權重時設定 `TRUST_REMOTE_CODE=1`，並在程式碼註解寫清楚為什麼這樣做是安全的（不是無條件關掉資安檢查）。
+
 ## 目錄結構
 
 ```
@@ -55,15 +63,21 @@ vision-ai-demo/
 │   ├── modules/
 │   │   ├── general/            # M9 開放式辨識
 │   │   ├── docs/                # M4 製造文件結構化
+│   │   ├── anomaly/              # M3 外觀瑕疵異常檢測
 │   │   ├── codes/                # M1 追溯碼辨識
 │   │   ├── measure/              # M2 計數與尺寸量測
 │   │   ├── safety/               # M5 危險區域入侵
 │   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁（5 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
-├── scripts/make_aruco.py       # 產生 M2 量測用的可列印 ArUco 標記 PDF
+├── frontend/index.html         # 分頁式單頁（6 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
+├── scripts/
+│   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
+│   └── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
 ├── models/
-│   └── yolo/yolo11n.pt         # M5 用，YOLO 官方 release 下載，gitignore
+│   ├── yolo/yolo11n.pt         # M5 用，YOLO 官方 release 下載，gitignore
+│   └── anomaly/<category>/     # M3 用，scripts/train_anomaly.py 產生，gitignore
+│       ├── weights/torch/model.pt   # 推論用（TorchInferencer 直接載入）
+│       └── metrics.json             # 實測 image-level AUROC、擬合耗時、測試集大小
 ├── tests/
 │   ├── conftest.py
 │   ├── samples/make_samples.py # 程式生成測試圖（工單、警示標示、GS1條碼、零件、ArUco量測場景），不進版控
@@ -74,11 +88,14 @@ vision-ai-demo/
 │   ├── test_measure.py          # M2：計數分離、量測精度、OK/NG 公差
 │   ├── test_safety.py           # M5：多邊形入侵邏輯（假偵測結果）
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
-│   └── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
+│   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
+│   └── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
 │   └── licenses.md
-├── data/                       # SQLite，gitignore
+├── data/
+│   ├── inspections.db           # SQLite，gitignore
+│   └── mvtec_ad/<category>/     # MVTec AD 官方目錄結構，gitignore，下載方式見 docs/licenses.md
 └── .env / .env.example
 ```
 
@@ -88,6 +105,7 @@ vision-ai-demo/
 - [Ollama](https://ollama.com) 已安裝並執行，模型 `qwen3.5:9b`（`ollama pull qwen3.5:9b`，約 6.6GB）
 - Tesseract OCR（macOS: `brew install tesseract tesseract-lang`，M4 OCR 模式與比較用）
 - YOLO11n 權重（`models/yolo/yolo11n.pt`，M5 用；`python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"` 下載後手動搬過去，5.6MB）
+- MVTec AD 資料集（M3 用，`data/mvtec_ad/<category>/`，下載連結見 `docs/licenses.md`，CC BY-NC-SA 4.0 僅供學習/作品集展示）+ 擬合權重（`python scripts/train_anomaly.py --category all`，CPU 約 22 分鐘，見已知限制的 MPS 說明）
 - （可選）Google Gemini API key，存在 `.env` 的 `GEMINI_API_KEY`，`LLM_ENGINE=gemini` 時才需要
 
 ## 啟動方式
@@ -107,8 +125,8 @@ uvicorn main:app --reload
 ```bash
 source venv/bin/activate
 python tests/samples/make_samples.py   # 產生測試圖（需要，未進版控）
-pytest                                  # 單元測試，假 LLM，約 1 秒
-pytest -m live -s                       # 真打本機 Ollama，需先 ollama serve，約 1 分鐘
+pytest                                  # 單元測試，假 LLM/YOLO/PatchCore，約 6 秒
+pytest -m live -s                       # 真打本機模型，需先 ollama serve + 下載 MVTec AD + 擬合 M3 權重，約 1-2 分鐘
 ```
 
 ## 已知限制
@@ -120,13 +138,16 @@ pytest -m live -s                       # 真打本機 Ollama，需先 ollama se
 - **M2 計數對背景要求高**：假設零件是畫面中的少數像素、跟背景有明顯亮度反差；零件間距小於約 25px（局部極大值種子的搜尋半徑）時仍可能分不開，見 `_binarize_foreground_minority` 的說明。
 - **M2 量測精度**：正視角下實測誤差約 0.3-0.6mm（50mm 零件上約 1%），假設待測物與 ArUco 標記共平面，手機斜角拍攝會讓誤差變大；預設公差 1.0mm。
 - **M5 只做單張圖片**：短影片逐幀抽樣留到 Phase 5 跟 PPE 一起做，不是遺漏。
+- **PatchCore 在 M1 Pro 的 MPS 上反而比 CPU 慢**：coreset 篩選（greedy k-center）在 Python 迴圈裡逐元素呼叫 `.item()` 把純量搬回 CPU，每次都觸發一次 MPS 同步；用 `sample` 系統工具實測抓到呼叫堆疊卡在 `MPSStream::synchronize`，幾分鐘幾乎沒進度。`scripts/train_anomaly.py` 固定用 CPU（實測反而更快，metal_nut 擬合 322 秒／screw 664 秒／tile 406 秒），這不是「MPS 不支援」，是「這個演算法在 MPS 上特別慢」。
+- **M3 擬合耗時隨訓練集大小明顯增加**：metal_nut（220 張良品）5.4 分鐘、screw（320 張）11.1 分鐘、tile（230 張）6.8 分鐘，CPU 佔用可能衝到 400-500%（多執行緒）。
+- **M3 推論需要信任本機權重**：anomalib 的 `TorchInferencer` 預設拒絕 unpickle（防止惡意權重執行任意程式碼），服務層對 `scripts/train_anomaly.py` 自己訓練匯出的權重設定 `TRUST_REMOTE_CODE=1`——只信任本機訓練產生的檔案，不代表信任任意下載的權重。
 
 ## 待辦（Phase 進度）
 
 - [x] Phase 0：查證套件/模型/資料集授權，寫入 `docs/licenses.md`；確認 Mac 安裝風險（PaddleOCR 在 py3.11 相依衝突、OpenCV 三套件共用 cv2 命名空間、16GB 記憶體限制）。
 - [x] Phase 1：Python 3.11 venv 重建、目錄重構（`core/`、`modules/<模組>/`）、共用回應格式、LLM 抽象層（Ollama 預設／Gemini 備援）、SQLite 檢驗紀錄 + 查詢/CSV API、前端改分頁式。原有兩功能搬進 M9（開放式辨識，prompt 改製造業情境）／M4（文件結構化，欄位改製造業情境）且已用真實 Ollama 模型與真實瀏覽器驗證可用。
 - [x] Phase 2：M1 追溯碼（zxing-cpp + GS1 解析 + 效期判斷）、M2 計數量測（OpenCV watershed 分離相黏零件 + ArUco 透視校正量測）、M5 危險區域入侵（YOLO11n person 偵測 + 前端 canvas 畫多邊形）。全部免訓練，已用真實資料（含真人照片）與真實瀏覽器驗證可用。
-- [ ] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD，實測 AUROC）。
+- [x] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD）。三類別實測 image-level AUROC：metal_nut 0.9985、screw 0.9645、tile 0.9993（見下方測試紀錄）。已用真實測試集圖片與真實瀏覽器驗證可用，熱力圖能準確標出瑕疵位置。
 - [ ] Phase 4：M4 換成 RapidOCR + Pydantic schema。
 - [ ] Phase 5：M6 NEU-DET/DeepPCB、M5 PPE（需訓練，附 Colab notebook）。
 - [ ] Phase 6：M7 銘牌／儀表。
@@ -160,3 +181,24 @@ pytest -m live -s                       # 真打本機 Ollama，需先 ollama se
   - M1：上傳 GS1 DataMatrix 測試圖，9ms 解碼出正確的 GTIN/批號/序號/效期，標註圖顯示綠色框（效期正常）。
   - M2：計數分頁 35ms 數出 8 顆並判定 OK（預期 8）；量測分頁 100ms 量出跟 curl 測試一致的數字。
   - M5：上傳真人照片，用滑鼠在 canvas 上點擊畫出涵蓋人物的多邊形（第一次點擊的多邊形底邊差了幾像素沒蓋到腳底參考點，NG 判定漏掉——這是操作精度問題，不是程式邏輯錯，重畫涵蓋到畫面底部邊緣後正確判定 NG，標註圖清楚顯示半透明紅色危險區域疊圖與紅色人員邊界框）。
+
+### Phase 3：功能驗證
+
+- **實測 image-level AUROC（官方測試集，非估計）**：
+  | 類別 | AUROC | 測試集張數 | 擬合耗時（CPU） |
+  |---|---|---|---|
+  | metal_nut | **0.9985** | 115 | 322 秒 |
+  | screw | **0.9645** | 160 | 664 秒 |
+  | tile | **0.9993** | 117 | 406 秒 |
+
+  數字來自 `scripts/train_anomaly.py` 呼叫 `anomalib.engine.Engine.test()`，跑的是 MVTec AD 官方切分的完整測試集（含良品與各種瑕疵子類別），不是抽樣估計；各自存在 `models/anomaly/<category>/metrics.json`。
+- **開發中發現的真實問題（MPS 比 CPU 慢）**：一開始照 Phase 0 規劃用 `torch.backends.mps.is_available()` 自動選 MPS，metal_nut 跑了 10 幾分鐘幾乎沒有進度（CPU 時間幾乎不動）。用 macOS `sample` 系統工具對執行中的程序抓呼叫堆疊，兩次都停在 `at::mps::MPSStream::synchronize`，往上追是 PatchCore 的 coreset 貪婪演算法在 Python 迴圈裡逐元素呼叫 `tensor.item()`，每次都要等一次 GPU 同步。改成固定用 CPU 後，metal_nut 5.4 分鐘內就跑完，而且 AUROC 數字相同（CPU/MPS 只影響速度不影響數值）。
+- **過程中一度誤判「訓練卡死」**：screw 訓練到一半，主行程 CPU 降到 0.1%、8 個 dataloader 子行程也全部 0% CPU、狀態都是 sleeping，看起來像死鎖。連續觀察 40 秒後發現其實是「忙閒交替」（0.1% → 256% → 484% → 123%），是 dataloader worker 在測試階段重新產生子行程造成的正常波動，不是真的卡死。教訓：判斷「有沒有卡死」不能只看瞬間 CPU 數字，要連續觀察一段時間或直接用 `sample` 抓呼叫堆疊確認在算什麼。
+- **anomalib 的資安機制**：`TorchInferencer` 載入權重時預設會擋下 unpickle（`ValueError: ... requires executing arbitrary code via Python's pickle module`），第一次串接時被這個錯誤擋住；查證後確認這是防止載入惡意權重的正常機制，因為載入的是自己訓練產生的檔案，設定 `TRUST_REMOTE_CODE=1` 才能載入（僅在服務層這個載入點設定，不影響全域環境）。
+- **真實測試集圖片驗證**：直接呼叫 `inspect_part()`（不透過假推論），用 MVTec AD 官方測試集的良品與瑕疵品各測了幾張，全部判定方向正確：
+  - metal_nut：`good` → OK（分數 0.35-0.41）；`bent` → NG（分數 0.9971-1.0）；`scratch` → NG（分數 0.54-0.83）
+  - screw：`good` → OK（分數 0.49）；`scratch_head` → NG（分數 0.88）
+  - tile：`good` → OK（分數 0.34-0.42）；`crack` → NG（分數 1.0）
+- **live 測試（`pytest -m live`，用官方測試集抽樣，非人工挑選）**：3 個類別全過，screw 抽樣 11/13、tile 抽樣 13/13、metal_nut 抽樣全過（門檻 70% 正確率）。
+- **瀏覽器實測**（真實 Chrome）：M3 分頁上傳 metal_nut 的刮痕瑕疵圖，1668ms 判定 NG（分數 0.8291），熱力圖疊圖清楚把紅色熱區精準標在刮痕位置上；換成 tile 的裂痕瑕疵圖、切換下拉選單到 `tile` 類別，4081ms 判定 NG（分數 1.0）。
+- **磁碟清理**：訓練時 anomalib Engine 預設會把每一張測試圖的視覺化結果存到 `models/anomaly/_engine_logs/`，三個類別累積到 822MB，訓練完成、metrics.json 記錄下數字後就刪掉了（不影響推論，推論只需要 `weights/torch/model.pt`）。
