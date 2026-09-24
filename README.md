@@ -1,48 +1,48 @@
-# 台中製造業 AI 辨識 Demo
+# 台中製造業 AI 辨識系統
 
-本機執行的視覺辨識網頁 Demo，作品集用途，對應台中／中科製造業常見情境（工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子）。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
+本機執行的視覺辨識系統，對應台中／中科製造業常見情境（工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝）。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
 
-技術決策、每個 Phase 的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。開發規劃原始需求見 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md)。
+技術決策、每個開發階段的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。
 
-## 目前功能（Phase 0-7 全部完成）
+## 功能
 
-| 模組 | 功能 | 技術 | 實測指標 |
-|---|---|---|---|
-| M9 | 現場照片開放式辨識（機台、工具、零件、標示、安全觀察） | Ollama `qwen3.5:9b`（本機）／Gemini 備援 | — |
-| M4 | 製造文件結構化（工單／出貨單／進料檢驗報告有嚴格 schema + 數字來源核對，其餘文件類型自由格式） | RapidOCR + RapidTable + Ollama／Gemini（Tesseract 保留當比較選項） | — |
-| M3 | 外觀瑕疵異常檢測（非監督式，只需良品照片） | Anomalib PatchCore | AUROC 0.965-0.999（三類別） |
-| M1 | 追溯碼辨識（QR / 條碼 / DataMatrix / GS1 UDI，效期檢核） | zxing-cpp | — |
-| M2 | 零件計數（含相黏分離）與尺寸量測（ArUco 透視校正） | OpenCV | 誤差約 1% |
-| M5 | 危險區域入侵偵測（人員偵測 + 前端畫多邊形） | YOLO11n（COCO 預訓練） | — |
-| M5 PPE | 安全帽偵測（helmet／head 兩類，無反光背心類別） | YOLO11n（監督式訓練） | mAP50 0.977 |
-| M6 | PCB 瑕疵偵測（6 種瑕疵：斷路/短路/缺口/毛刺/多餘銅箔/針孔） | YOLO11n（監督式訓練） | mAP50 0.978 |
-| M7 銘牌 | 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
-| M7 七段顯示器 | LED/LCD 數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
-| M7 指針錶 | 指針角度偵測 → 讀值換算 | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
-| M8-1 | 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
-| M8-2 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
+| 功能 | 技術 | 實測指標 |
+|---|---|---|
+| 現場照片開放式辨識（機台、工具、零件、標示、安全觀察） | Ollama `qwen3.5:9b`（本機）／Gemini 備援 | — |
+| 製造文件結構化（工單／出貨單／進料檢驗報告有嚴格 schema + 數字來源核對，其餘文件類型自由格式） | RapidOCR + RapidTable + Ollama／Gemini（Tesseract 保留當比較選項） | — |
+| 外觀瑕疵異常檢測（非監督式，只需良品照片） | Anomalib PatchCore | AUROC 0.965-0.999（三類別） |
+| 追溯碼辨識（QR / 條碼 / DataMatrix / GS1 UDI，效期檢核） | zxing-cpp | — |
+| 零件計數（含相黏分離）與尺寸量測（ArUco 透視校正） | OpenCV | 誤差約 1% |
+| 危險區域入侵偵測（人員偵測 + 前端畫多邊形） | YOLO11n（COCO 預訓練） | — |
+| 安全帽偵測（helmet／head 兩類，無反光背心類別） | YOLO11n（監督式訓練） | mAP50 0.977 |
+| PCB 瑕疵偵測（6 種瑕疵：斷路/短路/缺口/毛刺/多餘銅箔/針孔） | YOLO11n（監督式訓練） | mAP50 0.978 |
+| 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
+| LED/LCD 七段顯示器數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
+| 指針錶讀值（指針角度偵測 → 讀值換算） | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
+| 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
+| 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
 
-規劃的 M1-M9 全部模組已實作完成，見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節查看逐 Phase 的實測紀錄。
+各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [CLAUDE.md](CLAUDE.md)。
 
-## Demo 截圖
+## 實際辨識畫面
 
 以下截圖用 [`scripts/capture_screenshots.py`](scripts/capture_screenshots.py)（Playwright 自動化）實際跑過每個分頁產生，皆為真實 API 回應，非手動擺拍。
 
-| 模組 | 截圖 |
+| 功能 | 畫面 |
 |---|---|
-| M9 現場照片辨識 | ![M9](docs/screenshots/01_general.png) |
-| M4 製造文件結構化 | ![M4](docs/screenshots/02_docs.png) |
-| M3 外觀瑕疵異常檢測 | ![M3](docs/screenshots/03_anomaly.png) |
-| M1 追溯碼辨識 | ![M1](docs/screenshots/04_codes.png) |
-| M2 計數與量測 | ![M2](docs/screenshots/05_measure.png) |
-| M5 危險區域入侵 | ![M5](docs/screenshots/06_safety.png) |
-| M5 PPE 安全帽偵測 | ![M5 PPE](docs/screenshots/07_ppe.png) |
-| M6 PCB 瑕疵偵測 | ![M6](docs/screenshots/08_defect.png) |
-| M7 銘牌讀取 | ![M7 銘牌](docs/screenshots/09_nameplate.png) |
-| M7 七段顯示器 | ![M7 七段顯示器](docs/screenshots/10_sevenseg.png) |
-| M7 指針錶讀值 | ![M7 指針錶](docs/screenshots/11_gauge.png) |
-| M8-1 包裝追溯碼檢核 | ![M8-1](docs/screenshots/12_packaging.png) |
-| M8-2 醫學影像分類展示 | ![M8-2](docs/screenshots/13_pneumonia.png) |
+| 現場照片辨識 | ![現場照片辨識](docs/screenshots/01_general.png) |
+| 製造文件結構化 | ![製造文件結構化](docs/screenshots/02_docs.png) |
+| 外觀瑕疵異常檢測 | ![外觀瑕疵異常檢測](docs/screenshots/03_anomaly.png) |
+| 追溯碼辨識 | ![追溯碼辨識](docs/screenshots/04_codes.png) |
+| 計數與量測 | ![計數與量測](docs/screenshots/05_measure.png) |
+| 危險區域入侵 | ![危險區域入侵](docs/screenshots/06_safety.png) |
+| 安全帽偵測 | ![安全帽偵測](docs/screenshots/07_ppe.png) |
+| PCB 瑕疵偵測 | ![PCB 瑕疵偵測](docs/screenshots/08_defect.png) |
+| 銘牌讀取 | ![銘牌讀取](docs/screenshots/09_nameplate.png) |
+| 七段顯示器 | ![七段顯示器](docs/screenshots/10_sevenseg.png) |
+| 指針錶讀值 | ![指針錶讀值](docs/screenshots/11_gauge.png) |
+| 包裝追溯碼檢核 | ![包裝追溯碼檢核](docs/screenshots/12_packaging.png) |
+| 醫學影像分類展示 | ![醫學影像分類展示](docs/screenshots/13_pneumonia.png) |
 
 重新產生截圖（需先啟動後端，見下方「啟動」）：
 
@@ -58,7 +58,7 @@ venv/bin/python scripts/capture_screenshots.py
 
 - **商用 AOI／機器視覺軟體**（Cognex VisionPro、MVTec HALCON、Keyence）：付費軟體，無免費替代。
 - **3D 量測、雷射輪廓、熱影像檢測**：需要專用硬體（3D 掃描儀、雷射輪廓儀、熱像儀），非純軟體可解決。
-- **產線高速即時檢測**（工業相機 + PLC 觸發）：需要工業相機與 PLC 硬體整合，本 Demo 只做單張圖片辨識。
+- **產線高速即時檢測**（工業相機 + PLC 觸發）：需要工業相機與 PLC 硬體整合，本系統目前只做單張圖片辨識。
 - **焊道 X 光、刀具磨耗影像**：查證後找不到授權明確的免費公開資料集，不做。
 - **振動／聲音預測保養**：不屬於影像辨識範疇，且需要感測器硬體，不在本專案規劃範圍內。
 - **Google Cloud Vision／Azure AI Vision**：免費額度有限且需綁信用卡，改用完全免費的本機 Ollama + Gemini 免費層方案。
@@ -99,7 +99,7 @@ mkdir -p models/yolo && mv yolo11n.pt models/yolo/
 
 ### 5. MVTec AD 資料集 + 擬合異常檢測模型（M3 用，選用）
 
-M3 需要先擬合模型才能用。資料集下載連結見 [docs/licenses.md](docs/licenses.md)（CC BY-NC-SA 4.0，僅供學習/作品集展示，不可商用）：
+外觀瑕疵異常檢測需要先擬合模型才能用。資料集下載連結見 [docs/licenses.md](docs/licenses.md)（CC BY-NC-SA 4.0，僅供非商業用途，正式導入需以自有產線影像重新擬合）：
 
 ```bash
 mkdir -p data/mvtec_ad && cd data/mvtec_ad

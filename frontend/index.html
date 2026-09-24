@@ -100,7 +100,6 @@
 <body>
 
 <h1>製造業 AI 辨識系統</h1>
-<p class="subtitle">台中製造業現場常見 AI 辨識功能：工單/追溯碼、外觀瑕疵檢測、計數量測、工安偵測、銘牌儀表讀值、包裝追溯與醫學影像分類</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
@@ -120,7 +119,7 @@
 
 <div class="panel active" id="panel-general">
   <div class="card">
-    <h2>現場照片開放式辨識（M9）</h2>
+    <h2>現場照片開放式辨識</h2>
     <p style="color:var(--muted); font-size:13px;">上傳機台、工具、零件或標示的照片，AI 會判斷「這是什麼」，並標註可見文字與安全觀察</p>
     <div class="row">
       <input type="file" id="general-file" accept="image/*">
@@ -134,7 +133,7 @@
 
 <div class="panel" id="panel-docs">
   <div class="card">
-    <h2>製造文件結構化（M4）</h2>
+    <h2>製造文件結構化</h2>
     <p style="color:var(--muted); font-size:13px;">
       上傳工單、出貨單、進料檢驗報告等文件或掃描圖檔，AI 會判斷文件類型並整理成 JSON 欄位。
       工單/出貨單/進料檢驗報告有嚴格 schema 驗證，數字欄位會附上「來源驗證」——核對這個數字是否真的能在 OCR 原文中找到。
@@ -156,7 +155,7 @@
 
 <div class="panel" id="panel-anomaly">
   <div class="card">
-    <h2>外觀瑕疵異常檢測（M3）</h2>
+    <h2>外觀瑕疵異常檢測</h2>
     <p style="color:var(--muted); font-size:13px;">
       非監督式：模型只用良品照片擬合，不需要 NG 樣本。用 MVTec AD 資料集示範（<code>metal_nut</code> 螺帽／<code>screw</code> 螺絲／<code>tile</code> 磁磚），
       訓練資料集授權為 CC BY-NC-SA 4.0，僅供非商業用途，正式導入時需以自有產線影像重新擬合模型；實際 AUROC 見 <code>models/anomaly/&lt;類別&gt;/metrics.json</code>
@@ -178,7 +177,7 @@
 
 <div class="panel" id="panel-codes">
   <div class="card">
-    <h2>追溯碼辨識（M1）</h2>
+    <h2>追溯碼辨識</h2>
     <p style="color:var(--muted); font-size:13px;">上傳含 QR / 條碼 / DataMatrix 的照片，會解析 GS1 UDI（批號/效期/序號），效期已過標紅、30 天內到期標黃</p>
     <div class="row">
       <input type="file" id="codes-file" accept="image/*">
@@ -192,7 +191,7 @@
 
 <div class="panel" id="panel-measure">
   <div class="card">
-    <h2>零件計數（M2-1）</h2>
+    <h2>零件計數</h2>
     <p style="color:var(--muted); font-size:13px;">白底、零件與背景對比明顯的照片效果最好；相黏零件會用 watershed 分離</p>
     <div class="row">
       <input type="file" id="count-file" accept="image/*">
@@ -205,7 +204,7 @@
     <div class="result" id="count-result"></div>
   </div>
   <div class="card">
-    <h2>尺寸量測（M2-2）</h2>
+    <h2>尺寸量測</h2>
     <p style="color:var(--muted); font-size:13px;">
       畫面需放一個 ArUco 標記當比例尺（用專案的 <code>scripts/make_aruco.py</code> 產生可列印 PDF），
       會用標記四角做透視校正後再量測
@@ -228,7 +227,7 @@
 
 <div class="panel" id="panel-safety">
   <div class="card">
-    <h2>危險區域入侵（M5）</h2>
+    <h2>危險區域入侵</h2>
     <p style="color:var(--muted); font-size:13px;">
       上傳照片後，在圖上依序點擊 3 個以上的點畫出危險區域，按「完成區域」封閉多邊形（不畫區域就只做人員偵測，不判斷入侵）
     </p>
@@ -247,7 +246,7 @@
 
 <div class="panel" id="panel-ppe">
   <div class="card">
-    <h2>安全帽偵測（M5 PPE）</h2>
+    <h2>安全帽偵測</h2>
     <p style="color:var(--muted); font-size:13px;">
       監督式訓練（Hard Hat Workers 資料集，CC0 1.0）。只偵測「有沒有戴安全帽」，資料集沒有反光背心類別，這是資料集本身的限制。
     </p>
@@ -263,7 +262,7 @@
 
 <div class="panel" id="panel-defect">
   <div class="card">
-    <h2>PCB 瑕疵偵測（M6）</h2>
+    <h2>PCB 瑕疵偵測</h2>
     <p style="color:var(--muted); font-size:13px;">
       監督式訓練（DeepPCB 資料集，MIT License），偵測 6 種瑕疵：斷路、短路、缺口、毛刺、多餘銅箔、針孔。
       跟 M3（非監督，只需良品）互補——M3 不需要 NG 樣本但只能說「哪裡異常」，M6 需要標註過的 NG 樣本但能講出「是哪一種瑕疵」。
@@ -280,7 +279,7 @@
 
 <div class="panel" id="panel-nameplate">
   <div class="card">
-    <h2>銘牌讀取（M7）</h2>
+    <h2>銘牌讀取</h2>
     <p style="color:var(--muted); font-size:13px;">
       OCR 擷取文字後用 AI 整理成廠牌／型號／序號／製造日期／電壓
     </p>
@@ -296,7 +295,7 @@
 
 <div class="panel" id="panel-sevenseg">
   <div class="card">
-    <h2>七段顯示器判讀（M7）</h2>
+    <h2>七段顯示器判讀</h2>
     <p style="color:var(--muted); font-size:13px;">
       一般 OCR 認不出七段顯示器字型（實測 RapidOCR 完全偵測不到、Tesseract 會亂猜成中文），改用 OpenCV 逐段判讀
     </p>
@@ -312,7 +311,7 @@
 
 <div class="panel" id="panel-gauge">
   <div class="card">
-    <h2>指針錶讀值（M7）</h2>
+    <h2>指針錶讀值</h2>
     <p style="color:var(--muted); font-size:13px;">
       輸入最小/最大刻度與對應角度（角度慣例：0 度＝3 點鐘方向，順時針遞增；不知道怎麼量可以先試預設值再調整）
     </p>
@@ -334,7 +333,7 @@
 
 <div class="panel" id="panel-packaging">
   <div class="card">
-    <h2>包裝追溯碼檢核（M8-1）</h2>
+    <h2>包裝追溯碼檢核</h2>
     <p style="color:var(--muted); font-size:13px;">
       同一張包裝照片比對 GS1 UDI 條碼跟印刷文字上的批號/效期是否一致——GMP 追溯常見需求，兩邊對不上代表可能印錯或貼錯條碼
     </p>
@@ -350,7 +349,7 @@
 
 <div class="panel" id="panel-pneumonia">
   <div class="card">
-    <h2>醫學影像分類展示（M8-2）</h2>
+    <h2>醫學影像分類展示</h2>
     <p style="color:var(--muted); font-size:13px; font-weight:600; color:#ff3b30;">
       ⚠️ 僅供技術展示，非醫療診斷用途。這只是拿公開的 PneumoniaMNIST 資料集（CC BY 4.0）示範 AI 影像分類能力，不是真的醫療判斷工具。
     </p>

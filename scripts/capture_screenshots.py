@@ -103,9 +103,11 @@ def capture_safety(page):
     # 用 locator.click(position=...) 而不是 page.mouse.click(絕對座標)：
     # canvas 比 viewport 高，絕對座標點擊下半部會落在畫面捲動範圍外點不到；
     # position 是相對 canvas 左上角，click() 每次都會自動把 canvas 捲進可視範圍再點。
+    # y 下緣要到 1.0（畫布底部）：人員的「腳底參考點」在原圖裡非常接近下緣（fraction≈0.989），
+    # 之前用 0.98 只差一點點就沒蓋到，畫出來像是涵蓋人物，但 pointPolygonTest 其實判定沒入侵。
     w, h = box["width"], box["height"]
     points = [(w * 0.03, h * 0.05), (w * 0.45, h * 0.05),
-              (w * 0.45, h * 0.98), (w * 0.03, h * 0.98)]
+              (w * 0.45, h * 0.995), (w * 0.03, h * 0.995)]
     for x, y in points:
         canvas.click(position={"x": x, "y": y})
         page.wait_for_timeout(150)
