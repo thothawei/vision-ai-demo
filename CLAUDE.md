@@ -130,6 +130,37 @@ ERP 串接介面 + 基本資安。使用者在開工前回報階段確認兩個�
 - **開發中真的用 Playwright 搭配假相機裝置（`--use-fake-device-for-media-stream`）驗證拍照流程，不是只看程式碼邏輯合理就假設會動**：`getUserMedia` 這種瀏覽器原生 API 沒辦法用單元測試涵蓋，寫了一次性 Playwright 腳本（不是常駐測試，跟 `scripts/capture_screenshots.py` 的角色類似）：開相機→等 video 元素可見→點擊拍照→確認 modal 關閉、預覽圖出現、`<input>` 的 `files` 真的多了一個 `File` 物件→送出後真的打 Ollama 拿到辨識結果。這證明了整條「假相機→Blob→File→DataTransfer→現有上傳流程→真實 API 呼叫」鏈路是通的，不是只驗證了某一段。
 - **開發中意外抓到一個跟 Phase 11 無直接關係、但透過即時驗證發現的真實 bug（`core/image_io.py`）**：用真實伺服器測 `watch_folder.py` 丟壞檔進 error 資料夾時，API 回傳的是 500 而不是預期的 400。追下去發現：`ultralytics` 匯入時會 monkeypatch `PIL.Image.open`（加 HEIF 支援），當 Pillow 對一段不是圖片的 bytes 做格式辨識失敗時，被 patch 過的 `Image.open` 會嘗試 lazy import `pi_heif`；這個套件沒裝（也不在 `requirements.txt`），丟出的是 `ModuleNotFoundError`，不是 `load_image()` 原本攔截的 `UnidentifiedImageError`/`OSError`，所以直接變成未攔截的 500。只有在某個請求已經觸發過 `import ultralytics`（例如呼叫過 M5/M6 任何一個端點）之後，這個 monkeypatch 才會生效，這也是為什麼 Phase 1-10 的單元測試從來沒踩到——測試執行順序或假 fixture 沒有觸發真的 `import ultralytics`。修法是把 `load_image()` 讀圖那段的 `except` 從 `(UnidentifiedImageError, OSError)` 放寬成 `Exception`，因為這個函式的語意合約本來就是「bytes 讀不出圖片就回 400」，不該因為底層第三方套件的例外型別而洩漏成 500。這個 bug 完全是靠「拿真實伺服器測真實情境」才抓到的，單元測試（`TestClient`，沒有先觸發 ultralytics import）測不出來。
 
+## 技術決策與理由（Phase 12）
+
+自有資料導入流程：M3 自訂類別（zip 上傳 + 背景排隊擬合 + 門檻調校）、複判資料回流匯出。使用者確認標註校正工具選 **Label Studio Community**（Apache-2.0）。
+
+- **自訂類別擬合用 `anomalib.data.Folder`，不是硬套 `MVTecAD` datamodule**：`MVTecAD` 綁死官方目錄結構（含像素級 `ground_truth/` 遮罩），使用者上傳的 zip 不會有這種遮罩。`scripts/train_anomaly.py` 新增 `train_custom()`，用 `Folder(normal_dir=..., root=...)`；`train_one()`（既有三個 demo 類別）完全沒動，兩者是平行的兩條路徑，不是重構共用。
+- **良品照片自己先切一部分（20%）留著評分用，不是讓 anomalib 的 Folder 自動切測試集**：`train_custom()` 用固定種子（42）洗牌後把良品切成「擬合用（80%）」跟「held-out 評分用（20%）」，擬合只餵 80% 給 `Folder(normal_dir=...)`（不提供 `abnormal_dir`/`normal_test_dir`），擬合完用**匯出後的 `TorchInferencer`**（跟正式推論路徑完全一樣的程式碼）對 held-out 良品 + 全部 NG 照片逐張評分，寫成 `scores.json`。這個設計換來的是評分邏輯完全掌握在自己手上、跟正式推論路徑一致，不用去猜 anomalib 內部 `Folder`／`test_split_mode` 對「沒有 mask」情境的語意。
+- **真實踩到的 bug：anomalib 內建的 min-max 分數正規化會把良品跟 NG 的分數大量裁到剛好卡在 0 或 1，讓門檻建議完全失真**：第一次用 MVTec `bottle`（Phase 12 驗收指定的類別，模擬「自家零件」）跑完整流程，AUROC=0.9762 看起來正常，但 ROC/Youden's J 選出來的門檻剛好是 `1.0`——一個明顯退化的數字。查了 `scores.json` 才發現：42 張 held-out 良品裡有好幾張分數精確等於 `1.0`，63 張 NG 照片**全部**都是 `1.0`。追進 `anomalib.post_processing.PostProcessor` 原始碼，確認 `image_min`/`image_max` 這兩個正規化統計值只在 Lightning 的 validation 階段用 `MinMax` metric 累積——而 `Folder` datamodule 在我只給 `normal_dir`（80% 良品）的情況下，會自己內部再切一小塊「良品」當驗證集，這塊驗證集分數範圍天生就很窄（畢竟都是良品），min-max 正規化拿這個窄範圍去裁剪外部 held-out 良品跟全部 NG 的原始分數，結果就是只要原始分數超出這個窄範圍就被裁到剛好等於邊界值 `1.0`。修法：`Patchcore(post_processor=PostProcessor(enable_normalization=False, enable_thresholding=False))`——關掉 anomalib 內建的正規化與自動門檻，`pred_score` 保留原始距離值，自己的 `_suggest_threshold()` 在真正連續的分數上算 ROC 才有意義。修完重跑同一批 bottle 資料：AUROC=0.9977（本來就該接近 1 的，因為良品/NG 分數幾乎完全分開），門檻=40.13（良品分數 25.8-44.7、NG 分數 40.1-76.6，門檻剛好卡在重疊區邊界，完全合理）。這個 bug 不是憑空猜到才防的，是看到「門檻=1.0」這個結果不合理，往下查 anomalib 原始碼才抓到的。
+- **既有三個 demo 類別（metal_nut/screw/tile）完全不受這次改動影響**：`inspect_part()` 的判定邏輯是「該類別有 `threshold.json` 就用新邏輯，沒有就沿用 Phase 3 的 `pred_label`」，`train_one()`（那三個類別用的訓練路徑）沒有被改動，也沒有幫它們補 `threshold.json`，所以它們的判定行為原封不動。
+- **背景擬合用單一 worker 執行緒 + `queue.Queue()`，天然保證「同時只跑一個」**：`POST /api/anomaly/categories` 只做「解壓 zip（防 zip slip，只取檔名不取路徑）、驗證張數、寫入 `queued` 狀態、丟進佇列」就立刻回應（實測 0.5 秒），真正的擬合由 `main.py` 的 `lifespan` 啟動的常駐 worker 執行緒逐一處理，跟 Phase 10 webhook 重試執行緒同一個模式。狀態存在 `models/anomaly/categories.json`（單一小檔案，不是資料庫表，這個規模用不到資料庫）。
+- **`_worker_loop()` 拆出 `_process_one(name)` 給測試直接呼叫，不是測試裡真的起一個 `while True` 的執行緒**：一開始寫測試時真的在測試裡 `threading.Thread(target=_worker_loop).start()`，發現這個 daemon thread 測試結束後不會自己停（還在 `queue.get()` 那邊卡著），如果後面的測試又呼叫了真正的 `enqueue_category()`（沒有 monkeypatch `_run_fit`），這個殘留的執行緒會立刻搶著執行**真的** PatchCore 擬合，拖慢甚至弄亂後面的測試。拆出 `_process_one()` 讓測試可以同步呼叫「處理一個佇列項目」的邏輯，不需要真的背景執行緒，也不會有測試之間互相汙染的殘留執行緒。
+- **`export_reviewed.py` 的 YOLO 匯出真的用 `ultralytics` `.val()` 驗證過格式**：不是「看 data.yaml 寫得對就假設 ultralytics 吃得下」。拿 Phase 5 訓練好的 PPE 模型（`models/ppe/ppe_yolo11n/weights/best.pt`）對匯出的 5 張已複判 PPE 紀錄跑 `model.val(data=exported/data.yaml)`，真的成功執行（mAP50=0.995，因為標籤本來就是這個模型自己的預測結果，數字高不代表訓練品質，只證明格式正確可用）。
+- **匯出的 YOLO 標籤明確標記「AI 預標註、需人工校正」，不假裝是最終標註**：`manifest.json` 裡寫清楚這件事，README 也重複強調——這個資料夾的用途是省下標註員從零開始框的時間，不是可以直接拿去重訓的乾淨標籤。
+
+### 自有資料導入流程圖
+
+```mermaid
+flowchart LR
+    A[現場誤判\nAI 判 NG/OK 但實際不是] --> B[人工複判\nPATCH /api/inspections/id/review]
+    B --> C[scripts/export_reviewed.py\nYOLO 格式 或 MVTec 格式]
+    C --> D[Label Studio Community\n人工校正框/分類]
+    D --> E{M3 異常檢測?}
+    E -- 是 --> F[POST /api/anomaly/categories\n重新擬合，固定 CPU]
+    E -- 否，M5/M6 --> G[ultralytics YOLO.train\n用校正後標籤重訓]
+    F --> H[比較新舊 AUROC]
+    G --> H2[比較新舊 mAP50]
+    H --> I{比舊模型好?}
+    H2 --> I
+    I -- 是 --> J[換掉 models/ 底下的權重，上線]
+    I -- 否 --> K[保留舊權重，記錄這次嘗試沒有改善]
+```
+
 ## 目錄結構
 
 ```
@@ -148,6 +179,7 @@ vision-ai-demo/
 │   │   ├── api_auth.py          # Phase 10：/api/inspections* 的 X-API-Key 驗證
 │   │   ├── webhook.py           # Phase 10：NG 非同步通知 + 失敗重試佇列
 │   │   ├── batch_dispatch.py    # Phase 11：批次上傳的「動作」對照表
+│   │   ├── anomaly_training.py  # Phase 12：M3 自訂類別 zip 上傳/背景排隊擬合/門檻 registry
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計、webhook_queue）
 │   ├── schemas/
 │   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
@@ -170,7 +202,8 @@ vision-ai-demo/
 │   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
-│   ├── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
+│   ├── train_anomaly.py        # 擬合 M3 PatchCore（train_one=demo 類別／train_custom=Phase 12 自訂類別）
+│   ├── export_reviewed.py      # Phase 12：已複判紀錄 → YOLO／MVTec 格式，給標註工具校正用
 │   ├── prepare_deeppcb.py      # DeepPCB 官方標註 → YOLO 格式（M6）
 │   ├── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
 │   ├── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
@@ -181,7 +214,8 @@ vision-ai-demo/
 │   └── train_ppe.ipynb         # M5 PPE 訓練，Colab GPU 版
 ├── models/
 │   ├── yolo/yolo11n.pt         # M5 危險區域入侵用，YOLO 官方 release 下載，gitignore
-│   ├── anomaly/<category>/     # M3 用，scripts/train_anomaly.py 產生，gitignore
+│   ├── anomaly/<category>/     # M3 用，scripts/train_anomaly.py 產生，gitignore（自訂類別另有 scores.json/threshold.json）
+│   ├── anomaly/categories.json # Phase 12：自訂類別狀態 registry（queued/fitting/done/failed）
 │   │   ├── weights/torch/model.pt   # 推論用（TorchInferencer 直接載入）
 │   │   └── metrics.json             # 實測 image-level AUROC、擬合耗時、測試集大小
 │   ├── defect/pcb_yolo11n/     # M6 用，results.csv 有逐 epoch 訓練曲線，gitignore
@@ -206,6 +240,8 @@ vision-ai-demo/
 │   ├── test_batch.py             # Phase 11：POST /api/batch/{action}
 │   ├── test_safety_video.py      # Phase 11：M5 短影片抽幀
 │   ├── test_watch_folder.py      # Phase 11：資料夾監控核心邏輯
+│   ├── test_anomaly_categories.py # Phase 12：自訂類別 zip 驗證/排隊/門檻 registry
+│   ├── test_export_reviewed.py    # Phase 12：已複判紀錄 → YOLO/MVTec 格式匯出
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -294,6 +330,9 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **批次 API 整批共用同一組額外參數**：M3 異常檢測整批共用同一個 `category`、M5 危險區域入侵整批共用同一個 `zone`，沒有「每張各自設定」的機制，這是刻意的範圍限制（見技術決策）。
 - **M5 短影片抽幀是取樣不是逐幀分析**：`sample_interval_s` 預設 1 秒抽一幀，抽樣間隔跟人員/動作移動速度沒有連動校準，快速通過的違規行為可能剛好避開取樣時間點而漏判；`max_duration_s`（預設 60 秒）之後的影片內容完全不會被處理。
 - **相機拍照只用 headless Chromium 的假相機裝置驗證過，沒有用真實手機/筆電相機測試過**：`getUserMedia` → Blob → `DataTransfer` → 既有上傳流程這條鏈路用 Playwright + `--use-fake-device-for-media-stream` 驗證過完整流程（含真的打 Ollama 拿到辨識結果），但真實相機的畫質/對焦/權限提示互動未實測。
+- **M3 自訂類別的異常分數是 PatchCore 原始距離值，不是 0~1 的正規化分數**：關掉了 anomalib 內建正規化（見技術決策的踩坑紀錄），不同類別之間的分數尺度不能直接比較，每個類別的門檻都是獨立算出來的，不能套用到別的類別。
+- **自訂類別擬合佇列是進程內記憶體，伺服器重啟會遺失排隊中的工作**：`queue.Queue()` 不是持久化佇列，`categories.json` 裡狀態卡在 `fitting` 但實際上該次擬合已經因為重啟而中斷的情況，需要使用者自己重新上傳。
+- **`export_reviewed.py` 匯出的框是 AI 當時的預測，品質取決於當時的模型**：如果 AI 本身框得不準，匯出的「預標註」也會不準，人工校正的工作量可能不小；這支腳本的價值是省下「從零開始框」的時間，不是省下「校正」的時間。
 
 ## 待辦（Phase 進度）
 
@@ -309,6 +348,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 9：檢驗紀錄強化 + 品檢看板 + 人工複判。`inspections` 表新增追溯欄位（work_order/part_no/lot_no/station/operator）+ 原圖/標註圖存檔欄位 + 複判欄位，舊 db 自動 `ALTER TABLE` 補欄位（真的用手動建的舊 schema db 測過）；`GET /api/inspections/{id}`、`PATCH /api/inspections/{id}/review`、`GET /api/inspections/{id}/image`、`GET /api/inspections/stats?group_by=module|day|defect` 四支新 API；前端新增追溯資訊列（`localStorage` 記住、自動帶 header）與第 14 分頁「品檢紀錄與看板」（Chart.js 折線圖/柏拉圖/堆疊長條圖 + 可展開的紀錄表格 + 複判表單）。71 項單元測試全過（新增 9 項），並用真實瀏覽器操作＋真打 Ollama／PCB 模型驗證整條「輸入追溯資訊→辨識→看板出現→複判→良率變化」流程。
 - [x] Phase 10：ERP 串接介面 + 基本資安。`/api/inspections*` 加 `X-API-Key` 驗證（13 個辨識端點刻意不套，見技術決策）；`since_id` 增量拉取（id 升冪，跟預設降冪明確區分）+ `GET /api/inspections/reviews?since=` 抓事後複判；NG 時 daemon thread 立即 POST `ERP_WEBHOOK_URL`、失敗才進 `webhook_queue` 由背景執行緒重試；`CORS_ORIGINS` 白名單（預設只允許本機）、`MAX_UPLOAD_MB`（預設 20，超過 413）、`load_image()` 不信任副檔名一律用 Pillow 實際開檔驗證。`docs/erp-integration.md`（含 Mermaid 輪詢時序圖、欄位對照表、C# 範例）+ `docs/openapi.json` 匯出；C# 範例真的建了 `docs/erp-integration-sample/` 用 `dotnet build` 編譯驗證過。82 項單元測試全過（新增 11 項）。
 - [x] Phase 11：產線化輸入。`scripts/watch_folder.py` 監看資料夾自動辨識、搬 done/error、等檔案大小穩定才讀；`POST /api/batch/{action}` 批次上傳（14 個動作代號，單張失敗不中斷整批），13 個分頁 `<input>` 改可多選、選多張自動走批次並用縮圖卡片呈現結果；`POST /api/safety/video`、`/api/safety/ppe/video` 短影片逐幀抽樣（重構出 `_detect_intrusion_on_bgr`／`_detect_ppe_on_bgr` 共用邏輯），檢驗紀錄只寫一筆彙總；13 個分頁加「📷 拍照」按鈕（`getUserMedia`+`DataTransfer` 塞回既有 `<input>`）。RTSP 定時抓圖依使用者指示跳過。開發中用真實伺服器測試意外抓到 `core/image_io.load_image()` 的 500 錯誤（ultralytics monkeypatch PIL 副作用）並修正。97 項單元測試全過（新增 15 項），並用真實 Ollama/YOLO 模型 + 自製影片 + Playwright 假相機裝置驗證整條批次上傳／影片抽幀／資料夾監控／拍照流程。
+- [x] Phase 12：自有資料導入流程。M3 自訂類別（`POST /api/anomaly/categories` 上傳 zip、單一 worker 執行緒背景排隊擬合、`anomalib.data.Folder` 不套用 MVTec 目錄結構）；門檻調校（無 NG 用良品 99th percentile、有 NG 用 ROC/Youden's J，前端直方圖+拖拉滑桿即時算誤判率/漏判率）；`scripts/export_reviewed.py` 複判資料回流（PPE/defect → YOLO、anomaly → MVTec 格式），標註校正工具選定 Label Studio Community（Apache-2.0，不裝進 venv）。開發中用 MVTec `bottle`（模擬「自家零件」，只用原始照片不用 ground_truth 遮罩）真實跑完整流程時抓到 anomalib 內建正規化把分數裁成退化的 `threshold=1.0`，追出根因（`Folder` 內部自動切的驗證集範圍太窄）並修正（關掉正規化，改用原始距離分數）；修完 AUROC=0.9977、門檻=40.13，真實比較出「只用良品估計」NG 漏判率 9.5% vs「用 NG 做 ROC」漏判率 0%。113 項單元測試全過（新增 16 項），並用真實 PatchCore 擬合（155-158 秒）、真實 ultralytics `.val()`、瀏覽器實際操作門檻調校滑桿驗證整條流程。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -474,3 +514,22 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **開發中意外抓到的真實 bug：`core/image_io.load_image()` 對某些壞檔案回 500 而不是 400**：這是在跑 `watch_folder.py` 的壞檔情境時發現的——單元測試裡同樣的情境（`test_non_image_bytes_with_image_extension_is_rejected`）一直是綠燈，但拿真實伺服器測就爆 500。查了 uvicorn log 的完整 traceback，追到 `ultralytics.utils.patches` 對 `PIL.Image.open` 做了 monkeypatch（加 HEIF 支援），Pillow 格式辨識失敗時這個 patch 過的版本會嘗試 lazy import `pi_heif`（沒裝），丟出 `ModuleNotFoundError`，不是原本 `except (UnidentifiedImageError, OSError)` 攔截的型別。只有在同一個 Python process 裡已經有任何請求觸發過 `import ultralytics`（M5/M6 任何端點）之後，這個 monkeypatch 才會生效——這正是為什麼過去 10 個 Phase 的單元測試從沒踩到（測試對 ultralytics 的呼叫都被 fixture 假掉，沒有真的觸發 import）。修法：把 `load_image()` 的 except 從 `(UnidentifiedImageError, OSError)` 放寬成 `Exception`（函式的合約本來就是「bytes 讀不出圖就回 400」，不該因為第三方套件的例外型別細節就外洩成 500）。修完後 `pytest` 82→97 項照樣全過，且真實伺服器重測同一個壞檔案情境正確回 400、`watch_folder.py` 正確搬進 `error/` 並在 `.log` 寫下清楚訊息。這個 bug 完全是「Surprise is signal」抓到的：程式邏輯看起來對、單元測試也綠燈，但真實情境的結果跟預期不符，往下查才發現是環境/第三方套件的副作用，不是憑空猜到才預防的。
 - **相機拍照用 Playwright + Chromium 假相機裝置（`--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`）驗證完整鏈路**：開相機→等 `<video>` 可見→點拍照→確認 `#camera-modal` 關閉、`#general-preview` 顯示、`document.getElementById('general-file').files.length === 1`（真的拿到一個 `File` 物件，檔名 `camera-<timestamp>.jpg`）→點「開始辨識」送出→真的打 Ollama 拿到辨識結果（`general · INFO · ollama:qwen3.5:9b · 17353ms`，有正常的中文描述內容）。同一個 Playwright session 也測了批次上傳：3 張圖選在 `general-file`（`multiple` 屬性），送出後狀態列顯示「完成：共 3 張，OK 0／NG 0／INFO 3／失敗 0」，結果區塊正確渲染出 3 張縮圖卡片。
 - **既有測試無回歸**：`pytest`，97 項全過（82 項既有 + 15 項新增，約 16-18 秒）。
+
+### Phase 12：功能驗證
+
+- **用 MVTec `bottle`（Phase 12 才下載，Phase 3 沒用過）模擬「自家零件」，全程走真實 UI 建立類別**：良品 209 張（`train/good/`）+ NG 63 張（`test/broken_large`+`broken_small`+`contamination`，三種瑕疵混在一起、刻意不分類別、不帶 `ground_truth/` 像素遮罩，模擬使用者上傳一包雜亂照片的真實情境），各自打包成 zip，用 curl 真的呼叫 `POST /api/anomaly/categories?name=bottle_custom` 上傳。API 立即回應（0.5 秒，`status=queued`），背景輪詢 `GET .../status` 確認狀態依序變成 `fitting`→`done`，總耗時 158 秒。
+- **真實踩到 anomalib 內建正規化把分數裁成退化值的 bug，詳細除錯過程見「技術決策與理由（Phase 12）」**：第一次跑完 `image_auroc=0.9762` 但 `threshold=1.0`，檢查 `scores.json` 發現 63 筆 NG 分數全部剛好等於 `1.0`、部分良品也是——追進 anomalib 原始碼確認是內建 min-max 正規化拿一個範圍太窄的內部驗證集去裁剪外部分數。修正（`Patchcore(post_processor=PostProcessor(enable_normalization=False, enable_thresholding=False))`）後重跑同一批資料：`image_auroc=0.9977`、`threshold=40.13`，`scores.json` 顯示良品分數落在 25.8-44.7、NG 分數落在 40.1-76.6，只有邊界一點點重疊，數字完全合理。
+- **實測比較「只用良品估計」vs「用 NG 樣本 ROC」兩種門檻策略**：同一批 bottle 資料，不帶 NG zip 另外建一個 `bottle_good_only` 類別，門檻用 99th percentile 估計出 `44.62`；`bottle_custom`（有 NG）用 ROC/Youden's J 估計出 `40.13`。拿 `bottle_custom` 的 `scores.json`（42 張 held-out 良品 + 63 張 NG）分別套兩種門檻算誤判率：
+  | 門檻策略 | 門檻值 | 良品誤判率 | NG 漏判率 |
+  |---|---|---|---|
+  | 只用良品估計（99th percentile） | 44.62 | 2.4% | **9.5%** |
+  | 用 NG 樣本（ROC/Youden's J） | 40.13 | 2.4% | **0.0%** |
+
+  兩種策略的良品誤判率剛好一樣（2.4%），但只看良品分佈估計出來的門檻明顯偏高，導致將近一成的真實瑕疵被漏判成良品；用 NG 樣本找 ROC 最佳平衡點後，同樣的良品誤判率下 NG 漏判率降到 0%。這組數字是真實計算出來的，不是預期中「應該會更好」的猜測。
+- **門檻調校 API 與判定邏輯真的串起來測過**：`inspect_part()` 對同一張已知 NG 的測試圖（`test/broken_large/000.png`，原始異常分數 67.09，固定不變）先後套用 ROC 門檻（40.13，判 NG）跟手動調高的門檻（45.0，仍判 NG，因為 67.09 遠大於兩者），確認 `PATCH /categories/{name}/threshold` 改了門檻後，下一次 `inspect` 呼叫立即套用新門檻、不需要重啟服務或重新擬合。
+- **前端門檻調校面板用真實瀏覽器操作驗證**：切到 M3 分頁，類別表格正確顯示 `bottle_custom`（AUROC 0.9977、門檻 40.1322）與 `bottle_good_only`（AUROC 顯示 `—`、門檻 44.6232）；點「門檻調校」開出 Chart.js 直方圖，綠色（良品）與紅色（NG）分數分佈清楚分開，幾乎沒有重疊，視覺上直接印證了 AUROC 接近 1 的原因；拖拉滑桿從門檻 40.03 拉到 65.16，畫面即時把「良品誤判率」從 2.4% 更新成 0.0%、「NG 漏判率」從 0.0% 更新成 69.8%，數字跟手算的 `computeThresholdRates()` 邏輯完全吻合；點「儲存門檻」後用 `GET .../status` 確認 `threshold` 欄位真的被更新，測完手動改回 ROC 門檻 40.132244 避免影響其他測試。
+- **`export_reviewed.py` 兩種匯出格式都真實跑過**：
+  - PPE：用訓練好的模型對 5 張 Hard Hat Workers 驗證集圖片辨識（1 張 NG 含真實偵測框、4 張 OK），人工複判確認 AI 判定正確後匯出，YOLO 資料夾（`images/`、`labels/`、`data.yaml`）正確產生；拿 Phase 5 訓練好的 `models/ppe/ppe_yolo11n/weights/best.pt` 對匯出的資料夾跑 `model.val(data=...)`，**真的成功執行**，mAP50=0.995（標籤是模型自己的預測，數字高只證明格式正確，不代表訓練品質）。
+  - anomaly：用 `bottle_custom` 的一張 NG 測試圖辨識後人工複判，匯出成 MVTec 格式（`good/`、`defect/`），`export_anomaly_mvtec("bottle_custom", ...)` 正確把這筆歸進 `defect/`。
+- **收尾清理**：驗收用的 `bottle_custom`／`bottle_good_only` 兩個示範類別（連同 `models/anomaly/` 與 `data/custom_anomaly/` 底下的產物、`categories.json` 裡的條目）驗收完就清掉了，不留在系統裡當成正式功能誤導使用者；下載的 `data/mvtec_ad/bottle/` 原始資料集保留（不進版控，之後要重跑驗收或展示可以省下載時間）。
+- **既有測試無回歸**：`pytest`，113 項全過（97 項既有 + 16 項新增：`test_anomaly_categories.py` 11 項、`test_export_reviewed.py` 5 項，約 15-17 秒）。

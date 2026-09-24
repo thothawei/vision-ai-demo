@@ -30,3 +30,6 @@ medmnist==3.0.2
 
 # Phase 11：scripts/watch_folder.py 資料夾監控
 watchdog==6.0.0
+
+# Phase 12：M3 自訂類別門檻調校（ROC/Youden's J）
+scikit-learn==1.9.1

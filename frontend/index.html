@@ -202,6 +202,39 @@
     <div class="status" id="anomaly-status"></div>
     <div class="result" id="anomaly-result"></div>
   </div>
+
+  <div class="card">
+    <h2>新增自訂類別</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳良品照片 zip（至少 15 張，建議 &ge;50 張；可選再附少量 NG 照片 zip）。背景排隊擬合（固定用 CPU），
+      同時只跑一個工作，其餘排隊等候。沒有 NG 照片時門檻用良品分數的 99th percentile 估計；有 NG 照片時用 ROC/Youden's J 找最佳門檻並算出 AUROC。
+    </p>
+    <div class="row">
+      <input type="text" id="anomaly-new-name" placeholder="類別名稱（英數字/底線/連字號）">
+      <label class="hint">良品 zip<input type="file" id="anomaly-good-zip" accept=".zip"></label>
+      <label class="hint">NG zip（選填）<input type="file" id="anomaly-defect-zip" accept=".zip"></label>
+      <button type="button" id="anomaly-create-btn">送出排隊擬合</button>
+    </div>
+    <div class="status" id="anomaly-create-status"></div>
+
+    <table class="dash-table" id="anomaly-category-table" style="margin-top:14px;">
+      <thead><tr><th>類別</th><th>狀態</th><th>良品/NG 張數</th><th>AUROC</th><th>門檻</th><th>操作</th></tr></thead>
+      <tbody id="anomaly-category-tbody"></tbody>
+    </table>
+
+    <div id="anomaly-threshold-panel" style="display:none; margin-top:16px; padding-top:12px; border-top:1px solid var(--border);">
+      <h3 style="font-size:14px; margin-bottom:6px;">門檻調校：<span id="anomaly-threshold-category-name"></span></h3>
+      <div class="chart-wrap"><canvas id="anomaly-threshold-chart" height="140"></canvas></div>
+      <div class="field-row">
+        <label>門檻</label>
+        <input type="range" id="anomaly-threshold-slider" min="0" max="1" step="0.001" style="flex:1; min-width:200px;">
+        <span id="anomaly-threshold-value" style="font-weight:600;"></span>
+      </div>
+      <div class="hint" id="anomaly-threshold-rates"></div>
+      <button type="button" id="anomaly-threshold-save-btn">儲存門檻</button>
+      <span class="hint" id="anomaly-threshold-save-status"></span>
+    </div>
+  </div>
 </div>
 
 <div class="panel" id="panel-codes">
@@ -706,6 +739,186 @@ document.getElementById("anomaly-btn").addEventListener("click", () => {
   formData.append("file", files[0]);
   callApi("/api/anomaly/inspect?category=" + category, formData, statusEl, resultEl, btn);
 });
+
+// ⑥ 異常檢測：Phase 12 自訂類別（上傳 zip → 背景排隊擬合 → 門檻調校）
+const STATUS_LABELS = { queued: "排隊中", fitting: "擬合中…", done: "完成", failed: "失敗" };
+let anomalyPollTimer = null;
+let currentThresholdScores = null;
+let currentThresholdCategory = null;
+let thresholdChart = null;
+
+async function refreshAnomalyCategoryDropdown() {
+  const res = await fetch("/api/anomaly/categories/all");
+  const data = await res.json();
+  const select = document.getElementById("anomaly-category");
+  const current = select.value;
+  const builtinValues = new Set(["metal_nut", "screw", "tile"]);
+  Array.from(select.options).forEach((opt) => {
+    if (!builtinValues.has(opt.value)) opt.remove();
+  });
+  data.categories.filter((c) => !builtinValues.has(c)).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name; opt.textContent = name + "（自訂）";
+    select.appendChild(opt);
+  });
+  if (Array.from(select.options).some((o) => o.value === current)) select.value = current;
+}
+
+async function refreshAnomalyCategoryTable() {
+  const res = await fetch("/api/anomaly/categories");
+  const categories = await res.json();
+  const tbody = document.getElementById("anomaly-category-tbody");
+  tbody.innerHTML = "";
+  let hasPending = false;
+  categories.forEach((c) => {
+    if (c.status === "queued" || c.status === "fitting") hasPending = true;
+    const tr = document.createElement("tr");
+    const auroc = c.image_auroc != null ? c.image_auroc : "—";
+    const threshold = c.threshold != null ? c.threshold.toFixed(4) : "—";
+    const countLabel = `${c.good_count ?? "—"} / ${c.defect_count ?? 0}`;
+    const tuneBtn = c.status === "done" ? `<button type="button" class="anomaly-tune-btn" data-name="${c.name}">門檻調校</button>` : "";
+    const errorHint = c.status === "failed" && c.error ? `<div class="hint" style="color:#ff3b30;">${c.error}</div>` : "";
+    tr.innerHTML = `<td>${c.name}</td><td>${STATUS_LABELS[c.status] || c.status}${errorHint}</td>
+      <td>${countLabel}</td><td>${auroc}</td><td>${threshold}</td><td>${tuneBtn}</td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll(".anomaly-tune-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openThresholdPanel(btn.dataset.name));
+  });
+
+  if (hasPending && !anomalyPollTimer) {
+    anomalyPollTimer = setInterval(async () => {
+      await refreshAnomalyCategoryTable();
+      await refreshAnomalyCategoryDropdown();
+    }, 3000);
+  } else if (!hasPending && anomalyPollTimer) {
+    clearInterval(anomalyPollTimer);
+    anomalyPollTimer = null;
+  }
+}
+
+document.getElementById("anomaly-create-btn").addEventListener("click", async () => {
+  const name = document.getElementById("anomaly-new-name").value.trim();
+  const goodFile = document.getElementById("anomaly-good-zip").files[0];
+  const defectFile = document.getElementById("anomaly-defect-zip").files[0];
+  const statusEl = document.getElementById("anomaly-create-status");
+  if (!name) { alert("請輸入類別名稱"); return; }
+  if (!goodFile) { alert("請上傳良品照片 zip"); return; }
+  const formData = new FormData();
+  formData.append("good_zip", goodFile);
+  if (defectFile) formData.append("defect_zip", defectFile);
+  statusEl.textContent = "送出中…";
+  statusEl.className = "status";
+  try {
+    const res = await fetch("/api/anomaly/categories?name=" + encodeURIComponent(name), {
+      method: "POST", body: formData, headers: traceHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "送出失敗");
+    statusEl.textContent = `已排隊：${data.name}（${data.good_count} 張良品／${data.defect_count} 張 NG）`;
+    document.getElementById("anomaly-new-name").value = "";
+    document.getElementById("anomaly-good-zip").value = "";
+    document.getElementById("anomaly-defect-zip").value = "";
+    await refreshAnomalyCategoryTable();
+  } catch (err) {
+    statusEl.textContent = "錯誤：" + err.message;
+    statusEl.className = "status error";
+  }
+});
+
+function computeThresholdRates(scores, threshold) {
+  const good = scores.filter((s) => s.label === "good");
+  const defect = scores.filter((s) => s.label === "defect");
+  const falsePositive = good.filter((s) => s.score >= threshold).length; // 良品被誤判 NG
+  const falseNegative = defect.filter((s) => s.score < threshold).length; // NG 被漏判成 OK
+  return {
+    goodTotal: good.length, defectTotal: defect.length,
+    falsePositiveRate: good.length ? falsePositive / good.length : null,
+    falseNegativeRate: defect.length ? falseNegative / defect.length : null,
+  };
+}
+
+function renderThresholdChart(scores) {
+  const good = scores.filter((s) => s.label === "good").map((s) => s.score);
+  const defect = scores.filter((s) => s.label === "defect").map((s) => s.score);
+  const all = scores.map((s) => s.score);
+  const min = Math.min(...all), max = Math.max(...all);
+  const binCount = 15;
+  const binSize = (max - min) / binCount || 1;
+  const bins = Array.from({ length: binCount }, (_, i) => min + i * binSize);
+  const countIn = (arr, lo, hi) => arr.filter((v) => v >= lo && (v < hi || (hi === max && v <= hi))).length;
+  const goodCounts = bins.map((lo, i) => countIn(good, lo, i === binCount - 1 ? max : bins[i + 1]));
+  const defectCounts = bins.map((lo, i) => countIn(defect, lo, i === binCount - 1 ? max : bins[i + 1]));
+
+  if (thresholdChart) thresholdChart.destroy();
+  thresholdChart = new Chart(document.getElementById("anomaly-threshold-chart"), {
+    type: "bar",
+    data: {
+      labels: bins.map((b) => b.toFixed(3)),
+      datasets: [
+        { label: "良品分數分佈", data: goodCounts, backgroundColor: "#34c75999" },
+        { label: "NG 分數分佈", data: defectCounts, backgroundColor: "#ff3b3099" },
+      ],
+    },
+    options: { responsive: true, scales: { x: { stacked: false }, y: { title: { display: true, text: "張數" } } } },
+  });
+}
+
+async function openThresholdPanel(name) {
+  const panel = document.getElementById("anomaly-threshold-panel");
+  const statusEntry = (await (await fetch("/api/anomaly/categories/" + name + "/status")).json());
+  const res = await fetch("/api/anomaly/categories/" + name + "/scores");
+  if (!res.ok) { alert("讀取評分資料失敗"); return; }
+  const scores = await res.json();
+  currentThresholdScores = scores;
+  currentThresholdCategory = name;
+  document.getElementById("anomaly-threshold-category-name").textContent = name;
+  panel.style.display = "block";
+  renderThresholdChart(scores);
+
+  const allScores = scores.map((s) => s.score);
+  const slider = document.getElementById("anomaly-threshold-slider");
+  slider.min = Math.min(...allScores);
+  slider.max = Math.max(...allScores);
+  slider.step = (slider.max - slider.min) / 200 || 0.001;
+  slider.value = statusEntry.threshold != null ? statusEntry.threshold : (slider.min + slider.max) / 2;
+  updateThresholdDisplay();
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function updateThresholdDisplay() {
+  const slider = document.getElementById("anomaly-threshold-slider");
+  const threshold = parseFloat(slider.value);
+  document.getElementById("anomaly-threshold-value").textContent = threshold.toFixed(4);
+  const rates = computeThresholdRates(currentThresholdScores, threshold);
+  const fpPct = rates.falsePositiveRate != null ? (rates.falsePositiveRate * 100).toFixed(1) + "%" : "—";
+  const fnPct = rates.falseNegativeRate != null ? (rates.falseNegativeRate * 100).toFixed(1) + "%" : "—";
+  document.getElementById("anomaly-threshold-rates").textContent =
+    `良品誤判率（誤判成 NG）：${fpPct}（${rates.goodTotal} 張良品）／NG 漏判率（漏判成 OK）：${fnPct}（${rates.defectTotal} 張 NG）`;
+}
+
+document.getElementById("anomaly-threshold-slider").addEventListener("input", updateThresholdDisplay);
+
+document.getElementById("anomaly-threshold-save-btn").addEventListener("click", async () => {
+  const threshold = parseFloat(document.getElementById("anomaly-threshold-slider").value);
+  const statusEl = document.getElementById("anomaly-threshold-save-status");
+  statusEl.textContent = "儲存中…";
+  try {
+    const res = await fetch(`/api/anomaly/categories/${currentThresholdCategory}/threshold`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threshold }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "儲存失敗");
+    statusEl.textContent = "已儲存";
+    await refreshAnomalyCategoryTable();
+  } catch (err) {
+    statusEl.textContent = "錯誤：" + err.message;
+  }
+});
+
+refreshAnomalyCategoryTable();
+refreshAnomalyCategoryDropdown();
 
 // ③ 追溯碼辨識
 const codesFile = document.getElementById("codes-file");

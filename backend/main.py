@@ -29,9 +29,10 @@ from modules.safety.router import router as safety_router  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from core import webhook
+    from core import anomaly_training, webhook
 
     webhook.start_background_retry_loop()
+    anomaly_training.start_worker()
     yield
 
 

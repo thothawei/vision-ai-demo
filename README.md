@@ -192,6 +192,34 @@ uvicorn main:app --reload
 - **瀏覽器拍照**：各分頁的「📷 拍照」按鈕用 `getUserMedia` 開相機、拍下轉成 Blob 後接原本的上傳流程；**非 localhost 的 http 網址瀏覽器會擋相機權限**，要用相機請走 `http://127.0.0.1:8000` 或之後部署 https。
 - **RTSP 定時抓圖**：本輪跳過（沒有實體 IP Cam 可測，優先度較低）。
 
+## 自有資料導入流程（Phase 12）
+
+### M3 新增自訂類別
+
+③ 外觀瑕疵異常檢測分頁新增「新增自訂類別」表單：上傳良品照片 zip（至少 15 張，建議 ≥50 張；可選再附少量 NG 照片 zip）+ 類別名稱，背景排隊擬合（固定用 CPU，同時只跑一個工作，其餘排隊）。完成後：
+
+- 沒有 NG 照片：門檻用良品分數的 99th percentile 估計。
+- 有 NG 照片：用 ROC 找 Youden's J 最佳門檻，並回報 AUROC。
+
+點類別列的「門檻調校」可看到良品／NG 分數分佈直方圖，拖拉門檻即時看「良品誤判率／NG 漏判率」，「儲存門檻」後立即套用到 `/api/anomaly/inspect` 的判定（不用重新擬合）。API：`POST /api/anomaly/categories`、`GET /api/anomaly/categories`、`GET /api/anomaly/categories/{name}/status`、`GET /api/anomaly/categories/{name}/scores`、`PATCH /api/anomaly/categories/{name}/threshold`。
+
+### 複判資料回流
+
+```bash
+python scripts/export_reviewed.py --module ppe --out ./export_ppe          # YOLO 格式，AI 偵測框當預標註
+python scripts/export_reviewed.py --module defect --out ./export_defect     # 同上
+python scripts/export_reviewed.py --module anomaly --out ./export_anomaly --category screw  # MVTec 格式（good/、defect/）
+```
+
+匯出的標註是 AI 當時的偵測結果，**不是最終標註**，需要人工校正過才能拿去重訓。校正工具用 **Label Studio Community**（Apache-2.0，<https://github.com/HumanSignal/label-studio>）或 **CVAT**（MIT）：
+
+1. `pip install label-studio && label-studio start`（獨立安裝執行，不裝進本專案 venv，也不進 `requirements.txt`）
+2. 建一個 Object Detection 專案，Import 匯出的 `images/`（YOLO 格式匯出時 Label Studio 支援直接匯入 YOLO 標註，`defect/`/`good/`圖片給 M3 用 Image Classification 專案即可）
+3. 人工校正框的位置/類別是否正確（AI 預標註只是起點，省下從零框的時間）
+4. Export 成 YOLO 格式覆蓋回 `labels/`，重新訓練（`YOLO('yolo11n.pt').train(data=data.yaml, ...)`）並比較新舊 mAP/AUROC 再決定要不要上線
+
+現場誤判 → 人工複判 → 匯出 → 標註校正 → 重訓 → 比較新舊指標 → 上線 的完整流程圖見 [CLAUDE.md](CLAUDE.md)。
+
 ## 測試
 
 ```bash
@@ -223,6 +251,9 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **批次上傳整批共用同一組額外參數**：例如批次跑 M3 異常檢測，整批圖片必須是同一個 `category`；批次跑危險區域入侵，整批共用同一個 `zone`，沒有辦法每張各自設定。
 - **相機拍照在非 localhost 的 http 網址會被瀏覽器擋掉**：`getUserMedia` 只在安全情境（https 或 localhost）可用，僅用內建假相機裝置（Chromium headless 測試）驗證過拍照→上傳→辨識全流程，未用實體手機/筆電相機測試過。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
+- **自訂類別擬合固定用 CPU、同時只跑一個**：150-250 張照片實測約 150-160 秒；佇列是進程內的 `queue.Queue`，伺服器重啟排隊中的工作會遺失（需要重新上傳）。
+- **自訂類別關掉了 anomalib 內建的分數正規化**：改用自己的 ROC/百分位數邏輯算門檻，異常分數是 PatchCore 的原始距離值（不是 0~1），不同類別之間的分數不能直接比較大小。
+- **`export_reviewed.py` 匯出的標註是 AI 當時的預測，不是保證正確的標註**：一定要經過人工在 Label Studio／CVAT 校正過才能拿去重訓，直接拿去訓練會讓模型學到自己的錯誤。
 
 ## 專案結構
 
@@ -237,7 +268,7 @@ vision-ai-demo/
 ├── frontend/
 │   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板，各分頁支援多選批次上傳 + 相機拍照）
 │   └── vendor/chart.min.js      # Chart.js（MIT），看板圖表用，離線優先不用 CDN
-├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py、watch_folder.py
+├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py、watch_folder.py、export_reviewed.py
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore
 ├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore

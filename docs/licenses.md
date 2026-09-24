@@ -34,12 +34,19 @@
 | pytest | 9.1.1 | MIT | 是 | pure | 測試 | https://pypi.org/project/pytest/ |
 | httpx | 0.28.1 | BSD-3-Clause | 是 | pure | FastAPI TestClient 相依 | https://pypi.org/project/httpx/ |
 | watchdog | 6.0.0（PyPI JSON API 查證，2026-09-24） | Apache-2.0 | 是 | 有 wheel | `scripts/watch_folder.py` 資料夾監控（Phase 11） | https://pypi.org/project/watchdog/ |
+| scikit-learn | 1.9.1（PyPI JSON API 查證，2026-09-24） | BSD-3-Clause | 是 | 有 wheel | M3 自訂類別門檻調校（ROC/Youden's J，Phase 12） | https://pypi.org/project/scikit-learn/ |
 
 ## 前端套件（vendor，Phase 9 新增）
 
 | 名稱 | 查證版本 | 授權 | 可商用 | 用途 | 來源 |
 |---|---|---|---|---|---|
 | Chart.js | 4.5.1（查證 `master` 分支 `package.json`，2026-09-24） | MIT | 是 | ⑭ 品檢看板：每日良率折線、NG 原因柏拉圖、各模組件數 | https://github.com/chartjs/Chart.js ；放 `frontend/vendor/chart.min.js`（離線優先，不用 CDN，符合硬性規則第 2 條核心離線） |
+
+## 外部標註工具（Phase 12，不裝進本專案 venv，各自獨立安裝執行）
+
+| 名稱 | 查證版本/授權 | 可商用 | 用途 | 來源 |
+|---|---|---|---|---|
+| Label Studio Community Edition | 授權查證 `LICENSE` 檔（GitHub `master` 分支，2026-09-24）：**Apache-2.0** | 是 | `scripts/export_reviewed.py` 匯出的 YOLO／MVTec 資料夾用它匯入校正人工複判過的標註（見 README「複判資料回流」） | https://github.com/HumanSignal/label-studio |
 
 ## .NET 套件（僅 Phase 10 文件範例編譯驗證用，不是本系統執行期相依）
 
@@ -83,7 +90,7 @@
 
 | 名稱 | 授權（原文出處） | 可商用 | 本專案用法 | 來源 |
 |---|---|---|---|---|
-| MVTec AD（metal_nut 157MB / screw 186MB / tile 335MB，Phase 3 已下載） | **CC BY-NC-SA 4.0**，官方頁明寫「not allowed to use the dataset for commercial purposes」 | 否 | M3，**僅供學習/作品集展示**，`data/mvtec_ad/`，不進版控 | 各類別分開下載連結：https://www.mvtec.com/research-teaching/datasets/mvtec-ad/downloads（總頁面轉址後的真實網址） |
+| MVTec AD（metal_nut 157MB / screw 186MB / tile 335MB，Phase 3 已下載；bottle 155MB，Phase 12 驗收自訂類別流程時下載，用完已清掉擬合出的模型/資料，只留原始 tar.xz 供之後重跑） | **CC BY-NC-SA 4.0**，官方頁明寫「not allowed to use the dataset for commercial purposes」 | 否 | M3，**僅供學習/作品集展示**，`data/mvtec_ad/`，不進版控；Phase 12 用 bottle 當「假裝是自家零件」模擬使用者上傳（只用 train/good + test 的原始照片，刻意不用 ground_truth 像素遮罩） | 各類別分開下載連結：https://www.mvtec.com/research-teaching/datasets/mvtec-ad/downloads（總頁面轉址後的真實網址） |
 | NEU-DET（NEU surface defect database） | **官方頁沒有任何授權條款**，只寫「請引用論文」；下載走 Google Drive / 百度盤 | 未知（無授權＝預設保留所有權利） | M6，待使用者決定（見 Phase 0 回報） | http://faculty.neu.edu.cn/songkechen/zh_CN/zdylm/263270/list/index.htm |
 | DeepPCB（1500 張 640x640，Phase 5 已下載並用於訓練） | 資料放在 GitHub repo 內，repo 授權 **MIT** | 是 | M6（clone 整個 repo，231MB） | https://github.com/tangsanli5201/DeepPCB |
 | Hard Hat Workers（5297 train + 1766 test，Phase 5 已下載並用於訓練） | **CC0 1.0**（Harvard Dataverse API 回傳；Roboflow 頁標示 Public Domain） | 是 | M5 PPE（只有 helmet/head 兩類，**沒有反光背心類別**，資料集本身的限制） | https://doi.org/10.7910/DVN/7CBGOS（實際下載 https://dataverse.harvard.edu/api/access/datafile/3344658，268MB rar） |

@@ -2,8 +2,15 @@
 
 推論用 anomalib 匯出的 TorchInferencer（scripts/train_anomaly.py 產生），
 一次載入後常駐記憶體（依 category 各自快取），不必每次都重建 Lightning 模組。
+
+Phase 12：新增自訂類別（`core/anomaly_training.py` 背景擬合），`is_valid_category()`／
+`list_all_categories()` 把內建三個示範類別跟使用者自訂類別合併起來給前端下拉選單用。
+門檻判定：類別有 `threshold.json`（自訂類別一定有）就用 `pred_score >= threshold`；
+沒有（內建三個示範類別，Phase 3 沿用至今）就用匯出時烤進權重的 `pred_label`，
+行為完全不變，不會因為 Phase 12 而影響既有三個類別的判定結果。
 """
 
+import json
 import os
 import time
 from pathlib import Path
@@ -24,9 +31,36 @@ CATEGORIES = ["metal_nut", "screw", "tile"]
 _inferencers: dict[str, object] = {}
 
 
+def _custom_category_names() -> set[str]:
+    from core import anomaly_training
+
+    return {
+        c["name"] for c in anomaly_training.list_custom_categories()
+        if c.get("status") == "done"
+    }
+
+
+def list_all_categories() -> list[str]:
+    """內建示範類別 + 已擬合完成的自訂類別，給前端下拉選單／驗證用。"""
+    return [*CATEGORIES, *sorted(_custom_category_names())]
+
+
+def is_valid_category(category: str) -> bool:
+    return category in CATEGORIES or category in _custom_category_names()
+
+
+def _load_threshold(category: str) -> float | None:
+    threshold_path = MODELS_DIR / category / "threshold.json"
+    if not threshold_path.exists():
+        return None
+    return json.loads(threshold_path.read_text())["threshold"]
+
+
 def inspect_part(image_bytes: bytes, category: str) -> InspectionResult:
-    if category not in CATEGORIES:
-        raise ModuleError(f"category 只能是 {CATEGORIES} 其中之一，目前是「{category}」", 400)
+    if not is_valid_category(category):
+        raise ModuleError(
+            f"category「{category}」不存在，目前可用：{list_all_categories()}", 400,
+        )
 
     started = time.perf_counter()
     image = load_image(image_bytes)
@@ -35,7 +69,8 @@ def inspect_part(image_bytes: bytes, category: str) -> InspectionResult:
     prediction = inferencer.predict(image)
 
     score = float(prediction.pred_score)
-    is_anomalous = bool(prediction.pred_label)
+    threshold = _load_threshold(category)
+    is_anomalous = (score >= threshold) if threshold is not None else bool(prediction.pred_label)
     annotated = _draw_heatmap(image, prediction.anomaly_map)
 
     verdict = "NG" if is_anomalous else "OK"
@@ -44,7 +79,14 @@ def inspect_part(image_bytes: bytes, category: str) -> InspectionResult:
         "異常分數": round(score, 4),
         "判定": "異常" if is_anomalous else "正常",
     }
+    if threshold is not None:
+        item["使用門檻"] = round(threshold, 4)
     return record_result(MODULE, verdict, [item], "anomalib-patchcore", started, bgr_to_data_url(annotated))
+
+
+def invalidate_cache(category: str) -> None:
+    """類別重新擬合、權重被覆蓋後呼叫，避免繼續用記憶體裡舊的推論器服務新請求。"""
+    _inferencers.pop(category, None)
 
 
 def _get_inferencer(category: str):
