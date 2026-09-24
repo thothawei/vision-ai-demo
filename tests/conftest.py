@@ -12,6 +12,27 @@ def png_bytes(image) -> bytes:
     return buf.getvalue()
 
 
+def make_video_bytes(n_frames: int, width: int = 100, height: int = 100, fps: float = 1.0) -> bytes:
+    """產生一支最小的合成 mp4（純黑幀），給 Phase 11 影片端點測試用，不依賴外部影片檔。"""
+    import os
+    import tempfile
+
+    import cv2
+    import numpy as np
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        path = tmp.name
+    try:
+        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+        for _ in range(n_frames):
+            writer.write(np.zeros((height, width, 3), dtype=np.uint8))
+        writer.release()
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(path)
+
+
 TEST_API_KEY = "test-key"
 
 

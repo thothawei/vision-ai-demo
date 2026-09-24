@@ -33,6 +33,7 @@
 | medmnist | 3.0.2（Phase 7 已裝並用於訓練） | 程式 Apache-2.0 | 是 | pure | M8-2 資料集下載 | https://github.com/MedMNIST/MedMNIST |
 | pytest | 9.1.1 | MIT | 是 | pure | 測試 | https://pypi.org/project/pytest/ |
 | httpx | 0.28.1 | BSD-3-Clause | 是 | pure | FastAPI TestClient 相依 | https://pypi.org/project/httpx/ |
+| watchdog | 6.0.0（PyPI JSON API 查證，2026-09-24） | Apache-2.0 | 是 | 有 wheel | `scripts/watch_folder.py` 資料夾監控（Phase 11） | https://pypi.org/project/watchdog/ |
 
 ## 前端套件（vendor，Phase 9 新增）
 

@@ -115,6 +115,21 @@ ERP 串接介面 + 基本資安。使用者在開工前回報階段確認兩個�
 - **`since_id` 升冪 vs 預設降冪，刻意用同一個端點的不同參數區分，不是開兩個端點**：`GET /api/inspections`（品檢看板用）預設 `ORDER BY id DESC`（最新在最上面比較符合人看的直覺）；`GET /api/inspections?since_id=<n>`（ERP 輪詢用）強制 `ORDER BY id ASC`（游標往前推進才合理）。兩者共用 `query_inspections()`，用「有沒有傳 `since_id`」這個參數本身決定排序方向，而不是另外開一個 `?order=asc` 參數，因為這兩種用途在實務上就是綁定的——沒有人會想要「用 `since_id` 篩但降冪排序」這種組合。
 - **C# 範例真的建了一個最小 console 專案跑 `dotnet build` 驗證**（`docs/erp-integration-sample/`，含 `Microsoft.Data.SqlClient` NuGet 套件），不是照抄語法看起來對就假設能編譯；0 警告 0 錯誤編譯成功，SQL Server 連線本身沒有真的跑（需要真實 SQL Server 執行個體），這點在文件裡誠實註明。建置產物（`bin/`、`obj/`）加進 `.gitignore`，只留原始碼。
 
+## 技術決策與理由（Phase 11）
+
+產線化輸入：資料夾監控、批次 API、M5 短影片抽幀、瀏覽器拍照。使用者確認跳過 RTSP 定時抓圖（選做項目，沒有實體 IP Cam）。
+
+- **批次 API 用「動作」不用「module」當 key**：計畫文件寫 `POST /api/batch/{module}`，但 `measure`（count／measure 兩個獨立端點）、`nameplate`（read／seven-segment／gauge 三個獨立端點）用 module 名稱當 key 會有歧義（`measure` 批次該對應哪一個？）。改用 13 個分頁實際呼叫的 14 個「動作」代號（`backend/core/batch_dispatch.py` 的 `ACTIONS` dict），`scripts/watch_folder.py` 的 `ACTION_URLS` 用同一組代號，兩份對照表註明「要保持一致」而不是共用同一份程式碼——因為 watch_folder.py 是獨立跑的腳本，不依賴 backend 套件內部結構，換取的是腳本可以獨立執行不用管 backend 的 import path。
+- **批次上傳單張失敗不中斷整批**：`run_batch()` 逐檔 try/except（`ModuleError` 與其他未預期例外都接住），失敗的檔案記在 `results` 裡標 `status: "error"`，其餘檔案繼續處理。寫了 `test_batch_one_bad_file_does_not_abort_the_rest` 驗證中間一張壞檔不影響前後兩張好檔都成功。
+- **批次整批共用同一組額外參數（category/zone/mode 等），不是每張各自設定**：符合實務情境——同一批要送去 M3 異常檢測的照片通常是同一個料號（同一個 `category`），同一批危險區域入侵照片通常來自同一台固定攝影機（同一個 `zone`）。這是刻意的範圍限制，不是遺漏；已知限制有寫清楚。
+- **M5 影片端點重構出「純偵測（吃 BGR ndarray）」共用邏輯**：`_detect_intrusion_on_bgr()`／`_detect_ppe_on_bgr()` 抽出來給單張圖片與影片逐幀共用，影片端點不是複製一份偵測邏輯——這是計畫文件要求的「小幅重構」，改動範圍刻意限縮在這兩個函式的拆分，沒有動到其他無關的程式碼。
+- **影片逐幀處理用 `cap.set(CAP_PROP_POS_MSEC, t*1000)` 直接跳到時間點，不是逐幀 decode 全部畫面再篩選**：60 秒影片、1 秒取樣間隔只需要解碼 60 幀左右，不用管影片實際幀率多高，避免真實影片（例如 30fps 的 60 秒影片有 1800 幀）逐幀解碼造成不必要的效能浪費。
+- **影片存到暫存檔才能用 `cv2.VideoCapture` 讀**：OpenCV 的 `VideoCapture` 不支援直接吃記憶體 bytes（不像 Pillow 的 `Image.open(BytesIO(...))`），`_sample_video_frames()` 用 `tempfile.NamedTemporaryFile` 寫暫存檔案，`with` 區塊結束自動清掉，不會在 `data/` 或專案目錄留下暫存影片檔案。
+- **影片彙總紀錄的 `annotated_image` 選「第一個違規幀」，沒違規時退回「最後取樣幀」**：讓看板/複判介面點開一筆影片辨識紀錄時，看到的是最有代表性的畫面（有違規優先秀違規畫面），而不是隨便一幀空景。違規清單裡每個時間點另外存一張縮圖（`VIDEO_THUMBNAIL_MAX_SIDE=320`，比原尺寸小很多），避免長影片有很多違規時單筆 JSON 過度肥大。
+- **拍照用共用 modal + `DataTransfer` 塞回既有 `<input type=file>`，不是另開一套上傳邏輯**：`openCamera()`/`camera-capture-btn` 拍完後把 Blob 包成 `File` 塞進目標分頁的檔案輸入框並手動 dispatch `change` 事件，這樣下游的 `setupPreview()`／批次判斷／送出邏輯完全不用為了「拍照來源 vs 檔案選擇來源」寫兩套分支。13 個分頁（含 safety）都加了拍照按鈕；只有 safety 分頁的 `<input>` 刻意沒加 `multiple`，因為那個分頁的畫危險區域多邊形是針對單一張圖片的互動，批次多選跟這個 UI 模式衝突（拍照仍然可用，只是拍出來是單張）。
+- **開發中真的用 Playwright 搭配假相機裝置（`--use-fake-device-for-media-stream`）驗證拍照流程，不是只看程式碼邏輯合理就假設會動**：`getUserMedia` 這種瀏覽器原生 API 沒辦法用單元測試涵蓋，寫了一次性 Playwright 腳本（不是常駐測試，跟 `scripts/capture_screenshots.py` 的角色類似）：開相機→等 video 元素可見→點擊拍照→確認 modal 關閉、預覽圖出現、`<input>` 的 `files` 真的多了一個 `File` 物件→送出後真的打 Ollama 拿到辨識結果。這證明了整條「假相機→Blob→File→DataTransfer→現有上傳流程→真實 API 呼叫」鏈路是通的，不是只驗證了某一段。
+- **開發中意外抓到一個跟 Phase 11 無直接關係、但透過即時驗證發現的真實 bug（`core/image_io.py`）**：用真實伺服器測 `watch_folder.py` 丟壞檔進 error 資料夾時，API 回傳的是 500 而不是預期的 400。追下去發現：`ultralytics` 匯入時會 monkeypatch `PIL.Image.open`（加 HEIF 支援），當 Pillow 對一段不是圖片的 bytes 做格式辨識失敗時，被 patch 過的 `Image.open` 會嘗試 lazy import `pi_heif`；這個套件沒裝（也不在 `requirements.txt`），丟出的是 `ModuleNotFoundError`，不是 `load_image()` 原本攔截的 `UnidentifiedImageError`/`OSError`，所以直接變成未攔截的 500。只有在某個請求已經觸發過 `import ultralytics`（例如呼叫過 M5/M6 任何一個端點）之後，這個 monkeypatch 才會生效，這也是為什麼 Phase 1-10 的單元測試從來沒踩到——測試執行順序或假 fixture 沒有觸發真的 `import ultralytics`。修法是把 `load_image()` 讀圖那段的 `except` 從 `(UnidentifiedImageError, OSError)` 放寬成 `Exception`，因為這個函式的語意合約本來就是「bytes 讀不出圖片就回 400」，不該因為底層第三方套件的例外型別而洩漏成 500。這個 bug 完全是靠「拿真實伺服器測真實情境」才抓到的，單元測試（`TestClient`，沒有先觸發 ultralytics import）測不出來。
+
 ## 目錄結構
 
 ```
@@ -132,6 +147,7 @@ vision-ai-demo/
 │   │   ├── context.py           # Phase 9：追溯資訊／原圖 bytes 的 contextvar
 │   │   ├── api_auth.py          # Phase 10：/api/inspections* 的 X-API-Key 驗證
 │   │   ├── webhook.py           # Phase 10：NG 非同步通知 + 失敗重試佇列
+│   │   ├── batch_dispatch.py    # Phase 11：批次上傳的「動作」對照表
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計、webhook_queue）
 │   ├── schemas/
 │   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
@@ -142,14 +158,15 @@ vision-ai-demo/
 │   │   ├── anomaly/              # M3 外觀瑕疵異常檢測
 │   │   ├── codes/                # M1 追溯碼辨識
 │   │   ├── measure/              # M2 計數與尺寸量測
-│   │   ├── safety/               # M5 危險區域入侵 + PPE 安全帽偵測
+│   │   ├── safety/               # M5 危險區域入侵 + PPE 安全帽偵測（Phase 11 起含短影片端點）
 │   │   ├── defect/               # M6 PCB 瑕疵偵測
 │   │   ├── nameplate/            # M7 銘牌／七段顯示器／指針錶
 │   │   ├── medical/              # M8 包裝追溯碼檢核／醫學影像分類展示
-│   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出 / 複判 / 看板統計 / 圖片
+│   │   ├── inspections/         # 檢驗紀錄查詢 / CSV 匯出 / 複判 / 看板統計 / 圖片
+│   │   └── batch/                # Phase 11：POST /api/batch/{action} 批次上傳
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 分頁式單頁（14 個分頁，M5 有 canvas 畫多邊形危險區域，⑭ 品檢看板用 Chart.js）
+│   ├── index.html               # 分頁式單頁（14 個分頁，13 個辨識分頁多選批次上傳+拍照，M5 有 canvas 畫多邊形，⑭ 品檢看板用 Chart.js）
 │   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
@@ -157,6 +174,7 @@ vision-ai-demo/
 │   ├── prepare_deeppcb.py      # DeepPCB 官方標註 → YOLO 格式（M6）
 │   ├── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
 │   ├── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
+│   ├── watch_folder.py         # Phase 11：資料夾監控，新圖自動辨識、搬到 done/error
 │   └── capture_screenshots.py  # Playwright 產生 README Demo 截圖，含 ⑭ 品檢看板
 ├── notebooks/
 │   ├── train_pcb_defect.ipynb  # M6 訓練，Colab GPU 版（重用 scripts/prepare_deeppcb.py）
@@ -185,6 +203,9 @@ vision-ai-demo/
 │   ├── test_medical.py           # M8：包裝檢核真跑條碼+RapidOCR/假 LLM，肺炎分類假模型
 │   ├── test_inspections.py       # Phase 9：舊 db migration、追溯 header、存圖、複判、看板統計
 │   ├── test_erp_integration.py   # Phase 10：API Key、since_id、reviews、webhook、上傳大小/CORS
+│   ├── test_batch.py             # Phase 11：POST /api/batch/{action}
+│   ├── test_safety_video.py      # Phase 11：M5 短影片抽幀
+│   ├── test_watch_folder.py      # Phase 11：資料夾監控核心邏輯
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -268,6 +289,11 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **API Key 可以用 `?api_key=` query 參數帶，不是只能用 header**：這是為了讓 `<img src>` 與 CSV 下載連結能運作，代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log；在單機、沒有對外網路曝露的情境下是可接受的取捨，正式環境需要额外考量（例如改用短效 signed URL）。
 - **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 沒設定就完全不啟用；就算有設定，vision-ai-demo 重啟時 `webhook_queue` 裡還沒重試完的項目、或超過 5 次已放棄的項目，都需要 ERP 端自己跑 `since_id` 輪詢當保底，不能只依賴 webhook 假設「NG 一定會即時收到通知」。
 - **上傳大小檢查在 `load_image()` 內，不是在網路層擋**：`file.file.read()` 會先把整個檔案讀進記憶體，`MAX_UPLOAD_MB` 檢查才發生在那之後；對於惡意的超大檔案上傳（例如故意傳幾百 MB），記憶體還是會先被佔用一次才觸發 413，這在單機 demo 情境下可接受，正式環境建議在反向代理層（nginx 等）加更早的請求體大小限制。
+- **`core/image_io.load_image()` 讀圖的 except 範圍是刻意放寬成 `Exception`**：實測踩到 `ultralytics` monkeypatch `PIL.Image.open` 後，壞檔案的錯誤型別會變成 `ModuleNotFoundError`（不是 `UnidentifiedImageError`/`OSError`），原本較窄的 except 攔不到；這是第三方套件的副作用，不是本專案能控制的，只能在自己的邊界放寬 except 範圍來保證「壞圖片一律回 400」這個合約成立。
+- **`scripts/watch_folder.py` 是單執行緒逐檔處理**：檔案量大或模型推論慢（例如 M8-2 分類展示以外的 Ollama 呼叫要 10-20 秒）時會排隊，不是平行處理；處理中被中斷（Ctrl+C）的那一筆檔案不會自動搬移，需要手動處理或重新丟回 inbox。
+- **批次 API 整批共用同一組額外參數**：M3 異常檢測整批共用同一個 `category`、M5 危險區域入侵整批共用同一個 `zone`，沒有「每張各自設定」的機制，這是刻意的範圍限制（見技術決策）。
+- **M5 短影片抽幀是取樣不是逐幀分析**：`sample_interval_s` 預設 1 秒抽一幀，抽樣間隔跟人員/動作移動速度沒有連動校準，快速通過的違規行為可能剛好避開取樣時間點而漏判；`max_duration_s`（預設 60 秒）之後的影片內容完全不會被處理。
+- **相機拍照只用 headless Chromium 的假相機裝置驗證過，沒有用真實手機/筆電相機測試過**：`getUserMedia` → Blob → `DataTransfer` → 既有上傳流程這條鏈路用 Playwright + `--use-fake-device-for-media-stream` 驗證過完整流程（含真的打 Ollama 拿到辨識結果），但真實相機的畫質/對焦/權限提示互動未實測。
 
 ## 待辦（Phase 進度）
 
@@ -282,6 +308,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 8：收尾。README.md 新增「Demo 截圖」（13 張，`scripts/capture_screenshots.py` 用 Playwright 實跑產生，非擺拍）與「未納入功能」章節；CLAUDE.md 補上本 Phase 的技術決策與踩坑紀錄。作品集規劃的 M1-M9 全模組與收尾工作全數完成。
 - [x] Phase 9：檢驗紀錄強化 + 品檢看板 + 人工複判。`inspections` 表新增追溯欄位（work_order/part_no/lot_no/station/operator）+ 原圖/標註圖存檔欄位 + 複判欄位，舊 db 自動 `ALTER TABLE` 補欄位（真的用手動建的舊 schema db 測過）；`GET /api/inspections/{id}`、`PATCH /api/inspections/{id}/review`、`GET /api/inspections/{id}/image`、`GET /api/inspections/stats?group_by=module|day|defect` 四支新 API；前端新增追溯資訊列（`localStorage` 記住、自動帶 header）與第 14 分頁「品檢紀錄與看板」（Chart.js 折線圖/柏拉圖/堆疊長條圖 + 可展開的紀錄表格 + 複判表單）。71 項單元測試全過（新增 9 項），並用真實瀏覽器操作＋真打 Ollama／PCB 模型驗證整條「輸入追溯資訊→辨識→看板出現→複判→良率變化」流程。
 - [x] Phase 10：ERP 串接介面 + 基本資安。`/api/inspections*` 加 `X-API-Key` 驗證（13 個辨識端點刻意不套，見技術決策）；`since_id` 增量拉取（id 升冪，跟預設降冪明確區分）+ `GET /api/inspections/reviews?since=` 抓事後複判；NG 時 daemon thread 立即 POST `ERP_WEBHOOK_URL`、失敗才進 `webhook_queue` 由背景執行緒重試；`CORS_ORIGINS` 白名單（預設只允許本機）、`MAX_UPLOAD_MB`（預設 20，超過 413）、`load_image()` 不信任副檔名一律用 Pillow 實際開檔驗證。`docs/erp-integration.md`（含 Mermaid 輪詢時序圖、欄位對照表、C# 範例）+ `docs/openapi.json` 匯出；C# 範例真的建了 `docs/erp-integration-sample/` 用 `dotnet build` 編譯驗證過。82 項單元測試全過（新增 11 項）。
+- [x] Phase 11：產線化輸入。`scripts/watch_folder.py` 監看資料夾自動辨識、搬 done/error、等檔案大小穩定才讀；`POST /api/batch/{action}` 批次上傳（14 個動作代號，單張失敗不中斷整批），13 個分頁 `<input>` 改可多選、選多張自動走批次並用縮圖卡片呈現結果；`POST /api/safety/video`、`/api/safety/ppe/video` 短影片逐幀抽樣（重構出 `_detect_intrusion_on_bgr`／`_detect_ppe_on_bgr` 共用邏輯），檢驗紀錄只寫一筆彙總；13 個分頁加「📷 拍照」按鈕（`getUserMedia`+`DataTransfer` 塞回既有 `<input>`）。RTSP 定時抓圖依使用者指示跳過。開發中用真實伺服器測試意外抓到 `core/image_io.load_image()` 的 500 錯誤（ultralytics monkeypatch PIL 副作用）並修正。97 項單元測試全過（新增 15 項），並用真實 Ollama/YOLO 模型 + 自製影片 + Playwright 假相機裝置驗證整條批次上傳／影片抽幀／資料夾監控／拍照流程。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -438,3 +465,12 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   4. 重試成功：延續情境 3 的佇列項目，把同一個 port 的 server 重新開起來後手動呼叫 `webhook.retry_pending_once()`，確認伺服器這次真的收到請求、且 `webhook_queue` 清空（重試成功後從佇列移除）。
 - **C# 範例真的編譯過**：`dotnet new console` 建立 `docs/erp-integration-sample/`、`dotnet add package Microsoft.Data.SqlClient`（實際從 nuget.org 下載 7.1.0 版）、把文件裡的範例程式碼貼進 `Program.cs`，`dotnet build` 輸出「建置成功，0 個警告，0 個錯誤」；SQL Server 連線邏輯本身沒有真的跑（沒有可連的 SQL Server 執行個體），這點在 `docs/erp-integration.md` 裡誠實寫「未編譯驗證」的地方只有連線行為，語法/型別正確性是真的驗證過的。
 - **既有測試無回歸**：`pytest`，82 項全過（71 項既有 + 11 項新增，約 14 秒）。
+
+### Phase 11：功能驗證
+
+- **批次 API 真實跑通**：curl 對正在跑的伺服器打 `POST /api/batch/count?expected_count=8`（2 張 `screws.png`），兩張都判 OK、`預期數量` 正確吃到 8；`POST /api/batch/intrusion`（1 張真人照片 `tests/live_samples/factory_worker.jpg`，`zone` 用 Form 欄位帶整張圖範圍）正確判 NG——證明批次額外參數走 query string（`expected_count`）、`zone` 走 Form 欄位（跟原本單張端點的傳遞方式一致）都有正確接到。單元測試（`tests/test_batch.py`，6 項）額外驗證：整批 3 張全成功、中間一張壞檔不影響前後兩張好檔、未知 action 回 400、anomaly 缺 `category` 該筆標成失敗但不影響整批、count 動作的紀錄真的寫進 `inspections` 表且 `module=measure`。
+- **M5 短影片端點用 `ffmpeg` 自製的真實影片測試，不是合成黑幀**：拿 `tests/live_samples/factory_worker.jpg`（真人照片）用 `ffmpeg -loop 1 -t 6 -r 5` 轉成 6 秒 mp4，打 `/api/safety/video?sample_interval_s=1&max_duration_s=6`（真打 YOLO11n），耗時 409ms，取樣 6 幀、6 個違規時間點全部正確判 NG。PPE 影片端點用 `data/hardhat_yolo/val/images/` 裡的兩張真實驗證集圖片各自轉成影片測試：`005770.jpg`（原本單張測試就是 OK）轉的影片正確判 OK、0 違規；`006279.jpg`（原本單張測試 9 個人未戴安全帽）轉的影片正確判 NG、5/5 幀全部違規、未戴安全帽數 10（YOLO 對靜態重複畫面的偵測結果穩定一致）。單元測試（`tests/test_safety_video.py`，5 項）用假偵測器驗證違規時間點/縮圖/影片過大 413/壞影片 400 等邊界情況，並確認影片辨識只寫一筆彙總紀錄（不是每幀一筆）。
+- **`scripts/watch_folder.py` 真的對正在跑的伺服器執行過一次完整流程**：10 張 `warning_sign.png` 丟進 `/tmp/inbox_test`，`--action general --once` 真打 Ollama 逐張辨識（每張約 15-20 秒），10 筆全部成功搬到 `done/`、`inbox/` 清空、API 查得到這 10 筆紀錄且追溯欄位（`station=AOI-99`、`work_order=WO-LIVE-TEST`）正確落地；另外丟 1 個壞檔（純文字內容、`.png` 副檔名）進另一個 inbox，正確搬到 `error/` 並寫 `.log`。單元測試（`tests/test_watch_folder.py`，4 項）用 `TestClient` 當 `httpx.Client` 相容物件測核心邏輯（`process_one`/`scan_existing`/`wait_until_stable`），不用真的起一個 uvicorn process 也能測完整的「等檔案穩定→呼叫 API→搬檔→寫 log」流程。
+- **開發中意外抓到的真實 bug：`core/image_io.load_image()` 對某些壞檔案回 500 而不是 400**：這是在跑 `watch_folder.py` 的壞檔情境時發現的——單元測試裡同樣的情境（`test_non_image_bytes_with_image_extension_is_rejected`）一直是綠燈，但拿真實伺服器測就爆 500。查了 uvicorn log 的完整 traceback，追到 `ultralytics.utils.patches` 對 `PIL.Image.open` 做了 monkeypatch（加 HEIF 支援），Pillow 格式辨識失敗時這個 patch 過的版本會嘗試 lazy import `pi_heif`（沒裝），丟出 `ModuleNotFoundError`，不是原本 `except (UnidentifiedImageError, OSError)` 攔截的型別。只有在同一個 Python process 裡已經有任何請求觸發過 `import ultralytics`（M5/M6 任何端點）之後，這個 monkeypatch 才會生效——這正是為什麼過去 10 個 Phase 的單元測試從沒踩到（測試對 ultralytics 的呼叫都被 fixture 假掉，沒有真的觸發 import）。修法：把 `load_image()` 的 except 從 `(UnidentifiedImageError, OSError)` 放寬成 `Exception`（函式的合約本來就是「bytes 讀不出圖就回 400」，不該因為第三方套件的例外型別細節就外洩成 500）。修完後 `pytest` 82→97 項照樣全過，且真實伺服器重測同一個壞檔案情境正確回 400、`watch_folder.py` 正確搬進 `error/` 並在 `.log` 寫下清楚訊息。這個 bug 完全是「Surprise is signal」抓到的：程式邏輯看起來對、單元測試也綠燈，但真實情境的結果跟預期不符，往下查才發現是環境/第三方套件的副作用，不是憑空猜到才預防的。
+- **相機拍照用 Playwright + Chromium 假相機裝置（`--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`）驗證完整鏈路**：開相機→等 `<video>` 可見→點拍照→確認 `#camera-modal` 關閉、`#general-preview` 顯示、`document.getElementById('general-file').files.length === 1`（真的拿到一個 `File` 物件，檔名 `camera-<timestamp>.jpg`）→點「開始辨識」送出→真的打 Ollama 拿到辨識結果（`general · INFO · ollama:qwen3.5:9b · 17353ms`，有正常的中文描述內容）。同一個 Playwright session 也測了批次上傳：3 張圖選在 `general-file`（`multiple` 屬性），送出後狀態列顯示「完成：共 3 張，OK 0／NG 0／INFO 3／失敗 0」，結果區塊正確渲染出 3 張縮圖卡片。
+- **既有測試無回歸**：`pytest`，97 項全過（82 項既有 + 15 項新增，約 16-18 秒）。

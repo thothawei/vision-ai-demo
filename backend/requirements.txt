@@ -27,3 +27,6 @@ rapid-layout==1.2.1
 
 # Phase 7：M8 醫療相關辨識
 medmnist==3.0.2
+
+# Phase 11：scripts/watch_folder.py 資料夾監控
+watchdog==6.0.0

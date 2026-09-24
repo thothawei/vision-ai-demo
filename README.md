@@ -184,6 +184,14 @@ uvicorn main:app --reload
 
 完整認證方式、`since_id` 增量輪詢流程（含時序圖）、欄位對照表、C# `HttpClient` 範例，見 [docs/erp-integration.md](docs/erp-integration.md)；即時 API 契約見 `GET /openapi.json`（快照存在 [docs/openapi.json](docs/openapi.json)）。
 
+## 產線化輸入（Phase 11）
+
+- **資料夾監控**：`python scripts/watch_folder.py --action <動作> --in ./inbox [--station AOI-01 --work-order WO-...]`，監看資料夾、新圖進來自動辨識，成功搬到 `inbox/done/`、失敗搬到 `inbox/error/` 並寫 `.log`。`--action` 可選值：`general/docs/anomaly/codes/count/measure/intrusion/ppe/defect/nameplate/seven_segment/gauge/packaging/pneumonia`（跟批次 API 用同一組代號）。`--once` 只處理現有檔案不繼續監看，方便測試或排程用。
+- **批次上傳**：`POST /api/batch/{action}` 一次丟多個檔案，逐張辨識、彙總 OK/NG/INFO/失敗數，單張失敗不會讓整批中斷。13 個分頁的檔案選擇框都改成可多選——選 1 張走原本的單張流程，選多張自動走批次、結果用縮圖卡片列表呈現。危險區域入侵（`intrusion`）批次會用同一組 `zone` 套用到整批照片（同一台攝影機、同一個危險區域的情境）。
+- **M5 短影片抽幀**：`POST /api/safety/video`、`POST /api/safety/ppe/video`，上傳 mp4，每 `sample_interval_s` 秒（預設 1）抽一幀，最多處理 `max_duration_s` 秒（預設 60），回傳違規時間點列表 + 每個違規幀的縮圖；檢驗紀錄只寫一筆彙總，不是每幀一筆。
+- **瀏覽器拍照**：各分頁的「📷 拍照」按鈕用 `getUserMedia` 開相機、拍下轉成 Blob 後接原本的上傳流程；**非 localhost 的 http 網址瀏覽器會擋相機權限**，要用相機請走 `http://127.0.0.1:8000` 或之後部署 https。
+- **RTSP 定時抓圖**：本輪跳過（沒有實體 IP Cam 可測，優先度較低）。
+
 ## 測試
 
 ```bash
@@ -200,7 +208,7 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M3 用 CPU 而非 MPS**：PatchCore 的 coreset 篩選在 MPS 上因逐元素 GPU 同步而變得極慢，固定用 CPU（實測反而更快）。詳見 CLAUDE.md。
 - **M4 數字來源核對只在 OCR 模式生效**：端到端模式沒有獨立 OCR 原文可以核對，會誠實標記「無法驗證」而不是假裝驗證過。
 - **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，是資料集限制。
-- **M5 危險區域入侵只做單張圖片**：短影片逐幀抽樣目前還沒做。
+- **M5 危險區域入侵短影片抽幀**：只做逐幀「抽樣」偵測，不是每一幀都跑；抽樣間隔跟人員移動速度沒配合校準，快速移動的人可能剛好避開取樣時間點沒被抓到。
 - **YOLO 監督式訓練耗時差異大**：M6（1000 張）32 分鐘，M5 PPE（5297 張）在 MPS 上要 4.15 小時；`project` 參數務必用絕對路徑，否則權重會存到意外的位置（見上方安裝步驟）。
 - **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；只在合成測試圖驗證過，真實照片的反光/模糊/歪斜可能影響準確度。
 - **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
@@ -211,6 +219,9 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在啟動時讀死進中介層，不是每個請求動態重讀。
 - **API Key 可以用 `?api_key=` query 參數帶**（給 `<img>`／CSV 下載連結用，瀏覽器沒辦法幫這兩種情境帶自訂 header），代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log，單機無公開網路曝露情境下可接受。
 - **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 送出失敗會重試最多 5 次後放棄，ERP 端仍需要自己跑 `since_id` 輪詢當保底。
+- **`watch_folder.py` 是單執行緒、逐檔處理**：檔案量大或模型推論慢時會排隊，不是平行處理；長駐監看用 `watchdog`，處理中的行程被中斷（例如 Ctrl+C）時該筆檔案不會自動搬移，需要重新丟回 inbox。
+- **批次上傳整批共用同一組額外參數**：例如批次跑 M3 異常檢測，整批圖片必須是同一個 `category`；批次跑危險區域入侵，整批共用同一個 `zone`，沒有辦法每張各自設定。
+- **相機拍照在非 localhost 的 http 網址會被瀏覽器擋掉**：`getUserMedia` 只在安全情境（https 或 localhost）可用，僅用內建假相機裝置（Chromium headless 測試）驗證過拍照→上傳→辨識全流程，未用實體手機/筆電相機測試過。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -221,12 +232,12 @@ vision-ai-demo/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
 │   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄、API Key 驗證、webhook
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
-│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / medical(M8) / inspections
+│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE+影片) / defect(M6) / nameplate(M7) / medical(M8) / inspections / batch
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板）
+│   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板，各分頁支援多選批次上傳 + 相機拍照）
 │   └── vendor/chart.min.js      # Chart.js（MIT），看板圖表用，離線優先不用 CDN
-├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py
+├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py、watch_folder.py
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore
 ├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore

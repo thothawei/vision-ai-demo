@@ -148,7 +148,8 @@
     <h2>現場照片開放式辨識</h2>
     <p style="color:var(--muted); font-size:13px;">上傳機台、工具、零件或標示的照片，AI 會判斷「這是什麼」，並標註可見文字與安全觀察</p>
     <div class="row">
-      <input type="file" id="general-file" accept="image/*">
+      <input type="file" id="general-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="general-file">📷 拍照</button>
       <button id="general-btn">開始辨識</button>
     </div>
     <img class="preview" id="general-preview">
@@ -165,12 +166,13 @@
       工單/出貨單/進料檢驗報告有嚴格 schema 驗證，數字欄位會附上「來源驗證」——核對這個數字是否真的能在 OCR 原文中找到。
     </p>
     <div class="row">
-      <input type="file" id="docs-file" accept="image/*">
+      <input type="file" id="docs-file" accept="image/*" multiple>
       <select id="docs-mode">
         <option value="ocr">RapidOCR + AI 結構化（預設）</option>
         <option value="tesseract">Tesseract + AI 結構化（準確度比較用）</option>
         <option value="end_to_end">端到端（AI 直接讀圖，無法驗證數字來源）</option>
       </select>
+      <button type="button" class="camera-btn" data-target="docs-file">📷 拍照</button>
       <button id="docs-btn">開始擷取</button>
     </div>
     <img class="preview" id="docs-preview">
@@ -187,12 +189,13 @@
       訓練資料集授權為 CC BY-NC-SA 4.0，僅供非商業用途，正式導入時需以自有產線影像重新擬合模型；實際 AUROC 見 <code>models/anomaly/&lt;類別&gt;/metrics.json</code>
     </p>
     <div class="row">
-      <input type="file" id="anomaly-file" accept="image/*">
+      <input type="file" id="anomaly-file" accept="image/*" multiple>
       <select id="anomaly-category">
         <option value="metal_nut">metal_nut（螺帽）</option>
         <option value="screw">screw（螺絲）</option>
         <option value="tile">tile（磁磚）</option>
       </select>
+      <button type="button" class="camera-btn" data-target="anomaly-file">📷 拍照</button>
       <button id="anomaly-btn">開始檢測</button>
     </div>
     <img class="preview" id="anomaly-preview">
@@ -206,7 +209,8 @@
     <h2>追溯碼辨識</h2>
     <p style="color:var(--muted); font-size:13px;">上傳含 QR / 條碼 / DataMatrix 的照片，會解析 GS1 UDI（批號/效期/序號），效期已過標紅、30 天內到期標黃</p>
     <div class="row">
-      <input type="file" id="codes-file" accept="image/*">
+      <input type="file" id="codes-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="codes-file">📷 拍照</button>
       <button id="codes-btn">開始解碼</button>
     </div>
     <img class="preview" id="codes-preview">
@@ -220,9 +224,10 @@
     <h2>零件計數</h2>
     <p style="color:var(--muted); font-size:13px;">白底、零件與背景對比明顯的照片效果最好；相黏零件會用 watershed 分離</p>
     <div class="row">
-      <input type="file" id="count-file" accept="image/*">
+      <input type="file" id="count-file" accept="image/*" multiple>
       <label class="hint">預期數量（選填，用來判斷 OK/NG）</label>
       <input type="number" id="count-expected" min="0">
+      <button type="button" class="camera-btn" data-target="count-file">📷 拍照</button>
       <button id="count-btn">開始計數</button>
     </div>
     <img class="preview" id="count-preview">
@@ -236,13 +241,14 @@
       會用標記四角做透視校正後再量測
     </p>
     <div class="row">
-      <input type="file" id="measure-file" accept="image/*">
+      <input type="file" id="measure-file" accept="image/*" multiple>
     </div>
     <div class="field-row">
       <label>標記邊長(mm)</label><input type="number" id="measure-marker" value="30">
       <label>目標長度(mm，選填)</label><input type="number" id="measure-length">
       <label>目標寬度(mm，選填)</label><input type="number" id="measure-width">
       <label>公差(mm)</label><input type="number" id="measure-tol" value="1">
+      <button type="button" class="camera-btn" data-target="measure-file">📷 拍照</button>
       <button id="measure-btn">開始量測</button>
     </div>
     <img class="preview" id="measure-preview">
@@ -261,6 +267,7 @@
       <input type="file" id="safety-file" accept="image/*">
       <button id="safety-zone-done-btn" type="button">完成區域</button>
       <button id="safety-zone-clear-btn" type="button">清除區域</button>
+      <button type="button" class="camera-btn" data-target="safety-file">📷 拍照</button>
       <button id="safety-btn">開始偵測</button>
     </div>
     <div class="hint" id="safety-zone-hint">尚未選擇圖片</div>
@@ -277,7 +284,8 @@
       監督式訓練（Hard Hat Workers 資料集，CC0 1.0）。只偵測「有沒有戴安全帽」，資料集沒有反光背心類別，這是資料集本身的限制。
     </p>
     <div class="row">
-      <input type="file" id="ppe-file" accept="image/*">
+      <input type="file" id="ppe-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="ppe-file">📷 拍照</button>
       <button id="ppe-btn">開始偵測</button>
     </div>
     <img class="preview" id="ppe-preview">
@@ -294,7 +302,8 @@
       跟 M3（非監督，只需良品）互補——M3 不需要 NG 樣本但只能說「哪裡異常」，M6 需要標註過的 NG 樣本但能講出「是哪一種瑕疵」。
     </p>
     <div class="row">
-      <input type="file" id="defect-file" accept="image/*">
+      <input type="file" id="defect-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="defect-file">📷 拍照</button>
       <button id="defect-btn">開始偵測</button>
     </div>
     <img class="preview" id="defect-preview">
@@ -310,7 +319,8 @@
       OCR 擷取文字後用 AI 整理成廠牌／型號／序號／製造日期／電壓
     </p>
     <div class="row">
-      <input type="file" id="nameplate-file" accept="image/*">
+      <input type="file" id="nameplate-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="nameplate-file">📷 拍照</button>
       <button id="nameplate-btn">開始讀取</button>
     </div>
     <img class="preview" id="nameplate-preview">
@@ -326,7 +336,8 @@
       一般 OCR 認不出七段顯示器字型（實測 RapidOCR 完全偵測不到、Tesseract 會亂猜成中文），改用 OpenCV 逐段判讀
     </p>
     <div class="row">
-      <input type="file" id="sevenseg-file" accept="image/*">
+      <input type="file" id="sevenseg-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="sevenseg-file">📷 拍照</button>
       <button id="sevenseg-btn">開始判讀</button>
     </div>
     <img class="preview" id="sevenseg-preview">
@@ -342,13 +353,14 @@
       輸入最小/最大刻度與對應角度（角度慣例：0 度＝3 點鐘方向，順時針遞增；不知道怎麼量可以先試預設值再調整）
     </p>
     <div class="row">
-      <input type="file" id="gauge-file" accept="image/*">
+      <input type="file" id="gauge-file" accept="image/*" multiple>
     </div>
     <div class="field-row">
       <label>最小值</label><input type="number" id="gauge-min-value" value="0">
       <label>最大值</label><input type="number" id="gauge-max-value" value="100">
       <label>最小值角度</label><input type="number" id="gauge-min-angle" value="135">
       <label>最大值角度</label><input type="number" id="gauge-max-angle" value="45">
+      <button type="button" class="camera-btn" data-target="gauge-file">📷 拍照</button>
       <button id="gauge-btn">開始讀值</button>
     </div>
     <img class="preview" id="gauge-preview">
@@ -364,7 +376,8 @@
       同一張包裝照片比對 GS1 UDI 條碼跟印刷文字上的批號/效期是否一致——GMP 追溯常見需求，兩邊對不上代表可能印錯或貼錯條碼
     </p>
     <div class="row">
-      <input type="file" id="packaging-file" accept="image/*">
+      <input type="file" id="packaging-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="packaging-file">📷 拍照</button>
       <button id="packaging-btn">開始檢核</button>
     </div>
     <img class="preview" id="packaging-preview">
@@ -383,7 +396,8 @@
       小型 CNN，實測測試集 ACC 0.886／AUC 0.935（詳見 CLAUDE.md），上傳胸腔 X 光圖片（或任意灰階圖）試試分類效果
     </p>
     <div class="row">
-      <input type="file" id="pneumonia-file" accept="image/*">
+      <input type="file" id="pneumonia-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="pneumonia-file">📷 拍照</button>
       <button id="pneumonia-btn">開始分類</button>
     </div>
     <img class="preview" id="pneumonia-preview">
@@ -422,6 +436,18 @@
       <tbody id="dash-table-body"></tbody>
     </table>
     <div class="status" id="dash-status"></div>
+  </div>
+</div>
+
+<div id="camera-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:var(--card-bg); border-radius:12px; padding:16px; max-width:92vw;">
+    <video id="camera-video" autoplay playsinline style="max-width:85vw; max-height:60vh; border-radius:8px; display:block;"></video>
+    <canvas id="camera-canvas" style="display:none;"></canvas>
+    <div class="row" style="justify-content:center; margin-top:12px;">
+      <button id="camera-capture-btn" type="button">📷 拍照</button>
+      <button id="camera-close-btn" type="button">取消</button>
+    </div>
+    <div class="hint" id="camera-hint"></div>
   </div>
 </div>
 
@@ -530,102 +556,213 @@ async function callApi(url, formData, statusEl, resultEl, button) {
   }
 }
 
+function renderBatchResult(container, data) {
+  container.innerHTML = "";
+  const grid = document.createElement("div");
+  grid.style.cssText = "display:flex; flex-wrap:wrap; gap:10px;";
+  data.results.forEach((r) => {
+    const card = document.createElement("div");
+    card.style.cssText = "width:170px; border:1px solid var(--border); border-radius:8px; padding:8px; font-size:12px;";
+    if (r.status === "ok") {
+      const badge = `<span class="verdict-badge verdict-${r.result.verdict}">${r.result.verdict}</span>`;
+      const img = r.result.annotated_image
+        ? `<img src="${r.result.annotated_image}" style="width:100%; border-radius:6px; margin-top:6px; display:block;">`
+        : "";
+      card.innerHTML = `<div style="word-break:break-all;">${r.filename}</div>${badge}${img}`;
+    } else {
+      card.innerHTML = `<div style="word-break:break-all;">${r.filename}</div>
+        <span class="verdict-badge verdict-NG">錯誤</span>
+        <div style="color:var(--muted); margin-top:4px;">${r.error}</div>`;
+    }
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
+}
+
+// 批次上傳：選超過一張圖時走這個路徑，單張仍走原本的 callApi（結果呈現方式不同，故意分開）。
+async function callBatchApi(action, files, extraParams, extraFormFields, statusEl, resultEl, button) {
+  statusEl.textContent = `批次辨識中…（共 ${files.length} 張，請稍候）`;
+  statusEl.className = "status";
+  resultEl.innerHTML = "";
+  button.disabled = true;
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (extraFormFields) {
+    Object.entries(extraFormFields).forEach(([k, v]) => { if (v != null && v !== "") formData.append(k, v); });
+  }
+  const params = new URLSearchParams();
+  if (extraParams) {
+    Object.entries(extraParams).forEach(([k, v]) => { if (v != null && v !== "") params.set(k, v); });
+  }
+  try {
+    const res = await fetch(`/api/batch/${action}?` + params.toString(), {
+      method: "POST", body: formData, headers: traceHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "批次辨識失敗");
+    statusEl.textContent = `完成：共 ${data.total} 張，OK ${data.ok}／NG ${data.ng}／INFO ${data.info}／失敗 ${data.failed}`;
+    renderBatchResult(resultEl, data);
+  } catch (err) {
+    statusEl.textContent = "錯誤：" + err.message;
+    statusEl.className = "status error";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// 📷 拍照：共用一個 modal，拍下的照片用 DataTransfer 塞回目標分頁既有的 <input type=file>，
+// 下游的預覽/上傳邏輯完全不用改。非 localhost 的 http 網址瀏覽器會擋相機權限。
+let cameraStream = null;
+let cameraTargetInputId = null;
+
+async function openCamera(targetInputId) {
+  cameraTargetInputId = targetInputId;
+  const modal = document.getElementById("camera-modal");
+  const video = document.getElementById("camera-video");
+  const hint = document.getElementById("camera-hint");
+  hint.textContent = "";
+  modal.style.display = "flex";
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = cameraStream;
+  } catch (err) {
+    hint.textContent = "無法開啟相機：" + err.message + "（非 localhost 的 http 網址瀏覽器會擋相機權限）";
+  }
+}
+
+function closeCamera() {
+  document.getElementById("camera-modal").style.display = "none";
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+  }
+}
+
+document.getElementById("camera-close-btn").addEventListener("click", closeCamera);
+
+document.getElementById("camera-capture-btn").addEventListener("click", () => {
+  const video = document.getElementById("camera-video");
+  const canvas = document.getElementById("camera-canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+    const input = document.getElementById(cameraTargetInputId);
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    closeCamera();
+  }, "image/jpeg", 0.9);
+});
+
+document.querySelectorAll(".camera-btn").forEach((btn) => {
+  btn.addEventListener("click", () => openCamera(btn.dataset.target));
+});
+
 const generalFile = document.getElementById("general-file");
 setupPreview(generalFile, document.getElementById("general-preview"));
 document.getElementById("general-btn").addEventListener("click", () => {
-  const file = generalFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(generalFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("general-status");
+  const resultEl = document.getElementById("general-result");
+  const btn = document.getElementById("general-btn");
+  if (files.length > 1) { callBatchApi("general", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi(
-    "/api/general/describe",
-    formData,
-    document.getElementById("general-status"),
-    document.getElementById("general-result"),
-    document.getElementById("general-btn")
-  );
+  formData.append("file", files[0]);
+  callApi("/api/general/describe", formData, statusEl, resultEl, btn);
 });
 
 const docsFile = document.getElementById("docs-file");
 setupPreview(docsFile, document.getElementById("docs-preview"));
 document.getElementById("docs-btn").addEventListener("click", () => {
-  const file = docsFile.files[0];
-  if (!file) { alert("請先選擇圖檔"); return; }
+  const files = Array.from(docsFile.files);
+  if (files.length === 0) { alert("請先選擇圖檔"); return; }
   const mode = document.getElementById("docs-mode").value;
+  const statusEl = document.getElementById("docs-status");
+  const resultEl = document.getElementById("docs-result");
+  const btn = document.getElementById("docs-btn");
+  if (files.length > 1) { callBatchApi("docs", files, { mode }, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi(
-    "/api/docs/extract?mode=" + mode,
-    formData,
-    document.getElementById("docs-status"),
-    document.getElementById("docs-result"),
-    document.getElementById("docs-btn")
-  );
+  formData.append("file", files[0]);
+  callApi("/api/docs/extract?mode=" + mode, formData, statusEl, resultEl, btn);
 });
 
 // ⑥ 異常檢測
 const anomalyFile = document.getElementById("anomaly-file");
 setupPreview(anomalyFile, document.getElementById("anomaly-preview"));
 document.getElementById("anomaly-btn").addEventListener("click", () => {
-  const file = anomalyFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
-  const formData = new FormData();
-  formData.append("file", file);
+  const files = Array.from(anomalyFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
   const category = document.getElementById("anomaly-category").value;
-  callApi("/api/anomaly/inspect?category=" + category, formData,
-    document.getElementById("anomaly-status"), document.getElementById("anomaly-result"),
-    document.getElementById("anomaly-btn"));
+  const statusEl = document.getElementById("anomaly-status");
+  const resultEl = document.getElementById("anomaly-result");
+  const btn = document.getElementById("anomaly-btn");
+  if (files.length > 1) { callBatchApi("anomaly", files, { category }, {}, statusEl, resultEl, btn); return; }
+  const formData = new FormData();
+  formData.append("file", files[0]);
+  callApi("/api/anomaly/inspect?category=" + category, formData, statusEl, resultEl, btn);
 });
 
 // ③ 追溯碼辨識
 const codesFile = document.getElementById("codes-file");
 setupPreview(codesFile, document.getElementById("codes-preview"));
 document.getElementById("codes-btn").addEventListener("click", () => {
-  const file = codesFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(codesFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("codes-status");
+  const resultEl = document.getElementById("codes-result");
+  const btn = document.getElementById("codes-btn");
+  if (files.length > 1) { callBatchApi("codes", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi(
-    "/api/codes/decode",
-    formData,
-    document.getElementById("codes-status"),
-    document.getElementById("codes-result"),
-    document.getElementById("codes-btn")
-  );
+  formData.append("file", files[0]);
+  callApi("/api/codes/decode", formData, statusEl, resultEl, btn);
 });
 
 // ④ 計數
 const countFile = document.getElementById("count-file");
 setupPreview(countFile, document.getElementById("count-preview"));
 document.getElementById("count-btn").addEventListener("click", () => {
-  const file = countFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
-  const formData = new FormData();
-  formData.append("file", file);
+  const files = Array.from(countFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
   const expected = document.getElementById("count-expected").value;
+  const statusEl = document.getElementById("count-status");
+  const resultEl = document.getElementById("count-result");
+  const btn = document.getElementById("count-btn");
+  if (files.length > 1) {
+    callBatchApi("count", files, { expected_count: expected }, {}, statusEl, resultEl, btn);
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", files[0]);
   const url = "/api/measure/count" + (expected ? "?expected_count=" + expected : "");
-  callApi(url, formData, document.getElementById("count-status"),
-    document.getElementById("count-result"), document.getElementById("count-btn"));
+  callApi(url, formData, statusEl, resultEl, btn);
 });
 
 // ④ 量測
 const measureFile = document.getElementById("measure-file");
 setupPreview(measureFile, document.getElementById("measure-preview"));
 document.getElementById("measure-btn").addEventListener("click", () => {
-  const file = measureFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(measureFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("measure-status");
+  const resultEl = document.getElementById("measure-result");
+  const btn = document.getElementById("measure-btn");
+  const extraParams = {
+    marker_size_mm: document.getElementById("measure-marker").value || "30",
+    target_length_mm: document.getElementById("measure-length").value,
+    target_width_mm: document.getElementById("measure-width").value,
+    tolerance_mm: document.getElementById("measure-tol").value || "1",
+  };
+  if (files.length > 1) { callBatchApi("measure", files, extraParams, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", files[0]);
   const params = new URLSearchParams();
-  params.set("marker_size_mm", document.getElementById("measure-marker").value || "30");
-  const len = document.getElementById("measure-length").value;
-  const wid = document.getElementById("measure-width").value;
-  if (len) params.set("target_length_mm", len);
-  if (wid) params.set("target_width_mm", wid);
-  params.set("tolerance_mm", document.getElementById("measure-tol").value || "1");
-  callApi("/api/measure/measure?" + params.toString(), formData,
-    document.getElementById("measure-status"), document.getElementById("measure-result"),
-    document.getElementById("measure-btn"));
+  Object.entries(extraParams).forEach(([k, v]) => { if (v) params.set(k, v); });
+  callApi("/api/measure/measure?" + params.toString(), formData, statusEl, resultEl, btn);
 });
 
 // ⑤ 危險區域入侵：canvas 點擊畫多邊形
@@ -719,91 +856,112 @@ document.getElementById("safety-btn").addEventListener("click", () => {
 const ppeFile = document.getElementById("ppe-file");
 setupPreview(ppeFile, document.getElementById("ppe-preview"));
 document.getElementById("ppe-btn").addEventListener("click", () => {
-  const file = ppeFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(ppeFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("ppe-status");
+  const resultEl = document.getElementById("ppe-result");
+  const btn = document.getElementById("ppe-btn");
+  if (files.length > 1) { callBatchApi("ppe", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/safety/ppe", formData, document.getElementById("ppe-status"),
-    document.getElementById("ppe-result"), document.getElementById("ppe-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/safety/ppe", formData, statusEl, resultEl, btn);
 });
 
 // ⑧ PCB 瑕疵偵測
 const defectFile = document.getElementById("defect-file");
 setupPreview(defectFile, document.getElementById("defect-preview"));
 document.getElementById("defect-btn").addEventListener("click", () => {
-  const file = defectFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(defectFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("defect-status");
+  const resultEl = document.getElementById("defect-result");
+  const btn = document.getElementById("defect-btn");
+  if (files.length > 1) { callBatchApi("defect", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/defect/pcb", formData, document.getElementById("defect-status"),
-    document.getElementById("defect-result"), document.getElementById("defect-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/defect/pcb", formData, statusEl, resultEl, btn);
 });
 
 // ⑨ 銘牌讀取
 const nameplateFile = document.getElementById("nameplate-file");
 setupPreview(nameplateFile, document.getElementById("nameplate-preview"));
 document.getElementById("nameplate-btn").addEventListener("click", () => {
-  const file = nameplateFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(nameplateFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("nameplate-status");
+  const resultEl = document.getElementById("nameplate-result");
+  const btn = document.getElementById("nameplate-btn");
+  if (files.length > 1) { callBatchApi("nameplate", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/nameplate/read", formData, document.getElementById("nameplate-status"),
-    document.getElementById("nameplate-result"), document.getElementById("nameplate-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/nameplate/read", formData, statusEl, resultEl, btn);
 });
 
 // ⑩ 七段顯示器
 const sevensegFile = document.getElementById("sevenseg-file");
 setupPreview(sevensegFile, document.getElementById("sevenseg-preview"));
 document.getElementById("sevenseg-btn").addEventListener("click", () => {
-  const file = sevensegFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(sevensegFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("sevenseg-status");
+  const resultEl = document.getElementById("sevenseg-result");
+  const btn = document.getElementById("sevenseg-btn");
+  if (files.length > 1) { callBatchApi("seven_segment", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/nameplate/seven-segment", formData, document.getElementById("sevenseg-status"),
-    document.getElementById("sevenseg-result"), document.getElementById("sevenseg-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/nameplate/seven-segment", formData, statusEl, resultEl, btn);
 });
 
 // ⑪ 指針錶
 const gaugeFile = document.getElementById("gauge-file");
 setupPreview(gaugeFile, document.getElementById("gauge-preview"));
 document.getElementById("gauge-btn").addEventListener("click", () => {
-  const file = gaugeFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
-  const formData = new FormData();
-  formData.append("file", file);
-  const params = new URLSearchParams({
+  const files = Array.from(gaugeFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("gauge-status");
+  const resultEl = document.getElementById("gauge-result");
+  const btn = document.getElementById("gauge-btn");
+  const extraParams = {
     min_value: document.getElementById("gauge-min-value").value || "0",
     max_value: document.getElementById("gauge-max-value").value || "100",
     min_angle: document.getElementById("gauge-min-angle").value || "135",
     max_angle: document.getElementById("gauge-max-angle").value || "45",
-  });
-  callApi("/api/nameplate/gauge?" + params.toString(), formData,
-    document.getElementById("gauge-status"), document.getElementById("gauge-result"),
-    document.getElementById("gauge-btn"));
+  };
+  if (files.length > 1) { callBatchApi("gauge", files, extraParams, {}, statusEl, resultEl, btn); return; }
+  const formData = new FormData();
+  formData.append("file", files[0]);
+  const params = new URLSearchParams(extraParams);
+  callApi("/api/nameplate/gauge?" + params.toString(), formData, statusEl, resultEl, btn);
 });
 
 // ⑫ 包裝追溯碼檢核
 const packagingFile = document.getElementById("packaging-file");
 setupPreview(packagingFile, document.getElementById("packaging-preview"));
 document.getElementById("packaging-btn").addEventListener("click", () => {
-  const file = packagingFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(packagingFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("packaging-status");
+  const resultEl = document.getElementById("packaging-result");
+  const btn = document.getElementById("packaging-btn");
+  if (files.length > 1) { callBatchApi("packaging", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/medical/packaging-check", formData, document.getElementById("packaging-status"),
-    document.getElementById("packaging-result"), document.getElementById("packaging-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/medical/packaging-check", formData, statusEl, resultEl, btn);
 });
 
 // ⑬ 醫學影像分類展示
 const pneumoniaFile = document.getElementById("pneumonia-file");
 setupPreview(pneumoniaFile, document.getElementById("pneumonia-preview"));
 document.getElementById("pneumonia-btn").addEventListener("click", () => {
-  const file = pneumoniaFile.files[0];
-  if (!file) { alert("請先選擇照片"); return; }
+  const files = Array.from(pneumoniaFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("pneumonia-status");
+  const resultEl = document.getElementById("pneumonia-result");
+  const btn = document.getElementById("pneumonia-btn");
+  if (files.length > 1) { callBatchApi("pneumonia", files, {}, {}, statusEl, resultEl, btn); return; }
   const formData = new FormData();
-  formData.append("file", file);
-  callApi("/api/medical/pneumonia-demo", formData, document.getElementById("pneumonia-status"),
-    document.getElementById("pneumonia-result"), document.getElementById("pneumonia-btn"));
+  formData.append("file", files[0]);
+  callApi("/api/medical/pneumonia-demo", formData, statusEl, resultEl, btn);
 });
 
 // ⑭ 品檢紀錄與看板

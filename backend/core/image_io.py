@@ -31,7 +31,12 @@ def load_image(image_bytes: bytes) -> Image.Image:
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image.load()
-    except (UnidentifiedImageError, OSError) as e:
+    except Exception as e:
+        # 刻意用寬鬆的 except（不只 UnidentifiedImageError/OSError）：
+        # ultralytics 匯入後會 monkeypatch PIL.Image.open 加 HEIF 支援，格式辨識失敗時
+        # 會嘗試 lazy import pi_heif（沒裝的話丟 ModuleNotFoundError，不是 Image 家族的例外）。
+        # 這個函式的目的就是「bytes 讀不出圖片就回 400」，不管底層丟的是哪種例外型別，
+        # 都不該讓使用者看到 500（實測踩到：M5/M6 用過 YOLO 後，上傳壞檔會變成未攔截的 500）。
         raise ModuleError(f"無法讀取圖片：{e}", 400)
     ext = _FORMAT_EXT.get(image.format, "jpg")
     context.set_raw_image(image_bytes, ext)
