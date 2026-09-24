@@ -26,7 +26,7 @@
   - `ollama.Client.chat(..., format="json", think=False)` 強制輸出 JSON，關閉思考模式減少延遲；找不到模型或連不上 Ollama 時回傳清楚的錯誤訊息（提示 `ollama pull` 或 `ollama serve`）。
   - JSON 解析失敗會回傳 502 錯誤，不會硬塞假資料掩蓋問題。
 - **共用回應格式**（[backend/core/schemas.py](backend/core/schemas.py)）：`{module, verdict, items, annotated_image, engine, elapsed_ms, inspection_id}`，所有模組一致，方便之後 ERP 串接。
-- **檢驗紀錄**（[backend/core/inspection_log.py](backend/core/inspection_log.py)）：SQLite（`data/inspections.db`，不進版控），每次辨識寫一筆，`GET /api/inspections?module=&verdict=&date_from=&date_to=` 查詢，`/api/inspections/export.csv` 匯出（含 BOM，Excel 開啟中文不亂碼）。
+- **檢驗紀錄**（[backend/core/inspection_log.py](backend/core/inspection_log.py)）：SQLite（`data/inspections.db`，不進版控），每次辨識寫一筆，`GET /api/inspections?module=&verdict=&date_from=&date_to=` 查詢，`/api/inspections/export.csv` 匯出（含 BOM，Excel 開啟中文不亂碼）。Phase 9 起新增追溯欄位、原圖/標註圖存檔（`data/images/`）、人工複判、看板統計，見下方「技術決策與理由（Phase 9）」。
 - **目錄結構**：`backend/core/`（共用工具）、`backend/modules/<模組>/{router.py,service.py}`（每個模組獨立）、`tests/`（pytest，測試圖由 `tests/samples/make_samples.py` 程式生成，不依賴外部授權圖片，不進版控）。
 - **M9 開放式辨識**：原「街景辨識」改為現場照片辨識，prompt 改成機台/工具/零件/標示/安全觀察情境，新增「可見文字」「安全觀察」欄位。
 - **M4 製造文件結構化**：Phase 1 沿用 Tesseract 兩段式 + 端到端兩種模式（欄位命名改成工單/出貨單/檢驗報告情境），改走 LLM 抽象層。Phase 4 會換成 RapidOCR + Pydantic schema（理由見下方套件決策）。
@@ -89,6 +89,19 @@
 - **M5 危險區域截圖踩到 canvas 座標的真實 bug**：第一次產生的 `06_safety.png` 危險區域判定是 `false`（沒有示範到更有意義的 NG 案例），畫出來的多邊形視覺上只有一條線、不是封閉四邊形。用 `page.mouse.click(絕對頁面座標)` 點擊 canvas 下半部的兩個點時，那兩個點的 y 座標已經超出瀏覽器 viewport 高度（900px）——canvas 圖片高度撐開了整個頁面，下半部的點落在「需要捲動才看得到」的範圍，但 `page.mouse.click` 是對 viewport 座標直接派發滑鼠事件，不會像真人滑鼠一樣先捲動視窗，所以那兩次點擊完全沒有命中 canvas，只有前兩個點成功記錄，畫出的只是一條線而非四邊形。改用 `locator.click(position=...)`（相對 canvas 左上角的座標，Playwright 會自動先把該元素捲進可視範圍再點擊）後，4 個頂點都正確記錄，重新產生的截圖正確顯示「危險區域: true」與半透明紅色覆蓋區。這是先看到截圖內容不合預期（`危險區域: false` 是意外結果，不是預期中的示範案例），照著「Surprise is signal」去查才抓到的，不是預先猜到才防的。
 - **README「未納入功能」直接引用規劃文件原文**：`docs/manufacturing-ai-plan-prompt.md` 已經寫好每一項未納入功能的具體原因（付費軟體、需要硬體、資料集授權不明、非影像辨識範疇等），沒有重新編造理由，同時補上一項規劃文件裡沒單獨列出但實際發生過的案例：M6 原規劃第一選項 NEU-DET 資料集在 Phase 0 查證時就發現官方頁面沒有授權條款，因此改用 DeepPCB（MIT），這個決策原因值得跟其他「未納入」項目放在一起說明。
 
+## 技術決策與理由（Phase 9）
+
+第二輪規劃（`docs/next-phase-gap-plan-prompt.md`）第一個 Phase：從「13 個辨識分頁的 Demo」補到「可以上產線、可以接 ERP 的品檢系統」，這個 Phase 補檢驗紀錄的追溯欄位、原圖/標註圖存檔、人工複判、品檢看板。
+
+- **追溯資訊傳遞選方案 A（HTTP header + contextvar），不改 13 個 service.py 的函式簽名**：使用者在開工前回報階段明確選定。新增 `backend/core/context.py` 存兩個 `ContextVar`：`TRACE_CTX`（工單/料號/批號/站別/操作員，由 `main.py` 的 `@app.middleware("http")` 從 header 讀進去）與 `RAW_IMAGE_CTX`（原始圖片 bytes，由 `core/image_io.load_image()` 讀圖成功後塞進去）。`inspection_log.record_result()` 內部讀這兩個 contextvar，13 個模組的呼叫方式完全不用改。前端 header 值一律用 `encodeURIComponent` 編碼、後端用 `urllib.parse.unquote` 解回來，避免中文站別/操作員名稱塞進 HTTP header 出錯（HTTP header 理論上只保證 latin-1）。
+- **contextvar 跨 threadpool 傳遞是要驗證的假設，不是可以憑經驗直接相信的事**：13 個模組的路由都是 `def`（非 `async def`），FastAPI/Starlette 會用 `anyio.to_thread.run_sync` 丟進 threadpool 執行；middleware 是 `async def`，在 event loop 執行。這代表 `TRACE_CTX.set()` 發生在 event loop 的 context，`record_result()` 讀值發生在 threadpool 的 context，兩者要靠 `contextvars.copy_context()` 正確傳遞才會拿到同一份值。這點沒有假設它「應該會動」，而是寫了 `tests/test_inspections.py::test_trace_headers_recorded_and_optional` 實際發真實 HTTP 請求（含中文操作員姓名）驗證，確認 header → middleware → threadpool 裡的 service → `record_result()` 全程資料一致。
+- **原圖/標註圖存檔路徑先寫入再回填**：`record_result()` 流程是「先 INSERT 一筆拿到 `inspection_id`」→「用這個 id 當檔名 `data/images/YYYY-MM-DD/<id>_raw.<ext>`／`<id>_annotated.png` 存檔」→「再 UPDATE `image_path`/`annotated_path` 回這筆紀錄」，不是反過來用檔名反推 id。理由：檔名需要先有 id 才能唯一，而 SQLite `AUTOINCREMENT` 的 id 只有 INSERT 後才知道，沒有辦法在同一個 INSERT 語句裡同時算出檔名再塞進同一個欄位。
+- **migration 用 `PRAGMA table_info` 檢查而非版本號欄位**：`_migrate()` 每次連線都跑 `PRAGMA table_info(inspections)` 拿現有欄位集合，缺哪個 Phase 9 新欄位就補哪個，不用維護一個獨立的 schema version 表。這對這個專案規模（單一 SQLite 檔、欄位只會越加越多不會改型別）夠用；換來的好處是舊 db（哪怕是 Phase 1 剛建的最原始 6 欄位 schema）直接跑起來就自動補齊，寫了 `test_legacy_db_auto_migrates_and_old_data_still_queryable` 用手動建的舊 schema db 驗證這件事，不是只看程式碼邏輯就相信會動。
+- **良率計算排除 INFO**：`verdict=INFO` 的模組（M9 開放式辨識、M8-2 醫學影像分類展示、沒畫危險區域的 M5、找不到七段/指針錶結構的 M7 等）本來就不是「良品或不良品」的品檢判斷，`_yield_rate()` 只拿 OK/NG 當分母，INFO 完全不列入良率計算，避免看板出現「良率 85%」但其實有一半資料根本不是品檢判定的誤導數字。
+- **NG 原因柏拉圖的缺陷類別抽取是白名單制，不是動態掃 summary_json**：`inspection_log.py` 用 `@_extractor(module)` 裝飾器明確為 `defect`／`ppe`／`anomaly`／`safety`／`medical_packaging` 五個模組各自寫一個「怎麼從 items 抽出缺陷標籤」的函式（例如 defect 抓 `明細[].瑕疵類型`、ppe 只算「未戴安全帽」不算「已戴安全帽」、anomaly 抓 `判定=="異常"` 時的 `類別`）。沒有規則的模組（M9/M1/M4/M7/M8-2）`extract_defect_labels()` 直接回傳 `[]`，不會用「猜欄位名稱」的方式硬湊出不存在的缺陷分類，這也是為什麼這個函式不是用一個通用的「掃 summary 裡所有字串值」邏輯，那樣會把「主要物件」「可見文字」這種非缺陷欄位也混進柏拉圖。
+- **`AI 判定 vs 最終判定 vs 一致率」用真實資料交叉驗證出來，不是只看程式碼推導**：用瀏覽器把一筆 PCB 瑕疵（AI 判 NG）複判成 OK 後，看板即時反映：該模組「最終良率」從 0% 變成 12.5%（8 筆裡有 1 筆最終判 OK）、「AI／人工一致率」從 100%（改判前只有 1 筆複判且與 AI 一致）掉到 0%（這筆複判結果跟 AI 判定不一致）。這證明 `_final_verdict()`（`review_verdict` 有值就蓋過 `verdict`）與一致率公式（`review_verdict == verdict` 才算一致）確實照設計運作，不是憑程式碼讀起來合理就假設會動。
+- **Chart.js 存本機 `frontend/vendor/`，不用 CDN**：查證 GitHub `master` 分支 `package.json` 版本 4.5.1、MIT 授權，下載 `chart.umd.min.js`（208KB）進版控。理由同硬性規則第 2 條「核心完全離線執行」——看板是品檢日常會用的功能，不應該因為離線環境或 CDN 掛掉就失效。
+
 ## 目錄結構
 
 ```
@@ -103,7 +116,8 @@ vision-ai-demo/
 │   │   ├── tesseract_ocr.py     # Tesseract（M4 比較選項 mode=tesseract）
 │   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
 │   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
-│   │   └── inspection_log.py   # SQLite 檢驗紀錄
+│   │   ├── context.py           # Phase 9：追溯資訊／原圖 bytes 的 contextvar
+│   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計）
 │   ├── schemas/
 │   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
 │   │   └── nameplate.py         # M7 銘牌欄位 Pydantic schema
@@ -117,15 +131,18 @@ vision-ai-demo/
 │   │   ├── defect/               # M6 PCB 瑕疵偵測
 │   │   ├── nameplate/            # M7 銘牌／七段顯示器／指針錶
 │   │   ├── medical/              # M8 包裝追溯碼檢核／醫學影像分類展示
-│   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
+│   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出 / 複判 / 看板統計 / 圖片
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁（13 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
+├── frontend/
+│   ├── index.html               # 分頁式單頁（14 個分頁，M5 有 canvas 畫多邊形危險區域，⑭ 品檢看板用 Chart.js）
+│   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
 │   ├── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
 │   ├── prepare_deeppcb.py      # DeepPCB 官方標註 → YOLO 格式（M6）
 │   ├── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
-│   └── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
+│   ├── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
+│   └── capture_screenshots.py  # Playwright 產生 README Demo 截圖，含 ⑭ 品檢看板
 ├── notebooks/
 │   ├── train_pcb_defect.ipynb  # M6 訓練，Colab GPU 版（重用 scripts/prepare_deeppcb.py）
 │   └── train_ppe.ipynb         # M5 PPE 訓練，Colab GPU 版
@@ -151,6 +168,7 @@ vision-ai-demo/
 │   ├── test_ppe.py               # M5 PPE：假偵測結果驗證 OK/NG 判定
 │   ├── test_nameplate.py         # M7：七段判讀/指針錶純 OpenCV 真跑，銘牌假 LLM
 │   ├── test_medical.py           # M8：包裝檢核真跑條碼+RapidOCR/假 LLM，肺炎分類假模型
+│   ├── test_inspections.py       # Phase 9：舊 db migration、追溯 header、存圖、複判、看板統計
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -222,6 +240,9 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **指針錶的角度慣例只支援「掃過某一側」的單一路徑**：`angle_to_value` 會自動判斷 wrap-around，但指針剛好落在 min_angle/max_angle 之外、不屬於量測弧的「死區」時，讀值會被夾在最近的邊界值，不會報錯提示「指針可能不在刻度範圍內」，是已知的簡化。
 - **PneumoniaMNIST 分類模型的準確度有實測上限**：測試集 ACC=0.8862、AUC=0.9346，不是接近 100% 的完美模型；即使修正過類別不平衡，normal 的召回率還是只有 74.8%（低於 pneumonia 的 96.9%），代表大約每 4 張正常胸腔片有 1 張會被誤判成肺炎樣態。這是小型教學用 CNN 在這個資料集上的真實表現，不是展示用的美化數字——也是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
 - **M8-1 包裝檢核的比對只做字串/日期完全相等**：條碼批號跟印刷批號只有大小寫正規化後完全相同才算一致，OCR 或 LLM 抽取有任何字元誤差（例如 O/0 混淆）都會被判定「不一致」進而 NG，這在真實印刷品質不佳時可能誤報，使用者需要人工核對「問題」欄位列出的細節再判斷。
+- **追溯資訊沒有輸入驗證，是自由文字**：工單號/料號/批號/站別/操作員只是純文字欄位，前端不檢查格式、後端也不檢查是否存在於某個工單主檔（畢竟還沒有真的接 ERP）；這代表同一個工單號如果打錯字（例如 `WO-2026-0001` vs `wo-2026-0001`），會被當成兩個不同的工單，篩選查不到。等 Phase 10 接上 ERP 後，比較合理的做法是工單/料號改成從 ERP 拉下拉選單，而不是純文字輸入。
+- **同一個請求呼叫兩次 `load_image()` 會讓 contextvar 只留下最後一張圖**：`RAW_IMAGE_CTX` 每次 `load_image()` 呼叫都會覆寫，Phase 9 掃過的 13 個呼叫點目前都只在單一請求內讀一張圖，所以還沒有踩到這個限制；但這是這個設計本身的限制，不是「目前沒問題所以以後也不會有問題」，未來如果哪個模組要比對兩張圖（例如 Phase 13 規劃的黃金樣本比對），要另外設計，不能沿用這個 contextvar。
+- **`extract_defect_labels()` 是白名單制，新模組預設不會出現在柏拉圖**：Phase 13 以後如果加新的辨識模組，要記得在 `inspection_log.py` 用 `@_extractor("新模組名")` 補一個抽取函式，不然這個模組即使真的判 NG，也不會出現在「NG 原因柏拉圖」裡（會被 `extract_defect_labels()` 預設回傳 `[]` 吃掉，不是報錯，容易被忽略）。
 
 ## 待辦（Phase 進度）
 
@@ -234,6 +255,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 6：M7 銘牌／儀表。銘牌（OCR+LLM，沿用 M4 schema 驗證模式）、七段顯示器（純 OpenCV 分段判讀，因為兩種 OCR 都認不出七段字型）、指針錶（純 OpenCV，HoughCircles 找圓心 + HoughLinesP 找指針角度）。已用真實瀏覽器與 live 測試驗證可用。
 - [x] Phase 7：M8 醫療相關。包裝檢核（M8-1，重用 M1 條碼解析 + OCR/LLM 比對印刷文字）、PneumoniaMNIST 分類展示（M8-2，測試集 ACC=0.8862／AUC=0.9346，修正過類別不平衡問題）。已用真實瀏覽器與 live 測試（含真實 PneumoniaMNIST 測試集抽樣）驗證可用。M6-M8 全部完成，作品集規劃的功能已全數實作。
 - [x] Phase 8：收尾。README.md 新增「Demo 截圖」（13 張，`scripts/capture_screenshots.py` 用 Playwright 實跑產生，非擺拍）與「未納入功能」章節；CLAUDE.md 補上本 Phase 的技術決策與踩坑紀錄。作品集規劃的 M1-M9 全模組與收尾工作全數完成。
+- [x] Phase 9：檢驗紀錄強化 + 品檢看板 + 人工複判。`inspections` 表新增追溯欄位（work_order/part_no/lot_no/station/operator）+ 原圖/標註圖存檔欄位 + 複判欄位，舊 db 自動 `ALTER TABLE` 補欄位（真的用手動建的舊 schema db 測過）；`GET /api/inspections/{id}`、`PATCH /api/inspections/{id}/review`、`GET /api/inspections/{id}/image`、`GET /api/inspections/stats?group_by=module|day|defect` 四支新 API；前端新增追溯資訊列（`localStorage` 記住、自動帶 header）與第 14 分頁「品檢紀錄與看板」（Chart.js 折線圖/柏拉圖/堆疊長條圖 + 可展開的紀錄表格 + 複判表單）。71 項單元測試全過（新增 9 項），並用真實瀏覽器操作＋真打 Ollama／PCB 模型驗證整條「輸入追溯資訊→辨識→看板出現→複判→良率變化」流程。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -358,3 +380,20 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **13 張截圖全部用 Playwright 實跑產生**（`scripts/capture_screenshots.py`），每張都是實際上傳圖片、點擊按鈕、等待真實 API 回應後的畫面截圖，不是手動擺拍或編輯過的示意圖；M3/M6/M5 PPE 三個模組刻意用官方測試集裡的真實圖片（`data/mvtec_ad/screw/test/scratch_head/000.png`、`data/deeppcb_yolo/test/images/...`、`data/hardhat_yolo/val/images/005298.jpg`），不是隨便塞無關圖片。
 - **抽查 3 張截圖內容正確性**（`03_anomaly.png`、`06_safety.png`、`12_packaging.png`）：異常檢測正確顯示 NG + 熱力圖精準疊在螺絲瑕疵位置；危險區域入侵修正 canvas 座標 bug 後正確顯示 NG（危險區域: true）+ 半透明紅色覆蓋區；包裝追溯碼檢核正確顯示 NG，批號與效期兩項不一致都列在「問題」欄位。其餘 10 張截圖僅檢查檔案有效性（`identify`/`file` 確認為合法 PNG、尺寸合理），未逐張人工核對畫面內容。
 - **收尾後跑過一次完整單元測試**：`pytest`，62 項全過（14.03 秒），跟 Phase 7 記錄的數字一致，確認截圖腳本與 README/CLAUDE.md 文件變動沒有動到任何程式邏輯。
+
+### Phase 9：功能驗證
+
+- **舊 db migration 用真的手動建的舊 schema db 測，不是只看程式碼**：`tests/test_inspections.py::test_legacy_db_auto_migrates_and_old_data_still_queryable` 用純 SQL 建一個只有 Phase 1-8 六個欄位的 `inspections` 表並塞一筆舊資料，接著呼叫 `query_inspections()`（會觸發 `_migrate()`），確認：(1) 舊資料的 `summary` 還讀得到；(2) 11 個 Phase 9 新欄位都補上了但值是 `NULL`；(3) 用 `PRAGMA table_info` 直接檢查 sqlite 檔案，`work_order`／`review_verdict` 確實存在於實體 schema。額外的真實驗證：拿專案本身累積到 Phase 8 為止的真實 `data/inspections.db`（157 筆歷史紀錄，橫跨 Phase 1-8 的真實/live 測試資料）啟動改版後的伺服器，直接查詢與寫入都正常，不需要任何手動修檔。
+- **contextvar 跨 threadpool 傳遞用真實 HTTP 請求驗證**：`test_trace_headers_recorded_and_optional` 帶 5 個 header（含 `encodeURIComponent` 編碼過的中文操作員「王小明」）打 `/api/general/describe`，再用 `GET /api/inspections/{id}` 確認 5 個欄位都正確落地且中文沒有亂碼；另外驗證不帶 header 時 5 個欄位全部是 `None`，不會因為 middleware 邏輯出錯而噴例外。
+- **存圖功能分三種情況測**：`SAVE_IMAGES=true` 時原圖存檔、`/image?kind=raw` 讀得到、沒有標註圖的模組（M9）`annotated_path` 正確是 `None`、讀 `kind=annotated` 回 404；`SAVE_IMAGES=false` 時完全不存檔，`image_path`/`annotated_path` 都是 `None`；有標註圖的模組（M6 PCB）驗證 `annotated_path` 有值且 `/image?kind=annotated` 回傳 `Content-Type: image/png`。
+- **複判 API**：改判成功回傳更新後的完整紀錄（`review_verdict`/`reviewer`/`reviewed_at`/`review_note` 都正確）；`review_verdict` 傳無效值（例如 `"MAYBE"`）回 422；查詢不存在的 id 回 404。
+- **看板統計用固定假資料算出預期數字再比對，不是「跑出什麼就信什麼」**：`test_stats_yield_pareto_and_consistency` 手動插入 5 筆已知判定的紀錄（2 筆 anomaly、2 筆 defect、1 筆 general），對其中 2 筆 anomaly 做複判（1 筆維持 OK、1 筆 NG→OK），手算預期值後逐一斷言：`reviewed_count=2`、`consistency_rate=0.5`（複判跟 AI 判定一致的比例）、anomaly 這個 group 的 `OK=2/NG=0`（因為 NG 那筆被複判成 OK）。NG 原因柏拉圖驗證 `defect` 模組的兩種瑕疵類型計數正確、`anomaly` 模組「判定=異常」也正確被算進柏拉圖（不是只有 defect/ppe 才算缺陷類別）、累積百分比最後一筆等於 100%。`group_by` 傳無效值回 400。
+- **真實瀏覽器完整流程驗證**（`mcp__Claude_Browser__*`，真打本機 Ollama `qwen3.5:9b` 與訓練好的 PCB YOLO 模型，不是假資料）：
+  1. 用 curl 帶追溯 header 呼叫 `/api/general/describe`（真打 LLM，25.4 秒），確認 `operator` 欄位正確存成「王小明」（URL 編碼中文解碼正確）、`image_path` 正確存檔。
+  2. 用 DeepPCB 測試集真實圖片呼叫 `/api/defect/pcb`（真打訓練好的 YOLO 模型，1.4 秒），偵測到 8 個瑕疵判 NG，`image_path`／`annotated_path` 都正確存檔，`/image?kind=annotated` 讀出來是合法 PNG。
+  3. 瀏覽器開看板分頁：統計卡（總筆數 159、AI 良率 61.6%）、每日良率折線圖、NG 原因柏拉圖（含累積百分比線）、各模組堆疊長條圖全部正確渲染，無 console 錯誤。
+  4. 點開 id=159 的紀錄列，正確展開顯示原圖與標註圖（紅框標出瑕疵位置）、完整 JSON 明細、已有的複判紀錄。
+  5. 在瀏覽器上把這筆從「複判 NG」改成「複判 OK」並送出，看板即時更新：defect 模組最終良率從 0% 變成 12.5%（8 筆裡 1 筆變 OK）、AI／人工一致率從 100% 掉到 0%（因為新的複判結果 OK 跟 AI 判定 NG 不一致）——這組數字變化跟手算的預期完全吻合，不是憑畫面「看起來有更新」就當作驗證過。
+  6. 模組篩選測試：篩「PCB 瑕疵偵測」後總筆數正確變成 8、AI 良率變成 0.0%（8 筆全部 AI 判 NG）、最終良率 12.5%，跟未篩選時的全域統計數字不同，證明篩選確實套用到 `/api/inspections/stats`。
+- **CSV 匯出**：帶追溯資訊呼叫一次辨識後匯出 CSV，確認 header 含 `work_order`／`review_verdict` 等新欄位，且資料列有正確寫入的工單號。
+- **既有測試無回歸**：`pytest`，71 項全過（62 項既有 + 9 項新增，13 秒），confirm 前後兩次執行都是同樣結果，且測試流程不會污染專案真實的 `data/inspections.db`／`data/images/`（`tests/conftest.py` 的 `client` fixture 新增 `INSPECTION_IMAGES_DIR` 隔離，這是開發過程中第一次沒隔離時真的把測試圖寫進 `data/images/` 才發現要修的，發現後已清除誤寫的檔案並補上隔離）。

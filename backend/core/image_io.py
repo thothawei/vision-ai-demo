@@ -6,7 +6,10 @@ import io
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from core import context
 from core.schemas import ModuleError
+
+_FORMAT_EXT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "BMP": "bmp", "GIF": "gif"}
 
 
 def load_image(image_bytes: bytes) -> Image.Image:
@@ -18,6 +21,8 @@ def load_image(image_bytes: bytes) -> Image.Image:
         image.load()
     except (UnidentifiedImageError, OSError) as e:
         raise ModuleError(f"無法讀取圖片：{e}", 400)
+    ext = _FORMAT_EXT.get(image.format, "jpg")
+    context.set_raw_image(image_bytes, ext)
     return ImageOps.exif_transpose(image).convert("RGB")
 
 

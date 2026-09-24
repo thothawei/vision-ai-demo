@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+from core import context  # noqa: E402
 from core.schemas import ModuleError  # noqa: E402
 from modules.anomaly.router import router as anomaly_router  # noqa: E402
 from modules.codes.router import router as codes_router  # noqa: E402
@@ -30,6 +31,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def trace_context_middleware(request: Request, call_next):
+    """把追溯資訊 header（工單/料號/批號/站別/操作員）存進 contextvar，
+    讓 record_result() 不用改動 13 個模組 service.py 的函式簽名就能取用。
+    值用 encodeURIComponent 傳送（HTTP header 不保證能放非 ASCII 字元）。"""
+    from urllib.parse import unquote
+
+    trace = {}
+    for field, header_name in context.TRACE_HEADER_MAP.items():
+        raw = request.headers.get(header_name)
+        if raw:
+            trace[field] = unquote(raw)
+    context.set_trace(trace)
+    return await call_next(request)
 
 
 @app.exception_handler(ModuleError)

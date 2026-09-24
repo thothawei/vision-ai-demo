@@ -29,6 +29,7 @@ STEPS = [
     (11, "11_gauge.png", "#gauge-file", "gauge.png", "#gauge-btn", 5, None),
     (12, "12_packaging.png", "#packaging-file", "packaging_mismatch.png", "#packaging-btn", 15, None),
     (13, "13_pneumonia.png", "#pneumonia-file", "pneumonia_sample.png", "#pneumonia-btn", 5, None),
+    (14, None, None, None, None, 0, "dashboard"),  # 特殊流程，見下方 capture_dashboard
 ]
 
 
@@ -53,6 +54,9 @@ def main():
                 file_selector = "#measure-file"
             if special == "safety":
                 capture_safety(page)
+                continue
+            if special == "dashboard":
+                capture_dashboard(page)
                 continue
 
             # M3/M7-PPE/M6 用真實資料集圖片（不是隨便塞無關圖），screenshot 才有意義
@@ -120,6 +124,18 @@ def capture_safety(page):
     out_path = OUT_DIR / "06_safety.png"
     page.screenshot(path=str(out_path), full_page=True)
     print(f"[6] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+
+
+def capture_dashboard(page):
+    """Phase 9 品檢看板：套用篩選、展開一列看原圖/標註圖，示範真實資料而非空畫面。"""
+    page.wait_for_selector("#dash-stat-row .dash-stat", timeout=10000)
+    page.wait_for_timeout(500)  # 等 Chart.js 畫完
+    page.locator(".dash-table tbody tr.clickable").first.click()
+    page.wait_for_timeout(500)
+
+    out_path = OUT_DIR / "14_dashboard.png"
+    page.screenshot(path=str(out_path), full_page=True)
+    print(f"[14] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

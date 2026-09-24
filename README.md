@@ -21,6 +21,7 @@
 | 指針錶讀值（指針角度偵測 → 讀值換算） | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
 | 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
+| 品檢紀錄與看板（工單/料號/批號追溯、原圖與標註圖存檔、人工複判、良率/NG 原因柏拉圖） | SQLite + Chart.js | — |
 
 各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [CLAUDE.md](CLAUDE.md)。
 
@@ -43,6 +44,7 @@
 | 指針錶讀值 | ![指針錶讀值](docs/screenshots/11_gauge.png) |
 | 包裝追溯碼檢核 | ![包裝追溯碼檢核](docs/screenshots/12_packaging.png) |
 | 醫學影像分類展示 | ![醫學影像分類展示](docs/screenshots/13_pneumonia.png) |
+| 品檢紀錄與看板 | ![品檢紀錄與看板](docs/screenshots/14_dashboard.png) |
 
 重新產生截圖（需先啟動後端，見下方「啟動」）：
 
@@ -172,7 +174,9 @@ cd backend
 uvicorn main:app --reload
 ```
 
-瀏覽器開 <http://127.0.0.1:8000>，十三個分頁各對應一個模組。
+瀏覽器開 <http://127.0.0.1:8000>，前 13 個分頁各對應一個辨識模組，第 14 個分頁是品檢看板。
+
+畫面最上方的「工單號／料號／批號／站別／操作員」欄位（存 `localStorage`）會自動帶進每次辨識的追溯資訊；`.env` 的 `SAVE_IMAGES`（預設 `true`）控制要不要把每次辨識的原圖與標註圖存到 `data/images/`。
 
 ## 測試
 
@@ -196,6 +200,8 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
 - **M8-2 分類準確度**：測試集 ACC=0.8862、AUC=0.9346，normal 召回率只有 74.8%（約每 4 張正常片有 1 張被誤判），這是小型教學用 CNN 的真實表現，不是接近完美的模型——這正是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
 - **M8-1 包裝檢核只做完全字串/日期相等比對**：OCR 或 LLM 抽取有任何誤差（例如 O/0 混淆）都會被判「不一致」而 NG，需要人工核對細節再判斷。
+- **追溯資訊是自由文字，沒有輸入驗證**：工單號/料號等欄位不檢查格式、不比對任何工單主檔（還沒接 ERP），同一工單打錯字會被當成不同工單，篩選查不到。
+- **品檢看板的 NG 原因柏拉圖是白名單制**：只有 defect/ppe/anomaly/safety/medical_packaging 五個模組定義了「怎麼抽出缺陷類別」，之後新增模組要記得補上，不然不會出現在柏拉圖。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -208,7 +214,9 @@ vision-ai-demo/
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
 │   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / medical(M8) / inspections
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁前端（13 個模組）
+├── frontend/
+│   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板）
+│   └── vendor/chart.min.js      # Chart.js（MIT），看板圖表用，離線優先不用 CDN
 ├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore

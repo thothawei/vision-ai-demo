@@ -34,6 +34,12 @@
 | pytest | 9.1.1 | MIT | 是 | pure | 測試 | https://pypi.org/project/pytest/ |
 | httpx | 0.28.1 | BSD-3-Clause | 是 | pure | FastAPI TestClient 相依 | https://pypi.org/project/httpx/ |
 
+## 前端套件（vendor，Phase 9 新增）
+
+| 名稱 | 查證版本 | 授權 | 可商用 | 用途 | 來源 |
+|---|---|---|---|---|---|
+| Chart.js | 4.5.1（查證 `master` 分支 `package.json`，2026-09-24） | MIT | 是 | ⑭ 品檢看板：每日良率折線、NG 原因柏拉圖、各模組件數 | https://github.com/chartjs/Chart.js ；放 `frontend/vendor/chart.min.js`（離線優先，不用 CDN，符合硬性規則第 2 條核心離線） |
+
 ### 評估後不採用
 
 | 名稱 | 查證版本 | 授權 | 不採用原因 |

@@ -14,8 +14,9 @@ def png_bytes(image) -> bytes:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    # 每個測試用獨立的 SQLite，不污染 data/inspections.db
+    # 每個測試用獨立的 SQLite 與圖片目錄，不污染 data/inspections.db、data/images/
     monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
+    monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
     from main import app
 
     return TestClient(app)
