@@ -22,7 +22,7 @@ from modules.medical.router import router as medical_router  # noqa: E402
 from modules.nameplate.router import router as nameplate_router  # noqa: E402
 from modules.safety.router import router as safety_router  # noqa: E402
 
-app = FastAPI(title="製造業 AI 辨識 Demo")
+app = FastAPI(title="製造業 AI 辨識系統")
 
 app.add_middleware(
     CORSMiddleware,

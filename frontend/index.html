@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>製造業 AI 辨識 Demo</title>
+<title>製造業 AI 辨識系統</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -99,8 +99,8 @@
 </head>
 <body>
 
-<h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 7：M8 醫療相關辨識，作品集全功能收尾）</p>
+<h1>製造業 AI 辨識系統</h1>
+<p class="subtitle">台中製造業現場常見 AI 辨識功能：工單/追溯碼、外觀瑕疵檢測、計數量測、工安偵測、銘牌儀表讀值、包裝追溯與醫學影像分類</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
@@ -159,7 +159,7 @@
     <h2>外觀瑕疵異常檢測（M3）</h2>
     <p style="color:var(--muted); font-size:13px;">
       非監督式：模型只用良品照片擬合，不需要 NG 樣本。用 MVTec AD 資料集示範（<code>metal_nut</code> 螺帽／<code>screw</code> 螺絲／<code>tile</code> 磁磚），
-      CC BY-NC-SA 4.0 僅供學習/作品集展示，實際 AUROC 見 <code>models/anomaly/&lt;類別&gt;/metrics.json</code>
+      訓練資料集授權為 CC BY-NC-SA 4.0，僅供非商業用途，正式導入時需以自有產線影像重新擬合模型；實際 AUROC 見 <code>models/anomaly/&lt;類別&gt;/metrics.json</code>
     </p>
     <div class="row">
       <input type="file" id="anomaly-file" accept="image/*">
