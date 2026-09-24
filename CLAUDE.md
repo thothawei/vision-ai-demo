@@ -65,6 +65,15 @@
 - **ultralytics 的 `project` 路徑陷阱（真的踩到，見下方測試紀錄）**：`project='models/defect'` 這種相對路徑會被 ultralytics 全域設定的 `runs_dir` 加上前綴，實際存到 `runs/detect/models/defect/...`，不是我以為的 `models/defect/...`。PPE 訓練改用絕對路徑 `project='/Users/.../models/ppe'` 避開這個陷阱。
 - **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，這是 Phase 0 就查證過的資料集限制，不是這個 Phase 漏做；沿用資料集自帶的 Train/Test 切分（不像 DeepPCB 要自己切）。
 
+## 技術決策與理由（Phase 6）
+
+- **先測 OCR 再決定要不要自己做（照規劃的順序）**：七段顯示器實測 RapidOCR 完全偵測不到文字（`text detection result is empty`），Tesseract 把數字亂猜成中文字（`世紀二`）。兩個都不能用，才照規劃改用 OpenCV 逐段判讀（`backend/core/seven_segment.py`），不是預設就寫死走 OpenCV。
+- **七段判讀不用膨脹黏合**：一開始用膨脹（dilate）讓斷開的線段黏成一個連通元件，結果反而把小數點跟隔壁數字黏在一起、也把緊致邊界框撐大到取樣點對不準線段位置。改成不做任何形態學處理，直接對原始二值圖做連通元件分析——只要線段有在轉角共用像素（正常畫法本來就是），一個數字自然就是一個連通元件，小數點因為高度矮很多會自然分開成獨立元件，不需要膨脹。
+- **數字「1」要特判**：「1」只有右側兩條線段，緊致邊界框寬度遠小於其他數字，若照 7 個比例取樣點去取樣，取樣窗口會意外全部落在同一條線上而誤判成「8」。用「寬度明顯小於其他數字寬度中位數」直接特判成 1，不跑一般的七段比對。
+- **指針錶角度慣例選 atan2(dy,dx)**：0 度＝3 點鐘方向，順時針遞增（因為圖片座標 y 軸向下，這剛好是最自然、不用額外轉換正負號的方向）。圓心找不到時要求使用者手動輸入正規化座標，不硬猜。
+- **指針角度換算成讀值抓到一個真實 bug（不是預想到才防的）**：指針剛好落在 `min_angle` 邊界附近（134.7° vs min_angle=135°，只差 0.3° 的量測雜訊），原本的邏輯把「角度略小於 min_angle」一律當成「指針繞了一整圈從另一端過來」，讀值從該接近 0 跳成 100。改成同時算「角度」跟「角度+360」兩種解讀，取夾範圍前比例離 [0,1] 較近的那個，邊界雜訊就不會被誤判成整整繞一圈。這個 bug 是實際測試邊界情況才發現的，寫了對應的 `test_gauge_boundary_noise_does_not_wrap_to_opposite_end` 測試釘住，不會再退化。
+- **銘牌沿用 M4 的單段 LLM 呼叫模式**（不是兩段式）：因為銘牌不需要先判斷文件類型，直接一次 OCR 文字→固定 schema（`backend/schemas/nameplate.py`）結構化，比 M4 簡單。
+
 ## 目錄結構
 
 ```
@@ -77,8 +86,12 @@ vision-ai-demo/
 │   │   ├── llm.py              # Ollama / Gemini 抽象層
 │   │   ├── ocr.py               # RapidOCR + RapidTable（M4 主要 OCR 引擎）
 │   │   ├── tesseract_ocr.py     # Tesseract（M4 比較選項 mode=tesseract）
+│   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
+│   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄
-│   ├── schemas/documents.py    # M4 工單/出貨單/進料檢驗報告 Pydantic schema
+│   ├── schemas/
+│   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
+│   │   └── nameplate.py         # M7 銘牌欄位 Pydantic schema
 │   ├── modules/
 │   │   ├── general/            # M9 開放式辨識
 │   │   ├── docs/                # M4 製造文件結構化
@@ -87,9 +100,10 @@ vision-ai-demo/
 │   │   ├── measure/              # M2 計數與尺寸量測
 │   │   ├── safety/               # M5 危險區域入侵 + PPE 安全帽偵測
 │   │   ├── defect/               # M6 PCB 瑕疵偵測
+│   │   ├── nameplate/            # M7 銘牌／七段顯示器／指針錶
 │   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁（8 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
+├── frontend/index.html         # 分頁式單頁（11 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
 │   ├── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
@@ -117,12 +131,14 @@ vision-ai-demo/
 │   ├── test_docs.py              # M4：schema 驗證、來源核對邏輯（真跑 RapidOCR，假 LLM）
 │   ├── test_defect.py            # M6：假偵測結果驗證 OK/NG 判定
 │   ├── test_ppe.py               # M5 PPE：假偵測結果驗證 OK/NG 判定
+│   ├── test_nameplate.py         # M7：七段判讀/指針錶純 OpenCV 真跑，銘牌假 LLM
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
 │   ├── test_live_docs.py        # 真打 Ollama 跑完整 M4 兩段式流程，pytest -m live
 │   ├── test_live_defect.py      # 真打訓練好的 PCB 模型 + DeepPCB 測試集，pytest -m live
-│   └── test_live_ppe.py         # 真打訓練好的 PPE 模型 + Hardhat 驗證集，pytest -m live
+│   ├── test_live_ppe.py         # 真打訓練好的 PPE 模型 + Hardhat 驗證集，pytest -m live
+│   └── test_live_nameplate.py   # 真打 Ollama 跑銘牌辨識，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
 │   └── licenses.md
@@ -180,7 +196,9 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **`ultralytics` 的 `project` 相對路徑陷阱**：`YOLO().train(project='models/xxx')` 這種相對路徑會被全域設定的 `runs_dir` 加前綴，實際存到 `runs/detect/models/xxx/`，不是字面上那個路徑；用絕對路徑就不會有這個問題。M6/M5 PPE 的服務層 `WEIGHTS_PATH`／`PPE_WEIGHTS_PATH` 都寫死指向 `models/defect/pcb_yolo11n/weights/best.pt`、`models/ppe/ppe_yolo11n/weights/best.pt`，重新訓練時要確保 `project` 用絕對路徑或訓練完手動核對/搬移產出位置。
 - **YOLO 監督式訓練耗時差異大**：跟資料量、裝置有關，M6（1000 張、CPU/MPS 皆可）32 分鐘；M5 PPE（5297 張）在 MPS 上跑滿 60 epoch 要 4.15 小時，重新訓練前要有心理準備。PatchCore（M3）的 MPS 慢是特例（逐元素同步），YOLO 訓練本身在 MPS 上表現正常。
 - **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，這是 Phase 0 就查證過的資料集限制。
-
+- **七段顯示器判讀假設乾淨的分段字型**：實測合成圖（同樣繪圖規則）0-9 全對，但沒有拿真實 LED/LCD 照片測過；真實照片常見的反光、模糊、角度歪斜可能讓連通元件分析失準，尤其是數字間距很近或小數點位置特殊的顯示器。
+- **指針錶圓心自動偵測依賴清楚的外框圓**：`HoughCircles` 找不到明顯圓框（例如錶面沒有外框、跟背景對比不夠）就會要求手動輸入 `center_x/center_y`；角度校正（min_angle/max_angle）目前要使用者自己量測換算，前端有寫清楚換算慣例但仍需要一點技術理解。
+- **指針錶的角度慣例只支援「掃過某一側」的單一路徑**：`angle_to_value` 會自動判斷 wrap-around，但指針剛好落在 min_angle/max_angle 之外、不屬於量測弧的「死區」時，讀值會被夾在最近的邊界值，不會報錯提示「指針可能不在刻度範圍內」，是已知的簡化。
 ## 待辦（Phase 進度）
 
 - [x] Phase 0：查證套件/模型/資料集授權，寫入 `docs/licenses.md`；確認 Mac 安裝風險（PaddleOCR 在 py3.11 相依衝突、OpenCV 三套件共用 cv2 命名空間、16GB 記憶體限制）。
@@ -189,7 +207,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 3：M3 異常檢測（Anomalib PatchCore + MVTec AD）。三類別實測 image-level AUROC：metal_nut 0.9985、screw 0.9645、tile 0.9993（見下方測試紀錄）。已用真實測試集圖片與真實瀏覽器驗證可用，熱力圖能準確標出瑕疵位置。
 - [x] Phase 4：M4 換成 RapidOCR + Pydantic schema。實測 RapidOCR 修正了 Phase 1 記錄的 Tesseract 誤讀（工單號 `0915→0215`）；工單/出貨單/進料檢驗報告三種文件套嚴格 schema，數字欄位附「來源驗證」核對 LLM 有沒有捏造數字；Tesseract 保留當比較選項。
 - [x] Phase 5：M6 DeepPCB 瑕疵偵測（YOLO11n，mAP50 0.978，41 epoch/32 分鐘）、M5 PPE 安全帽偵測（YOLO11n，mAP50 0.977，60 epoch/4.15 小時）。附 Colab notebook（`notebooks/`），已用真實資料與真實瀏覽器驗證可用。
-- [ ] Phase 6：M7 銘牌／儀表。
+- [x] Phase 6：M7 銘牌／儀表。銘牌（OCR+LLM，沿用 M4 schema 驗證模式）、七段顯示器（純 OpenCV 分段判讀，因為兩種 OCR 都認不出七段字型）、指針錶（純 OpenCV，HoughCircles 找圓心 + HoughLinesP 找指針角度）。已用真實瀏覽器與 live 測試驗證可用。
 - [ ] Phase 7：M8 醫療相關（包裝檢核、MedMNIST 教學展示）。
 - [ ] Phase 8：收尾（README、CLAUDE.md、Demo 截圖）。
 
@@ -283,3 +301,19 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **真實資料推論驗證**：直接呼叫 `detect_ppe()` 測 Hard Hat Workers 驗證集，good 案例（多人合照有安全帽）正確判 OK；抓 5 張標註含「未戴安全帽」的圖測試，4/5 正確判 NG（1 張漏判，跟 recall 0.941<1 的實測數字吻合，不是我瞎猜的容錯率）。
 - **live 測試**：`pytest -m live`，驗證集抽樣 10 張，全部成功偵測到人頭（2 張 NG、7 張 OK、1 張沒偵測到人頭判 INFO）。
 - **瀏覽器實測**（真實 Chrome）：M5 PPE 分頁上傳一張 8 人合照（官方標註全部未戴安全帽），993ms 判定 NG、8/8 正確抓到未戴安全帽，標註圖用紅框精準框出每個人頭並標「未戴安全帽 0.xx」信心度。
+
+### Phase 6：功能驗證
+
+- **先實測 OCR 再決定走向（不是憑感覺跳過）**：合成的七段顯示器測試圖（畫「235」），RapidOCR 回傳空字串並記錄「text detection result is empty」；Tesseract 讀成「世紀二」（幻覺出完全不相關的中文字）。兩者都不堪用，這個實測結果才是改走 OpenCV 分段判讀的依據。
+- **七段判讀演算法開發過程踩到的真實問題**：
+  1. 一開始用膨脹（dilate）想把數字的斷開線段黏成一塊，結果反而把小數點跟隔壁數字黏在一起、緊致邊界框也被撐大導致取樣點偏移，讀出一堆 `?`。改成不做形態學處理、直接對原始二值圖做連通元件分析後解決。
+  2. 數字「1」因為只有右側兩條線段、緊致邊界框特別窄，用一般比例取樣點會讓左右取樣點意外重疊到同一條線，誤判成「8」。加了「寬度明顯小於其他數字」的特判後解決。
+  3. 取樣閾值一開始設 0.35，數字「9」的 b/c 段因為取樣窗口跟線段只有部分重疊，量到的比例剛好卡在 0.333，低於閾值判定成「OFF」。調整閾值到 0.25 後解決。
+  - 最終在合成的 0-9 全數字圖與含小數點的「23.5」圖上，兩種情境都 100% 正確判讀。
+- **指針錶角度換算踩到的真實 bug**：指針角度剛好落在 `min_angle` 邊界附近（134.7° vs 135°，只差 0.3° 的量測雜訊），原本邏輯把「角度略小於 min_angle」一律當成「指針繞了一整圈」，讀值該接近 0 卻跳成 100。改成同時試算「角度」與「角度+360」兩種解讀、取夾範圍前比例離 [0,1] 較近的那個之後修正；測 6 個指針角度（135/180/270/0/45/90）確認除了不屬於量測弧的「死區」（90 度）之外全部正確，`test_gauge_boundary_noise_does_not_wrap_to_opposite_end` 這個測試專門釘住這個邊界情況，避免以後回歸。
+- **單元測試**：新增 `tests/test_nameplate.py` 9 項，涵蓋銘牌正常解析／缺欄位驗證錯誤／空白圖片擋在 LLM 呼叫之前、七段顯示器讀「235」／0-9 全對／找不到數字報錯、指針錶三個關鍵角度（min/mid/max）讀值誤差 <5／邊界雜訊不會跳到另一端／找不到指針報錯。全專案累計 55 項單元測試全過（14 秒）。
+- **live 測試（真打本機 Ollama）**：`pytest -m live`，銘牌辨識正確讀出型號 `CK-850V`、序號含 `20260088`，耗時約 6.5 秒。
+- **瀏覽器實測**（真實 Chrome）：三個分頁都實際上傳圖片操作過。
+  - 銘牌：6781ms 後正確顯示廠牌/型號/序號/製造日期/電壓。
+  - 七段顯示器：15ms 正確判讀「235」，標註圖用綠框框出每個數字並標上判讀結果。
+  - 指針錶：11ms 讀出 49.42（指針角度 268.4°，接近校正中點），標註圖清楚疊出偵測到的圓心、外框與指針方向，跟原圖的紅色指針完全對齊。

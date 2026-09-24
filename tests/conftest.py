@@ -110,6 +110,25 @@ def measure_scene_png_marker():
     return png_bytes(image), marker_mm
 
 
+@pytest.fixture(scope="session")
+def nameplate_png() -> bytes:
+    return png_bytes(make_samples.make_nameplate())
+
+
+@pytest.fixture(scope="session")
+def seven_segment_png() -> bytes:
+    return png_bytes(make_samples.make_seven_segment("235"))
+
+
+@pytest.fixture
+def gauge_png_factory():
+    """回傳一個 function(needle_angle_deg) -> png bytes，測試不同指針角度用。"""
+    def _make(needle_angle_deg: float, min_angle_deg: float = 135, max_angle_deg: float = 45):
+        image = make_samples.make_gauge(min_angle_deg, max_angle_deg, needle_angle_deg)
+        return png_bytes(image)
+    return _make
+
+
 @pytest.fixture
 def fake_person_detector(monkeypatch):
     """把 YOLO 換成假函式，回傳固定的偵測框（單位 px，對應 800x600 測試圖）。"""

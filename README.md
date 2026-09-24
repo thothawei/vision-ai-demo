@@ -4,7 +4,7 @@
 
 技術決策、每個 Phase 的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。開發規劃原始需求見 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md)。
 
-## 目前功能（Phase 0-5 已完成）
+## 目前功能（Phase 0-6 已完成）
 
 | 模組 | 功能 | 技術 | 實測指標 |
 |---|---|---|---|
@@ -16,8 +16,11 @@
 | M5 | 危險區域入侵偵測（人員偵測 + 前端畫多邊形） | YOLO11n（COCO 預訓練） | — |
 | M5 PPE | 安全帽偵測（helmet／head 兩類，無反光背心類別） | YOLO11n（監督式訓練） | mAP50 0.977 |
 | M6 | PCB 瑕疵偵測（6 種瑕疵：斷路/短路/缺口/毛刺/多餘銅箔/針孔） | YOLO11n（監督式訓練） | mAP50 0.978 |
+| M7 銘牌 | 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
+| M7 七段顯示器 | LED/LCD 數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
+| M7 指針錶 | 指針角度偵測 → 讀值換算 | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
 
-M7-M8 待做（銘牌儀表 OCR、醫療包裝檢核），見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節。
+M8 待做（醫療包裝檢核），見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節。
 
 ## 安裝
 
@@ -102,7 +105,11 @@ YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', epochs=60, imgsz=64
 
 **`project` 參數務必用絕對路徑**：`ultralytics` 會把相對路徑的 `project` 加上全域設定的 `runs_dir` 前綴，實際輸出位置會跟你以為的不一樣（踩過的坑，見 CLAUDE.md）。
 
-### 8.（可選）Gemini 備援
+### 8. M7 七段顯示器／指針錶（免額外安裝）
+
+純 OpenCV，跟前面幾個模組共用同一個 venv，不用另外裝套件或下載資料集。
+
+### 9.（可選）Gemini 備援
 
 去 [Google AI Studio](https://aistudio.google.com/apikey) 申請免費 API key，複製 `.env.example` 為 `.env` 填入，並把 `LLM_ENGINE` 設成 `gemini`（預設 `ollama`）。免費層限制見下方「已知限制」。
 
@@ -115,7 +122,7 @@ cd backend
 uvicorn main:app --reload
 ```
 
-瀏覽器開 <http://127.0.0.1:8000>，八個分頁各對應一個模組。
+瀏覽器開 <http://127.0.0.1:8000>，十一個分頁各對應一個模組。
 
 ## 測試
 
@@ -135,6 +142,8 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，是資料集限制。
 - **M5 危險區域入侵只做單張圖片**：短影片逐幀抽樣目前還沒做。
 - **YOLO 監督式訓練耗時差異大**：M6（1000 張）32 分鐘，M5 PPE（5297 張）在 MPS 上要 4.15 小時；`project` 參數務必用絕對路徑，否則權重會存到意外的位置（見上方安裝步驟）。
+- **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；只在合成測試圖驗證過，真實照片的反光/模糊/歪斜可能影響準確度。
+- **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -143,11 +152,11 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 vision-ai-demo/
 ├── backend/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
-│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、SQLite 檢驗紀錄
-│   ├── schemas/documents.py    # M4 工單/出貨單/進料檢驗報告 Pydantic schema
-│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / inspections
+│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄
+│   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
+│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / inspections
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁前端（8 個模組）
+├── frontend/index.html         # 分頁式單頁前端（11 個模組）
 ├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore

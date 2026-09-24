@@ -170,6 +170,68 @@ def make_shipping_order() -> Image.Image:
     return image
 
 
+# ---------- M7 銘牌／儀表 ----------
+
+NAMEPLATE_LINES = [
+    "機台銘牌 NAMEPLATE",
+    "廠牌：中科精機 CHUNG-KE",
+    "型號：CK-850V",
+    "序號：SN-20260088",
+    "製造日期：2026-03",
+    "電壓：220V / 3相",
+]
+
+
+def make_nameplate() -> Image.Image:
+    image = Image.new("RGB", (800, 420), "white")
+    draw = ImageDraw.Draw(image)
+    font = _font(34)
+    for i, line in enumerate(NAMEPLATE_LINES):
+        draw.text((40, 30 + i * 60), line, fill="black", font=font)
+    return image
+
+
+_SEVEN_SEG_MAP = {
+    "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
+    "5": "afgcd", "6": "afgecd", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+}
+
+
+def make_seven_segment(digits: str = "235", bg=(10, 10, 10), color=(255, 20, 20)) -> Image.Image:
+    """畫合成七段顯示器；digits 只能是 0-9（不支援小數點，測試小數點另外處理）。"""
+    digit_w, digit_h, gap, thick = 70, 130, 40, 10
+    width = len(digits) * (digit_w + gap) + gap
+    image = Image.new("RGB", (width, digit_h + 60), bg)
+    draw = ImageDraw.Draw(image)
+    x = gap
+    for ch in digits:
+        segs = _SEVEN_SEG_MAP.get(ch, "")
+        y0, my = 30, digit_h // 2
+        lines = {
+            "a": [(x, y0), (x + digit_w, y0)], "g": [(x, y0 + my), (x + digit_w, y0 + my)],
+            "d": [(x, y0 + digit_h), (x + digit_w, y0 + digit_h)], "f": [(x, y0), (x, y0 + my)],
+            "e": [(x, y0 + my), (x, y0 + digit_h)], "b": [(x + digit_w, y0), (x + digit_w, y0 + my)],
+            "c": [(x + digit_w, y0 + my), (x + digit_w, y0 + digit_h)],
+        }
+        for s in segs:
+            draw.line(lines[s], fill=color, width=thick)
+        x += digit_w + gap
+    return image
+
+
+def make_gauge(min_angle_deg: float = 135, max_angle_deg: float = 45,
+               needle_angle_deg: float = 270, size: int = 400) -> Image.Image:
+    """合成指針錶：白底黑框圓 + 紅色指針。角度慣例見 backend/core/gauge.py。"""
+    cx, cy, r = size // 2, size // 2, int(size * 0.375)
+    canvas = np.ones((size, size, 3), dtype=np.uint8) * 255
+    cv2.circle(canvas, (cx, cy), r, (0, 0, 0), 3)
+    rad = np.radians(needle_angle_deg)
+    end_x, end_y = int(cx + r * 0.85 * np.cos(rad)), int(cy + r * 0.85 * np.sin(rad))
+    cv2.line(canvas, (cx, cy), (end_x, end_y), (0, 0, 255), 5)
+    cv2.circle(canvas, (cx, cy), 6, (0, 0, 255), -1)
+    return Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+
+
 if __name__ == "__main__":
     for name, maker in [
         ("work_order.png", make_work_order),
@@ -177,6 +239,9 @@ if __name__ == "__main__":
         ("screws.png", make_screws_photo),
         ("inspection_report.png", make_inspection_report),
         ("shipping_order.png", make_shipping_order),
+        ("nameplate.png", make_nameplate),
+        ("seven_segment.png", make_seven_segment),
+        ("gauge.png", make_gauge),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)
