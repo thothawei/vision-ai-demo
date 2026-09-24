@@ -30,7 +30,7 @@
 | pytesseract | 0.3.13 | Apache-2.0 | 是 | pure | M4 Tesseract 比較選項（沿用） | https://pypi.org/project/pytesseract/ |
 | ollama（Python client） | 0.6.2 | MIT | 是 | pure | 本機 LLM 呼叫 | https://pypi.org/project/ollama/ |
 | google-genai | 2.25.0 | Apache-2.0 | 是 | pure | Gemini 備援引擎 | https://pypi.org/project/google-genai/ |
-| medmnist | 3.0.2 | 程式 Apache-2.0 | 是 | pure | M8-2 資料集下載 | https://github.com/MedMNIST/MedMNIST |
+| medmnist | 3.0.2（Phase 7 已裝並用於訓練） | 程式 Apache-2.0 | 是 | pure | M8-2 資料集下載 | https://github.com/MedMNIST/MedMNIST |
 | pytest | 9.1.1 | MIT | 是 | pure | 測試 | https://pypi.org/project/pytest/ |
 | httpx | 0.28.1 | BSD-3-Clause | 是 | pure | FastAPI TestClient 相依 | https://pypi.org/project/httpx/ |
 
@@ -75,6 +75,6 @@
 | DeepPCB（1500 張 640x640，Phase 5 已下載並用於訓練） | 資料放在 GitHub repo 內，repo 授權 **MIT** | 是 | M6（clone 整個 repo，231MB） | https://github.com/tangsanli5201/DeepPCB |
 | Hard Hat Workers（5297 train + 1766 test，Phase 5 已下載並用於訓練） | **CC0 1.0**（Harvard Dataverse API 回傳；Roboflow 頁標示 Public Domain） | 是 | M5 PPE（只有 helmet/head 兩類，**沒有反光背心類別**，資料集本身的限制） | https://doi.org/10.7910/DVN/7CBGOS（實際下載 https://dataverse.harvard.edu/api/access/datafile/3344658，268MB rar） |
 | Safety-Helmet-Wearing-Dataset（SHWD） | repo 為 MIT，但 README 寫正樣本圖片「從 Google/百度蒐集」，圖片本身版權不明 | 不明 | 不採用，改用 CC0 的 Hard Hat Workers | https://github.com/njvisionpower/Safety-Helmet-Wearing-Dataset |
-| MedMNIST（PneumoniaMNIST） | **CC BY 4.0**（DermaMNIST 例外為 CC BY-NC 4.0，本專案不用）；官方註明 NOT intended for clinical use | 是（需署名） | M8-2 教學展示 | https://github.com/MedMNIST/MedMNIST |
+| MedMNIST（PneumoniaMNIST，Phase 7 已下載並用於訓練，train 4708/val 524/test 624 張，28x28 灰階，來源 Zenodo） | **CC BY 4.0**（DermaMNIST 例外為 CC BY-NC 4.0，本專案不用）；官方註明 NOT intended for clinical use | 是（需署名） | M8-2 教學展示，**僅供技術展示，非醫療診斷用途** | https://github.com/MedMNIST/MedMNIST |
 | COCO（YOLO 預訓練所用） | 標註 CC BY 4.0；圖片依 Flickr 各自授權 | — | 只用預訓練權重，不下載資料集 | https://cocodataset.org/#termsofuse |
 | 《Worker operates machinery in a factory setting》（Wikimedia Commons） | **CC BY 2.0** | 是（需署名） | Phase 2 `tests/live_samples/`：M5 真人偵測的 live 測試/手動驗證用照片，不進版控 | https://commons.wikimedia.org/wiki/File:Worker_operates_machinery_in_a_factory_setting.jpg |

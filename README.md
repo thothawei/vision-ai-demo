@@ -4,7 +4,7 @@
 
 技術決策、每個 Phase 的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。開發規劃原始需求見 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md)。
 
-## 目前功能（Phase 0-6 已完成）
+## 目前功能（Phase 0-7 全部完成）
 
 | 模組 | 功能 | 技術 | 實測指標 |
 |---|---|---|---|
@@ -19,8 +19,10 @@
 | M7 銘牌 | 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
 | M7 七段顯示器 | LED/LCD 數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
 | M7 指針錶 | 指針角度偵測 → 讀值換算 | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
+| M8-1 | 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
+| M8-2 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
 
-M8 待做（醫療包裝檢核），見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節。
+規劃的 M1-M9 全部模組已實作完成，見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節查看逐 Phase 的實測紀錄。
 
 ## 安裝
 
@@ -109,7 +111,15 @@ YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', epochs=60, imgsz=64
 
 純 OpenCV，跟前面幾個模組共用同一個 venv，不用另外裝套件或下載資料集。
 
-### 9.（可選）Gemini 備援
+### 9. M8 醫療相關辨識
+
+M8-1 包裝檢核不用額外安裝（重用 M1 的 zxing-cpp + RapidOCR + LLM）。M8-2 教學展示需要訓練小型分類器：
+
+```bash
+venv/bin/python scripts/train_medmnist.py   # 自動下載 PneumoniaMNIST（CC BY 4.0），CPU 約 20 秒
+```
+
+### 10.（可選）Gemini 備援
 
 去 [Google AI Studio](https://aistudio.google.com/apikey) 申請免費 API key，複製 `.env.example` 為 `.env` 填入，並把 `LLM_ENGINE` 設成 `gemini`（預設 `ollama`）。免費層限制見下方「已知限制」。
 
@@ -122,7 +132,7 @@ cd backend
 uvicorn main:app --reload
 ```
 
-瀏覽器開 <http://127.0.0.1:8000>，十一個分頁各對應一個模組。
+瀏覽器開 <http://127.0.0.1:8000>，十三個分頁各對應一個模組。
 
 ## 測試
 
@@ -144,6 +154,8 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **YOLO 監督式訓練耗時差異大**：M6（1000 張）32 分鐘，M5 PPE（5297 張）在 MPS 上要 4.15 小時；`project` 參數務必用絕對路徑，否則權重會存到意外的位置（見上方安裝步驟）。
 - **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；只在合成測試圖驗證過，真實照片的反光/模糊/歪斜可能影響準確度。
 - **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
+- **M8-2 分類準確度**：測試集 ACC=0.8862、AUC=0.9346，normal 召回率只有 74.8%（約每 4 張正常片有 1 張被誤判），這是小型教學用 CNN 的真實表現，不是接近完美的模型——這正是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
+- **M8-1 包裝檢核只做完全字串/日期相等比對**：OCR 或 LLM 抽取有任何誤差（例如 O/0 混淆）都會被判「不一致」而 NG，需要人工核對細節再判斷。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -154,13 +166,13 @@ vision-ai-demo/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
 │   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
-│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / inspections
+│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / medical(M8) / inspections
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁前端（11 個模組）
-├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py
+├── frontend/index.html         # 分頁式單頁前端（13 個模組）
+├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore
-├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat），gitignore
+├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore
 ├── tests/                      # pytest：單元測試（假模型）+ live 測試（真模型，-m live）
 └── docs/                       # 規劃文件、授權查證紀錄
 ```

@@ -129,6 +129,34 @@ def gauge_png_factory():
     return _make
 
 
+@pytest.fixture(scope="session")
+def packaging_match_png() -> bytes:
+    return png_bytes(make_samples.make_packaging(days_from_today=200))
+
+
+@pytest.fixture
+def packaging_mismatch_png_factory():
+    """回傳 function(printed_batch=None, printed_expiry=None) -> png bytes。"""
+    def _make(**kwargs):
+        return png_bytes(make_samples.make_packaging(days_from_today=200, **kwargs))
+    return _make
+
+
+@pytest.fixture
+def fake_pneumonia_model(monkeypatch):
+    """回傳固定機率的假模型，不依賴真實訓練權重。"""
+    import torch
+
+    class _FakeModel:
+        def __call__(self, tensor):
+            return torch.tensor([[10.0]])  # sigmoid(10) ≈ 1.0，穩定判成 pneumonia
+
+        def eval(self):
+            return self
+
+    monkeypatch.setattr("modules.medical.service._get_model", lambda: _FakeModel())
+
+
 @pytest.fixture
 def fake_person_detector(monkeypatch):
     """把 YOLO 換成假函式，回傳固定的偵測框（單位 px，對應 800x600 測試圖）。"""

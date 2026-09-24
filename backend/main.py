@@ -18,6 +18,7 @@ from modules.docs.router import router as docs_router  # noqa: E402
 from modules.general.router import router as general_router  # noqa: E402
 from modules.inspections.router import router as inspections_router  # noqa: E402
 from modules.measure.router import router as measure_router  # noqa: E402
+from modules.medical.router import router as medical_router  # noqa: E402
 from modules.nameplate.router import router as nameplate_router  # noqa: E402
 from modules.safety.router import router as safety_router  # noqa: E402
 
@@ -43,6 +44,7 @@ app.include_router(defect_router)
 app.include_router(codes_router)
 app.include_router(measure_router)
 app.include_router(nameplate_router)
+app.include_router(medical_router)
 app.include_router(safety_router)
 app.include_router(inspections_router)
 

@@ -74,6 +74,15 @@
 - **指針角度換算成讀值抓到一個真實 bug（不是預想到才防的）**：指針剛好落在 `min_angle` 邊界附近（134.7° vs min_angle=135°，只差 0.3° 的量測雜訊），原本的邏輯把「角度略小於 min_angle」一律當成「指針繞了一整圈從另一端過來」，讀值從該接近 0 跳成 100。改成同時算「角度」跟「角度+360」兩種解讀，取夾範圍前比例離 [0,1] 較近的那個，邊界雜訊就不會被誤判成整整繞一圈。這個 bug 是實際測試邊界情況才發現的，寫了對應的 `test_gauge_boundary_noise_does_not_wrap_to_opposite_end` 測試釘住，不會再退化。
 - **銘牌沿用 M4 的單段 LLM 呼叫模式**（不是兩段式）：因為銘牌不需要先判斷文件類型，直接一次 OCR 文字→固定 schema（`backend/schemas/nameplate.py`）結構化，比 M4 簡單。
 
+## 技術決策與理由（Phase 7）
+
+- **M8-1 包裝檢核重用 M1 的條碼解析**：`backend/modules/codes/service.py` 的 `describe_barcode()`（原本是模組內部函式 `_describe_barcode`，這次改成公開函式給 M8 匯入重用，不重寫一份重複邏輯）解出 GS1 條碼的批號/效期，再用 RapidOCR+LLM 讀印刷文字上的批號/效期，兩邊比對。這正是 GMP 追溯的真實情境：條碼跟印刷文字對不上，代表包裝可能印錯或貼錯條碼，比單獨檢查條碼或單獨檢查印刷文字更能抓到真實瑕疵。
+- **比對邏輯明確區分「不一致」跟「沒辦法比對」**：兩邊有一邊沒讀到資料時回傳 `None`（沒辦法比對），不會被當成「不一致」硬判 NG——OCR 讀不到印刷文字很常見（印刷模糊、被遮擋），不該因為讀不到就誤報瑕疵。
+- **M8-2 選 PneumoniaMNIST 而非其他 MedMNIST 子集**：規劃就指定用這個資料集，CC BY 4.0（DermaMNIST 是 CC BY-NC 4.0，不能用）；28x28 灰階、二元分類，CPU 15 epoch 只要 19.4 秒，適合當「教學展示」而不是要花很久訓練的正式模型。
+- **開發中抓到訓練集類別不平衡的真實 bug**：PneumoniaMNIST 官方訓練集是 normal 1214 張、pneumonia 3494 張（約 1:2.9），第一版沒處理不平衡，訓練出來的模型對 normal 的召回率只有 55.6%（234 張正常樣本裡 104 張被誤判成肺炎）——這是拿真實照片測試才發現的，不是憑空猜的。加上 `pos_weight`（`BCEWithLogitsLoss` 內建的類別權重參數）調降多數類別（pneumonia）的損失權重後，normal 召回率提升到 74.8%，整體測試集 ACC 從 0.8285 提升到 0.8862、AUC 從 0.9284 提升到 0.9346。`scripts/train_medmnist.py` 現在會把 normal/pneumonia 各自的召回率都寫進 `metrics.json`，不是只看整體 ACC 掩蓋類別偏差。
+- **警語要在三個地方都出現**：API 回應的 `item["警語"]`、前端分頁的紅色粗體警語文字、`docs/licenses.md` 的資料集用途說明，三處都寫「僅供技術展示，非醫療診斷用途」，不是只在某一處交代就算了。
+- **這個模組的 `verdict` 一律回傳 INFO**：不是 OK/NG，因為這不是品檢判斷，用 OK/NG 容易被誤讀成「AI 判定這個人健康/生病」的結論性語氣。
+
 ## 目錄結構
 
 ```
@@ -101,14 +110,16 @@ vision-ai-demo/
 │   │   ├── safety/               # M5 危險區域入侵 + PPE 安全帽偵測
 │   │   ├── defect/               # M6 PCB 瑕疵偵測
 │   │   ├── nameplate/            # M7 銘牌／七段顯示器／指針錶
+│   │   ├── medical/              # M8 包裝追溯碼檢核／醫學影像分類展示
 │   │   └── inspections/         # 檢驗紀錄查詢 / CSV 匯出
 │   └── requirements.txt
-├── frontend/index.html         # 分頁式單頁（11 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
+├── frontend/index.html         # 分頁式單頁（13 個模組各一頁，M5 有 canvas 畫多邊形危險區域）
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
 │   ├── train_anomaly.py        # 擬合 M3 PatchCore、實測 AUROC、匯出推論用權重
 │   ├── prepare_deeppcb.py      # DeepPCB 官方標註 → YOLO 格式（M6）
-│   └── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
+│   ├── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
+│   └── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
 ├── notebooks/
 │   ├── train_pcb_defect.ipynb  # M6 訓練，Colab GPU 版（重用 scripts/prepare_deeppcb.py）
 │   └── train_ppe.ipynb         # M5 PPE 訓練，Colab GPU 版
@@ -118,7 +129,8 @@ vision-ai-demo/
 │   │   ├── weights/torch/model.pt   # 推論用（TorchInferencer 直接載入）
 │   │   └── metrics.json             # 實測 image-level AUROC、擬合耗時、測試集大小
 │   ├── defect/pcb_yolo11n/     # M6 用，results.csv 有逐 epoch 訓練曲線，gitignore
-│   └── ppe/ppe_yolo11n/        # M5 PPE 用，gitignore
+│   ├── ppe/ppe_yolo11n/        # M5 PPE 用，gitignore
+│   └── medical/pneumonia_cnn/  # M8-2 用，model.pt + metrics.json（含 normal/pneumonia 各自召回率），gitignore
 ├── tests/
 │   ├── conftest.py
 │   ├── samples/make_samples.py # 程式生成測試圖（工單、警示標示、GS1條碼、零件、ArUco量測場景），不進版控
@@ -132,13 +144,15 @@ vision-ai-demo/
 │   ├── test_defect.py            # M6：假偵測結果驗證 OK/NG 判定
 │   ├── test_ppe.py               # M5 PPE：假偵測結果驗證 OK/NG 判定
 │   ├── test_nameplate.py         # M7：七段判讀/指針錶純 OpenCV 真跑，銘牌假 LLM
+│   ├── test_medical.py           # M8：包裝檢核真跑條碼+RapidOCR/假 LLM，肺炎分類假模型
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
 │   ├── test_live_docs.py        # 真打 Ollama 跑完整 M4 兩段式流程，pytest -m live
 │   ├── test_live_defect.py      # 真打訓練好的 PCB 模型 + DeepPCB 測試集，pytest -m live
 │   ├── test_live_ppe.py         # 真打訓練好的 PPE 模型 + Hardhat 驗證集，pytest -m live
-│   └── test_live_nameplate.py   # 真打 Ollama 跑銘牌辨識，pytest -m live
+│   ├── test_live_nameplate.py   # 真打 Ollama 跑銘牌辨識，pytest -m live
+│   └── test_live_medical.py     # 真打 Ollama（包裝檢核）+ 真實 PneumoniaMNIST 測試集抽樣，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
 │   └── licenses.md
@@ -157,6 +171,7 @@ vision-ai-demo/
 - MVTec AD 資料集（M3 用，`data/mvtec_ad/<category>/`，下載連結見 `docs/licenses.md`，CC BY-NC-SA 4.0 僅供學習/作品集展示）+ 擬合權重（`python scripts/train_anomaly.py --category all`，CPU 約 22 分鐘，見已知限制的 MPS 說明）
 - DeepPCB 資料集（M6 用，`git clone https://github.com/tangsanli5201/DeepPCB.git data/deeppcb`，MIT，231MB）+ `python scripts/prepare_deeppcb.py` 轉 YOLO 格式 + 訓練（MPS 約 32 分鐘，見 CLAUDE.md 測試紀錄）
 - Hard Hat Workers 資料集（M5 PPE 用，下載連結見 `docs/licenses.md`，CC0 1.0，268MB rar，需要 `unar` 或 `unrar` 解壓）+ `python scripts/prepare_hardhat.py` 轉 YOLO 格式 + 訓練（MPS，5297 張訓練圖，比 PCB 久很多）
+- PneumoniaMNIST 資料集（M8-2 用，`python scripts/train_medmnist.py` 會自動下載到 `data/medmnist/` 並訓練，CC BY 4.0，CPU 約 20 秒）
 - （可選）Google Gemini API key，存在 `.env` 的 `GEMINI_API_KEY`，`LLM_ENGINE=gemini` 時才需要
 
 ## 啟動方式
@@ -199,6 +214,9 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **七段顯示器判讀假設乾淨的分段字型**：實測合成圖（同樣繪圖規則）0-9 全對，但沒有拿真實 LED/LCD 照片測過；真實照片常見的反光、模糊、角度歪斜可能讓連通元件分析失準，尤其是數字間距很近或小數點位置特殊的顯示器。
 - **指針錶圓心自動偵測依賴清楚的外框圓**：`HoughCircles` 找不到明顯圓框（例如錶面沒有外框、跟背景對比不夠）就會要求手動輸入 `center_x/center_y`；角度校正（min_angle/max_angle）目前要使用者自己量測換算，前端有寫清楚換算慣例但仍需要一點技術理解。
 - **指針錶的角度慣例只支援「掃過某一側」的單一路徑**：`angle_to_value` 會自動判斷 wrap-around，但指針剛好落在 min_angle/max_angle 之外、不屬於量測弧的「死區」時，讀值會被夾在最近的邊界值，不會報錯提示「指針可能不在刻度範圍內」，是已知的簡化。
+- **PneumoniaMNIST 分類模型的準確度有實測上限**：測試集 ACC=0.8862、AUC=0.9346，不是接近 100% 的完美模型；即使修正過類別不平衡，normal 的召回率還是只有 74.8%（低於 pneumonia 的 96.9%），代表大約每 4 張正常胸腔片有 1 張會被誤判成肺炎樣態。這是小型教學用 CNN 在這個資料集上的真實表現，不是展示用的美化數字——也是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
+- **M8-1 包裝檢核的比對只做字串/日期完全相等**：條碼批號跟印刷批號只有大小寫正規化後完全相同才算一致，OCR 或 LLM 抽取有任何字元誤差（例如 O/0 混淆）都會被判定「不一致」進而 NG，這在真實印刷品質不佳時可能誤報，使用者需要人工核對「問題」欄位列出的細節再判斷。
+
 ## 待辦（Phase 進度）
 
 - [x] Phase 0：查證套件/模型/資料集授權，寫入 `docs/licenses.md`；確認 Mac 安裝風險（PaddleOCR 在 py3.11 相依衝突、OpenCV 三套件共用 cv2 命名空間、16GB 記憶體限制）。
@@ -208,7 +226,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 4：M4 換成 RapidOCR + Pydantic schema。實測 RapidOCR 修正了 Phase 1 記錄的 Tesseract 誤讀（工單號 `0915→0215`）；工單/出貨單/進料檢驗報告三種文件套嚴格 schema，數字欄位附「來源驗證」核對 LLM 有沒有捏造數字；Tesseract 保留當比較選項。
 - [x] Phase 5：M6 DeepPCB 瑕疵偵測（YOLO11n，mAP50 0.978，41 epoch/32 分鐘）、M5 PPE 安全帽偵測（YOLO11n，mAP50 0.977，60 epoch/4.15 小時）。附 Colab notebook（`notebooks/`），已用真實資料與真實瀏覽器驗證可用。
 - [x] Phase 6：M7 銘牌／儀表。銘牌（OCR+LLM，沿用 M4 schema 驗證模式）、七段顯示器（純 OpenCV 分段判讀，因為兩種 OCR 都認不出七段字型）、指針錶（純 OpenCV，HoughCircles 找圓心 + HoughLinesP 找指針角度）。已用真實瀏覽器與 live 測試驗證可用。
-- [ ] Phase 7：M8 醫療相關（包裝檢核、MedMNIST 教學展示）。
+- [x] Phase 7：M8 醫療相關。包裝檢核（M8-1，重用 M1 條碼解析 + OCR/LLM 比對印刷文字）、PneumoniaMNIST 分類展示（M8-2，測試集 ACC=0.8862／AUC=0.9346，修正過類別不平衡問題）。已用真實瀏覽器與 live 測試（含真實 PneumoniaMNIST 測試集抽樣）驗證可用。M6-M8 全部完成，作品集規劃的功能已全數實作。
 - [ ] Phase 8：收尾（README、CLAUDE.md、Demo 截圖）。
 
 ## 測試紀錄（真實驗證，非猜測）
@@ -317,3 +335,14 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   - 銘牌：6781ms 後正確顯示廠牌/型號/序號/製造日期/電壓。
   - 七段顯示器：15ms 正確判讀「235」，標註圖用綠框框出每個數字並標上判讀結果。
   - 指針錶：11ms 讀出 49.42（指針角度 268.4°，接近校正中點），標註圖清楚疊出偵測到的圓心、外框與指針方向，跟原圖的紅色指針完全對齊。
+
+### Phase 7：功能驗證
+
+- **M8-2 PneumoniaMNIST 訓練實測，含真實抓到的類別不平衡 bug**：第一版沒處理類別不平衡（訓練集 normal 1214 張 vs pneumonia 3494 張），CPU 訓練 15 epoch 只要 19.4 秒、測試集 ACC=0.8285、AUC=0.9284，看整體數字像是不錯的結果。但實際拿一張已知標籤是 normal 的測試圖片跑分類，AI 判成 pneumonia（機率 0.9997）——這個明顯的錯誤才讓我去查每個類別各自的召回率，發現 normal 召回率只有 55.6%（234 張正常樣本裡 104 張被誤判），pneumonia 召回率卻有 99.2%，證實模型學到「猜 pneumonia 比較容易對」的偷懶策略。加上 `pos_weight=0.3475`（`n_normal/n_pneumonia`）調整損失權重後，同一張測試圖仍有機會判錯（模型不是變成 100% 準確，只是變好），但整體 normal 召回率提升到 74.8%、測試集 ACC 提升到 0.8862、AUC 提升到 0.9346。這個過程完整示範了「只看整體 ACC 會掩蓋類別偏差」的教訓，`metrics.json` 現在會記錄兩個類別各自的召回率。
+- **抽樣驗證確認模型行為符合統計，不是模型壞掉**：拿 8 張已知是 normal 的測試圖實際跑分類，5/8（62.5%）正確，跟整體實測的 74.8% 召回率同一個量級（小樣本本來就會有波動），證實模型是「有這個誤判機率」而不是「完全故障」。
+- **M8-1 包裝檢核真實案例測試**：條碼跟印刷文字一致的案例正確判 OK；把印刷批號跟效期都改成明顯不同的值，正確判 NG 並在「問題」欄位列出「批號」「效期」兩項。
+- **單元測試**：新增 `tests/test_medical.py` 7 項，涵蓋包裝檢核一致/批號不一致/效期不一致/OCR 讀不到文字時不誤判成不一致/找不到條碼報錯，以及肺炎分類回傳警語/找不到權重報錯。全專案累計 62 項單元測試全過（14 秒）。
+- **live 測試**：`pytest -m live`，包裝檢核真打 Ollama 正確判 OK；肺炎分類真的載入訓練好的權重，對 PneumoniaMNIST 官方測試集前 30 張抽樣分類，正確率 86.67%，跟訓練紀錄的整體 ACC=0.8862 同一個量級。
+- **瀏覽器實測**（真實 Chrome）：兩個分頁都實際上傳圖片操作過。
+  - 包裝檢核：上傳批號/效期都對不上的測試圖，4949ms 後正確判定 NG，清楚列出條碼值/印刷值/問題清單。
+  - 醫學影像分類：警語用紅色粗體＋⚠️ 圖示顯眼呈現在分頁最上方；上傳一張真實 PneumoniaMNIST 測試圖（已知標籤 normal），64ms 判定 normal（肺炎機率 0.0042），跟真實標籤一致。

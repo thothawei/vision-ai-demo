@@ -34,7 +34,7 @@ def decode_codes(image_bytes: bytes) -> InspectionResult:
     bgr = to_bgr(image)
 
     barcodes = zxingcpp.read_barcodes(bgr)
-    items = [_describe_barcode(b) for b in barcodes]
+    items = [describe_barcode(b) for b in barcodes]
 
     annotated = _draw_annotations(bgr, items)
     verdict = "NG" if any(i["效期狀態"] == "已過期" for i in items) else ("INFO" if not items else "OK")
@@ -42,7 +42,7 @@ def decode_codes(image_bytes: bytes) -> InspectionResult:
     return record_result(MODULE, verdict, items, "zxing-cpp", started, bgr_to_data_url(annotated))
 
 
-def _describe_barcode(barcode: zxingcpp.Barcode) -> dict:
+def describe_barcode(barcode: zxingcpp.Barcode) -> dict:
     is_gs1 = barcode.content_type == zxingcpp.ContentType.GS1
     gs1_fields = _parse_gs1(barcode.text) if is_gs1 else {}
     expiry_status, expiry_date = _check_expiry(gs1_fields.get("17"))

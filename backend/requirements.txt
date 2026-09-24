@@ -24,3 +24,6 @@ anomalib==2.6.2
 rapidocr==3.9.2
 rapid-table==3.0.2
 rapid-layout==1.2.1
+
+# Phase 7：M8 醫療相關辨識
+medmnist==3.0.2

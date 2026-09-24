@@ -219,6 +219,27 @@ def make_seven_segment(digits: str = "235", bg=(10, 10, 10), color=(255, 20, 20)
     return image
 
 
+# ---------- M8 醫療包裝檢核 ----------
+
+def make_packaging(days_from_today: int = 200, printed_batch: str | None = None,
+                    printed_expiry: date | None = None) -> Image.Image:
+    """GS1 DataMatrix 條碼 + 印刷批號/效期文字。printed_batch/printed_expiry 不給就跟條碼一致，
+    給不同的值可以測「條碼跟印刷文字對不上」的案例。
+    """
+    barcode_img, fields = make_gs1_datamatrix(days_from_today)
+    batch_text = printed_batch if printed_batch is not None else fields["batch"]
+    expiry_text = (printed_expiry if printed_expiry is not None else fields["expiry"]).strftime("%Y-%m-%d")
+
+    canvas = Image.new("RGB", (500, barcode_img.height + 140), "white")
+    canvas.paste(barcode_img, (20, 20))
+    draw = ImageDraw.Draw(canvas)
+    font = _font(28)
+    y = barcode_img.height + 30
+    draw.text((20, y), f"批號 LOT: {batch_text}", fill="black", font=font)
+    draw.text((20, y + 40), f"效期 EXP: {expiry_text}", fill="black", font=font)
+    return canvas
+
+
 def make_gauge(min_angle_deg: float = 135, max_angle_deg: float = 45,
                needle_angle_deg: float = 270, size: int = 400) -> Image.Image:
     """合成指針錶：白底黑框圓 + 紅色指針。角度慣例見 backend/core/gauge.py。"""
@@ -242,6 +263,7 @@ if __name__ == "__main__":
         ("nameplate.png", make_nameplate),
         ("seven_segment.png", make_seven_segment),
         ("gauge.png", make_gauge),
+        ("packaging_match.png", make_packaging),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)

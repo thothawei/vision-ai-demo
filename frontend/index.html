@@ -100,7 +100,7 @@
 <body>
 
 <h1>製造業 AI 辨識 Demo</h1>
-<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 6：M7 銘牌/儀表讀值）</p>
+<p class="subtitle">本機執行：台中製造業常見 AI 辨識功能作品集（Phase 7：M8 醫療相關辨識，作品集全功能收尾）</p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="general">① 現場照片辨識</button>
@@ -114,6 +114,8 @@
   <button class="tab-btn" data-tab="nameplate">⑨ 銘牌讀取</button>
   <button class="tab-btn" data-tab="sevenseg">⑩ 七段顯示器</button>
   <button class="tab-btn" data-tab="gauge">⑪ 指針錶讀值</button>
+  <button class="tab-btn" data-tab="packaging">⑫ 包裝追溯碼檢核</button>
+  <button class="tab-btn" data-tab="pneumonia">⑬ 醫學影像分類展示</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -327,6 +329,41 @@
     <img class="preview" id="gauge-preview">
     <div class="status" id="gauge-status"></div>
     <div class="result" id="gauge-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-packaging">
+  <div class="card">
+    <h2>包裝追溯碼檢核（M8-1）</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      同一張包裝照片比對 GS1 UDI 條碼跟印刷文字上的批號/效期是否一致——GMP 追溯常見需求，兩邊對不上代表可能印錯或貼錯條碼
+    </p>
+    <div class="row">
+      <input type="file" id="packaging-file" accept="image/*">
+      <button id="packaging-btn">開始檢核</button>
+    </div>
+    <img class="preview" id="packaging-preview">
+    <div class="status" id="packaging-status"></div>
+    <div class="result" id="packaging-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-pneumonia">
+  <div class="card">
+    <h2>醫學影像分類展示（M8-2）</h2>
+    <p style="color:var(--muted); font-size:13px; font-weight:600; color:#ff3b30;">
+      ⚠️ 僅供技術展示，非醫療診斷用途。這只是拿公開的 PneumoniaMNIST 資料集（CC BY 4.0）示範 AI 影像分類能力，不是真的醫療判斷工具。
+    </p>
+    <p style="color:var(--muted); font-size:13px;">
+      小型 CNN，實測測試集 ACC 0.886／AUC 0.935（詳見 CLAUDE.md），上傳胸腔 X 光圖片（或任意灰階圖）試試分類效果
+    </p>
+    <div class="row">
+      <input type="file" id="pneumonia-file" accept="image/*">
+      <button id="pneumonia-btn">開始分類</button>
+    </div>
+    <img class="preview" id="pneumonia-preview">
+    <div class="status" id="pneumonia-status"></div>
+    <div class="result" id="pneumonia-result"></div>
   </div>
 </div>
 
@@ -650,6 +687,30 @@ document.getElementById("gauge-btn").addEventListener("click", () => {
   callApi("/api/nameplate/gauge?" + params.toString(), formData,
     document.getElementById("gauge-status"), document.getElementById("gauge-result"),
     document.getElementById("gauge-btn"));
+});
+
+// ⑫ 包裝追溯碼檢核
+const packagingFile = document.getElementById("packaging-file");
+setupPreview(packagingFile, document.getElementById("packaging-preview"));
+document.getElementById("packaging-btn").addEventListener("click", () => {
+  const file = packagingFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi("/api/medical/packaging-check", formData, document.getElementById("packaging-status"),
+    document.getElementById("packaging-result"), document.getElementById("packaging-btn"));
+});
+
+// ⑬ 醫學影像分類展示
+const pneumoniaFile = document.getElementById("pneumonia-file");
+setupPreview(pneumoniaFile, document.getElementById("pneumonia-preview"));
+document.getElementById("pneumonia-btn").addEventListener("click", () => {
+  const file = pneumoniaFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi("/api/medical/pneumonia-demo", formData, document.getElementById("pneumonia-status"),
+    document.getElementById("pneumonia-result"), document.getElementById("pneumonia-btn"));
 });
 </script>
 
