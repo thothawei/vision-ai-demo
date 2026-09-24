@@ -24,6 +24,46 @@
 
 規劃的 M1-M9 全部模組已實作完成，見 [CLAUDE.md](CLAUDE.md) 的「待辦」章節查看逐 Phase 的實測紀錄。
 
+## Demo 截圖
+
+以下截圖用 [`scripts/capture_screenshots.py`](scripts/capture_screenshots.py)（Playwright 自動化）實際跑過每個分頁產生，皆為真實 API 回應，非手動擺拍。
+
+| 模組 | 截圖 |
+|---|---|
+| M9 現場照片辨識 | ![M9](docs/screenshots/01_general.png) |
+| M4 製造文件結構化 | ![M4](docs/screenshots/02_docs.png) |
+| M3 外觀瑕疵異常檢測 | ![M3](docs/screenshots/03_anomaly.png) |
+| M1 追溯碼辨識 | ![M1](docs/screenshots/04_codes.png) |
+| M2 計數與量測 | ![M2](docs/screenshots/05_measure.png) |
+| M5 危險區域入侵 | ![M5](docs/screenshots/06_safety.png) |
+| M5 PPE 安全帽偵測 | ![M5 PPE](docs/screenshots/07_ppe.png) |
+| M6 PCB 瑕疵偵測 | ![M6](docs/screenshots/08_defect.png) |
+| M7 銘牌讀取 | ![M7 銘牌](docs/screenshots/09_nameplate.png) |
+| M7 七段顯示器 | ![M7 七段顯示器](docs/screenshots/10_sevenseg.png) |
+| M7 指針錶讀值 | ![M7 指針錶](docs/screenshots/11_gauge.png) |
+| M8-1 包裝追溯碼檢核 | ![M8-1](docs/screenshots/12_packaging.png) |
+| M8-2 醫學影像分類展示 | ![M8-2](docs/screenshots/13_pneumonia.png) |
+
+重新產生截圖（需先啟動後端，見下方「啟動」）：
+
+```bash
+uv pip install -q --python venv/bin/python playwright
+venv/bin/python -m playwright install chromium
+venv/bin/python scripts/capture_screenshots.py
+```
+
+## 未納入功能
+
+依規劃文件 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md) 的硬性規則「找不到免費方案的功能直接跳過，不寫假的 stub」，以下功能未實作：
+
+- **商用 AOI／機器視覺軟體**（Cognex VisionPro、MVTec HALCON、Keyence）：付費軟體，無免費替代。
+- **3D 量測、雷射輪廓、熱影像檢測**：需要專用硬體（3D 掃描儀、雷射輪廓儀、熱像儀），非純軟體可解決。
+- **產線高速即時檢測**（工業相機 + PLC 觸發）：需要工業相機與 PLC 硬體整合，本 Demo 只做單張圖片辨識。
+- **焊道 X 光、刀具磨耗影像**：查證後找不到授權明確的免費公開資料集，不做。
+- **振動／聲音預測保養**：不屬於影像辨識範疇，且需要感測器硬體，不在本專案規劃範圍內。
+- **Google Cloud Vision／Azure AI Vision**：免費額度有限且需綁信用卡，改用完全免費的本機 Ollama + Gemini 免費層方案。
+- **NEU-DET 鋼材表面瑕疵資料集（M6 原規劃選項）**：官方頁面未附任何授權條款（只要求引用論文），查證後授權狀態不明，改用授權明確為 MIT 的 DeepPCB 資料集。
+
 ## 安裝
 
 ### 1. 系統需求
