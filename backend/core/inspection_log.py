@@ -12,7 +12,7 @@ import json
 import os
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from core import context
@@ -32,6 +32,17 @@ CREATE TABLE IF NOT EXISTS inspections (
     summary_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_inspections_module_time ON inspections(module, created_at);
+
+CREATE TABLE IF NOT EXISTS webhook_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inspection_id INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    next_retry_at TEXT NOT NULL,
+    given_up INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # Phase 9 新增欄位：全部可 NULL，用 ALTER TABLE ADD COLUMN 補進舊 db。
@@ -242,6 +253,11 @@ def record_result(
                     (image_path, annotated_path, inspection_id),
                 )
 
+    if verdict == "NG":
+        from core import webhook  # 延後匯入避免循環匯入（webhook.py 會匯入本檔的佇列函式）
+
+        webhook.notify_ng(inspection_id, module, verdict, trace)
+
     return InspectionResult(
         module=module,
         verdict=verdict,
@@ -263,8 +279,12 @@ def query_inspections(
     lot_no: str | None = None,
     station: str | None = None,
     limit: int = 200,
+    since_id: int | None = None,
 ) -> list[dict]:
-    """date_from / date_to 接受 ISO 日期（YYYY-MM-DD）或日期時間；date_to 只給日期時含當天整天。"""
+    """date_from / date_to 接受 ISO 日期（YYYY-MM-DD）或日期時間；date_to 只給日期時含當天整天。
+
+    `since_id`（Phase 10，給 ERP 增量輪詢用）：傳了就只回傳 id > since_id 的紀錄，
+    且排序改成 id **升冪**（跟沒傳 since_id 時預設的降冪相反，ERP 端輪詢時要注意）。"""
     sql = "SELECT * FROM inspections WHERE 1=1"
     params: list = []
     if module:
@@ -291,11 +311,28 @@ def query_inspections(
     if station:
         sql += " AND station = ?"
         params.append(station)
-    sql += " ORDER BY id DESC LIMIT ?"
+    if since_id is not None:
+        sql += " AND id > ?"
+        params.append(since_id)
+        sql += " ORDER BY id ASC LIMIT ?"
+    else:
+        sql += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
 
     with _connect() as conn:
         rows = conn.execute(sql, params).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def query_reviewed_since(since: str, limit: int = 200) -> list[dict]:
+    """給 ERP 抓「事後被改判」的紀錄：`reviewed_at > since`，ISO 時間字串，升冪排序。
+    since_id 抓不到這種情況——一筆很舊的紀錄（id 很小）可能昨天才被複判。"""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM inspections WHERE reviewed_at IS NOT NULL AND reviewed_at > ?"
+            " ORDER BY reviewed_at ASC LIMIT ?",
+            (since, limit),
+        ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
@@ -448,3 +485,45 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["summary"] = json.loads(d.pop("summary_json"))
     return d
+
+
+# --- webhook_queue：core/webhook.py 送出失敗時的重試佇列 ---
+
+def enqueue_webhook(inspection_id: int, payload: dict) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO webhook_queue (inspection_id, payload_json, attempts, created_at, next_retry_at)"
+            " VALUES (?, ?, 0, ?, ?)",
+            (inspection_id, json.dumps(payload, ensure_ascii=False), now, now),
+        )
+        return cur.lastrowid
+
+
+def list_pending_webhooks(limit: int = 50) -> list[dict]:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM webhook_queue WHERE given_up = 0 AND next_retry_at <= ? ORDER BY id LIMIT ?",
+            (now, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_webhook_attempt(queue_id: int, success: bool, error: str | None, max_attempts: int, retry_delay_seconds: int) -> None:
+    with _connect() as conn:
+        if success:
+            conn.execute("DELETE FROM webhook_queue WHERE id = ?", (queue_id,))
+            conn.commit()
+            return
+        row = conn.execute("SELECT attempts FROM webhook_queue WHERE id = ?", (queue_id,)).fetchone()
+        if row is None:
+            return
+        attempts = row["attempts"] + 1
+        given_up = 1 if attempts >= max_attempts else 0
+        next_retry = (datetime.now() + timedelta(seconds=retry_delay_seconds)).isoformat(timespec="seconds")
+        conn.execute(
+            "UPDATE webhook_queue SET attempts = ?, last_error = ?, next_retry_at = ?, given_up = ? WHERE id = ?",
+            (attempts, error, next_retry, given_up, queue_id),
+        )
+        conn.commit()

@@ -1,5 +1,7 @@
 """FastAPI 入口：只負責掛載各模組 router、統一錯誤格式、服務前端靜態檔。"""
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from core import context  # noqa: E402
+from core import api_auth, context  # noqa: E402
 from core.schemas import ModuleError  # noqa: E402
 from modules.anomaly.router import router as anomaly_router  # noqa: E402
 from modules.codes.router import router as codes_router  # noqa: E402
@@ -23,14 +25,34 @@ from modules.medical.router import router as medical_router  # noqa: E402
 from modules.nameplate.router import router as nameplate_router  # noqa: E402
 from modules.safety.router import router as safety_router  # noqa: E402
 
-app = FastAPI(title="製造業 AI 辨識系統")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from core import webhook
+
+    webhook.start_background_retry_loop()
+    yield
+
+
+app = FastAPI(title="製造業 AI 辨識系統", lifespan=lifespan)
+
+_cors_origins = os.environ.get("CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """只保護 /api/inspections*（ERP 輪詢面），13 個辨識端點不用 key——見 core/api_auth.py 說明。"""
+    if api_auth.is_protected_path(request.url.path):
+        key = api_auth.extract_key(request)
+        if not api_auth.is_valid_key(key):
+            return JSONResponse(status_code=401, content={"detail": "缺少或無效的 X-API-Key"})
+    return await call_next(request)
 
 
 @app.middleware("http")

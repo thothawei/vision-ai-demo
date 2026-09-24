@@ -102,6 +102,19 @@
 - **`AI 判定 vs 最終判定 vs 一致率」用真實資料交叉驗證出來，不是只看程式碼推導**：用瀏覽器把一筆 PCB 瑕疵（AI 判 NG）複判成 OK 後，看板即時反映：該模組「最終良率」從 0% 變成 12.5%（8 筆裡有 1 筆最終判 OK）、「AI／人工一致率」從 100%（改判前只有 1 筆複判且與 AI 一致）掉到 0%（這筆複判結果跟 AI 判定不一致）。這證明 `_final_verdict()`（`review_verdict` 有值就蓋過 `verdict`）與一致率公式（`review_verdict == verdict` 才算一致）確實照設計運作，不是憑程式碼讀起來合理就假設會動。
 - **Chart.js 存本機 `frontend/vendor/`，不用 CDN**：查證 GitHub `master` 分支 `package.json` 版本 4.5.1、MIT 授權，下載 `chart.umd.min.js`（208KB）進版控。理由同硬性規則第 2 條「核心完全離線執行」——看板是品檢日常會用的功能，不應該因為離線環境或 CDN 掛掉就失效。
 
+## 技術決策與理由（Phase 10）
+
+ERP 串接介面 + 基本資安。使用者在開工前回報階段確認兩個關鍵取捨：**API Key 只保護 `/api/inspections*`**（13 個辨識端點不用 key）、**webhook 用 daemon thread 立即送、失敗才進佇列**（不是全部先進佇列靠背景執行緒統一送）。
+
+- **只保護 `/api/inspections*`，13 個辨識端點刻意不用 key**：辨識端點只有前端同源呼叫，CORS 白名單已經擋掉外部網域；真正的敏感面是 `/api/inspections*`——ERP 會定期輪詢、含原圖/標註圖、含所有追溯資訊。新增 `backend/core/api_auth.py` 集中管理，`main.py` 加一個 middleware 只在 path 以 `/api/inspections` 開頭時檢查，不用逐一在 13+5 個 router 上加 `Depends`。
+- **key 支援 header 與 query 參數兩種帶法**：`X-API-Key` header 是主要方式（ERP 輪詢走這個）；`?api_key=` query 參數是給 `<img src>` 與純連結下載（CSV 匯出）用——瀏覽器原生機制沒辦法在這兩種情境帶自訂 header。這代表 key 可能出現在瀏覽器歷史紀錄或伺服器 access log，在單機、沒有對外網路曝露的 demo 情境下是可接受的取捨；`core/api_auth.py` 的 docstring 跟 `docs/erp-integration.md` 都寫清楚這個限制，不是沒想到就漏掉。
+- **前端 key 是寫死在 `frontend/index.html` 的常數 `FRONTEND_API_KEY`，要跟 `.env` 的 `API_KEYS` 手動保持一致**：這是單機 demo 的簡化（沒有做「後端把 key 動態注入前端」的機制，例如模板渲染或一個 `/api/config` 端點），換 key 需要兩邊一起改。正式多人使用的系統不會這樣做，但這個 Phase 的範圍就是「單機 demo 接單一 ERP」，做一個設定同步機制超出這個 Phase 的必要性。
+- **webhook 送出機制：`record_result()` 判 NG 時開一個 daemon thread 立即用 `httpx.post()` 送出，主執行緒完全不等待**，送出失敗（例外或非 2xx）才寫進新的 `webhook_queue` 表，由 `main.py` 的 `lifespan` 啟動的背景執行緒每 30 秒掃一次重試，超過 5 次放棄但保留紀錄（不刪除，方便事後排查）。這個設計的核心約束是「NG 事件不能因為 ERP 那端掛掉而拖慢辨識 API」，寫了 `test_ng_webhook_receiver_down_response_still_ok_and_queued` 用一個保證連不上的 port 驗證：辨識 API 仍在 2 秒內回應（實際遠低於 `httpx` 5 秒的 timeout，因為主執行緒根本不等 thread 完成），且失敗後確實進了佇列。
+- **`webhook_queue` 表跟 `inspections` 表共用同一個 SQLite 連線邏輯（`inspection_log._connect()`）**：Phase 10 沒有另開一個資料庫檔案，`webhook_queue` 的 `CREATE TABLE IF NOT EXISTS` 跟著 `inspections` 的 base schema 一起在 `_migrate()` 執行，這代表舊 db（甚至 Phase 1 的最原始 schema）一樣會自動補上這張表，不需要額外的 migration 邏輯。
+- **`CORS_ORIGINS` 是「啟動時讀一次」，不是「每個請求都重讀」**：`main.py` 的 `_cors_origins = os.environ.get(...)` 跟 `app.add_middleware(CORSMiddleware, allow_origins=[...])` 都在模組載入時執行一次，Starlette 的 `CORSMiddleware` 本身設計就是把白名單「烤進」中介層物件，不支援動態改。這是寫測試時真的踩到的坑：一開始想用 `monkeypatch.setenv("CORS_ORIGINS", ...)` 改了再發請求驗證，結果因為 `main` 模組在更早的測試就已經 import 過、`app` 是全 session 共用的單例，monkeypatch 完全不影響已經建好的 middleware，測試看起來會過但驗證的其實是「假象」（改了 env 但中介層還是舊設定）。改成直接測預設白名單（`127.0.0.1:8000` 允許、`evil.example.com` 不允許）才是測到真正在跑的行為；`docs/erp-integration.md` 跟已知限制都寫清楚「改 `CORS_ORIGINS` 要重啟服務才生效」。
+- **`since_id` 升冪 vs 預設降冪，刻意用同一個端點的不同參數區分，不是開兩個端點**：`GET /api/inspections`（品檢看板用）預設 `ORDER BY id DESC`（最新在最上面比較符合人看的直覺）；`GET /api/inspections?since_id=<n>`（ERP 輪詢用）強制 `ORDER BY id ASC`（游標往前推進才合理）。兩者共用 `query_inspections()`，用「有沒有傳 `since_id`」這個參數本身決定排序方向，而不是另外開一個 `?order=asc` 參數，因為這兩種用途在實務上就是綁定的——沒有人會想要「用 `since_id` 篩但降冪排序」這種組合。
+- **C# 範例真的建了一個最小 console 專案跑 `dotnet build` 驗證**（`docs/erp-integration-sample/`，含 `Microsoft.Data.SqlClient` NuGet 套件），不是照抄語法看起來對就假設能編譯；0 警告 0 錯誤編譯成功，SQL Server 連線本身沒有真的跑（需要真實 SQL Server 執行個體），這點在文件裡誠實註明。建置產物（`bin/`、`obj/`）加進 `.gitignore`，只留原始碼。
+
 ## 目錄結構
 
 ```
@@ -117,7 +130,9 @@ vision-ai-demo/
 │   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
 │   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
 │   │   ├── context.py           # Phase 9：追溯資訊／原圖 bytes 的 contextvar
-│   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計）
+│   │   ├── api_auth.py          # Phase 10：/api/inspections* 的 X-API-Key 驗證
+│   │   ├── webhook.py           # Phase 10：NG 非同步通知 + 失敗重試佇列
+│   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計、webhook_queue）
 │   ├── schemas/
 │   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
 │   │   └── nameplate.py         # M7 銘牌欄位 Pydantic schema
@@ -169,6 +184,7 @@ vision-ai-demo/
 │   ├── test_nameplate.py         # M7：七段判讀/指針錶純 OpenCV 真跑，銘牌假 LLM
 │   ├── test_medical.py           # M8：包裝檢核真跑條碼+RapidOCR/假 LLM，肺炎分類假模型
 │   ├── test_inspections.py       # Phase 9：舊 db migration、追溯 header、存圖、複判、看板統計
+│   ├── test_erp_integration.py   # Phase 10：API Key、since_id、reviews、webhook、上傳大小/CORS
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -179,7 +195,11 @@ vision-ai-demo/
 │   └── test_live_medical.py     # 真打 Ollama（包裝檢核）+ 真實 PneumoniaMNIST 測試集抽樣，pytest -m live
 ├── docs/
 │   ├── manufacturing-ai-plan-prompt.md
-│   └── licenses.md
+│   ├── next-phase-gap-plan-prompt.md   # 第二輪規劃（Phase 9-15）
+│   ├── licenses.md
+│   ├── erp-integration.md              # Phase 10：ERP 串接說明（認證/輪詢/欄位對照/C# 範例）
+│   ├── erp-integration-sample/          # C# 範例的最小可編譯專案，只驗證語法，bin/obj gitignore
+│   └── openapi.json                     # Phase 10：FastAPI /openapi.json 匯出
 ├── data/
 │   ├── inspections.db           # SQLite，gitignore
 │   └── mvtec_ad/<category>/     # MVTec AD 官方目錄結構，gitignore，下載方式見 docs/licenses.md
@@ -243,6 +263,11 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **追溯資訊沒有輸入驗證，是自由文字**：工單號/料號/批號/站別/操作員只是純文字欄位，前端不檢查格式、後端也不檢查是否存在於某個工單主檔（畢竟還沒有真的接 ERP）；這代表同一個工單號如果打錯字（例如 `WO-2026-0001` vs `wo-2026-0001`），會被當成兩個不同的工單，篩選查不到。等 Phase 10 接上 ERP 後，比較合理的做法是工單/料號改成從 ERP 拉下拉選單，而不是純文字輸入。
 - **同一個請求呼叫兩次 `load_image()` 會讓 contextvar 只留下最後一張圖**：`RAW_IMAGE_CTX` 每次 `load_image()` 呼叫都會覆寫，Phase 9 掃過的 13 個呼叫點目前都只在單一請求內讀一張圖，所以還沒有踩到這個限制；但這是這個設計本身的限制，不是「目前沒問題所以以後也不會有問題」，未來如果哪個模組要比對兩張圖（例如 Phase 13 規劃的黃金樣本比對），要另外設計，不能沿用這個 contextvar。
 - **`extract_defect_labels()` 是白名單制，新模組預設不會出現在柏拉圖**：Phase 13 以後如果加新的辨識模組，要記得在 `inspection_log.py` 用 `@_extractor("新模組名")` 補一個抽取函式，不然這個模組即使真的判 NG，也不會出現在「NG 原因柏拉圖」裡（會被 `extract_defect_labels()` 預設回傳 `[]` 吃掉，不是報錯，容易被忽略）。
+- **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在 `main.py` 模組載入時就讀死進 `CORSMiddleware`，不是每個請求動態重讀，跟 `API_KEYS`/`MAX_UPLOAD_MB`（每次請求都重讀 env）行為不同，容易誤以為改完 `.env` 就立刻生效。
+- **前端的 `FRONTEND_API_KEY` 是寫死在 `frontend/index.html` 的常數，要跟 `.env` 的 `API_KEYS` 手動保持一致**：換 key 需要兩邊一起改，沒有自動同步機制；這是單機 demo 的簡化，正式多人系統不會這樣做。
+- **API Key 可以用 `?api_key=` query 參數帶，不是只能用 header**：這是為了讓 `<img src>` 與 CSV 下載連結能運作，代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log；在單機、沒有對外網路曝露的情境下是可接受的取捨，正式環境需要额外考量（例如改用短效 signed URL）。
+- **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 沒設定就完全不啟用；就算有設定，vision-ai-demo 重啟時 `webhook_queue` 裡還沒重試完的項目、或超過 5 次已放棄的項目，都需要 ERP 端自己跑 `since_id` 輪詢當保底，不能只依賴 webhook 假設「NG 一定會即時收到通知」。
+- **上傳大小檢查在 `load_image()` 內，不是在網路層擋**：`file.file.read()` 會先把整個檔案讀進記憶體，`MAX_UPLOAD_MB` 檢查才發生在那之後；對於惡意的超大檔案上傳（例如故意傳幾百 MB），記憶體還是會先被佔用一次才觸發 413，這在單機 demo 情境下可接受，正式環境建議在反向代理層（nginx 等）加更早的請求體大小限制。
 
 ## 待辦（Phase 進度）
 
@@ -256,6 +281,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 7：M8 醫療相關。包裝檢核（M8-1，重用 M1 條碼解析 + OCR/LLM 比對印刷文字）、PneumoniaMNIST 分類展示（M8-2，測試集 ACC=0.8862／AUC=0.9346，修正過類別不平衡問題）。已用真實瀏覽器與 live 測試（含真實 PneumoniaMNIST 測試集抽樣）驗證可用。M6-M8 全部完成，作品集規劃的功能已全數實作。
 - [x] Phase 8：收尾。README.md 新增「Demo 截圖」（13 張，`scripts/capture_screenshots.py` 用 Playwright 實跑產生，非擺拍）與「未納入功能」章節；CLAUDE.md 補上本 Phase 的技術決策與踩坑紀錄。作品集規劃的 M1-M9 全模組與收尾工作全數完成。
 - [x] Phase 9：檢驗紀錄強化 + 品檢看板 + 人工複判。`inspections` 表新增追溯欄位（work_order/part_no/lot_no/station/operator）+ 原圖/標註圖存檔欄位 + 複判欄位，舊 db 自動 `ALTER TABLE` 補欄位（真的用手動建的舊 schema db 測過）；`GET /api/inspections/{id}`、`PATCH /api/inspections/{id}/review`、`GET /api/inspections/{id}/image`、`GET /api/inspections/stats?group_by=module|day|defect` 四支新 API；前端新增追溯資訊列（`localStorage` 記住、自動帶 header）與第 14 分頁「品檢紀錄與看板」（Chart.js 折線圖/柏拉圖/堆疊長條圖 + 可展開的紀錄表格 + 複判表單）。71 項單元測試全過（新增 9 項），並用真實瀏覽器操作＋真打 Ollama／PCB 模型驗證整條「輸入追溯資訊→辨識→看板出現→複判→良率變化」流程。
+- [x] Phase 10：ERP 串接介面 + 基本資安。`/api/inspections*` 加 `X-API-Key` 驗證（13 個辨識端點刻意不套，見技術決策）；`since_id` 增量拉取（id 升冪，跟預設降冪明確區分）+ `GET /api/inspections/reviews?since=` 抓事後複判；NG 時 daemon thread 立即 POST `ERP_WEBHOOK_URL`、失敗才進 `webhook_queue` 由背景執行緒重試；`CORS_ORIGINS` 白名單（預設只允許本機）、`MAX_UPLOAD_MB`（預設 20，超過 413）、`load_image()` 不信任副檔名一律用 Pillow 實際開檔驗證。`docs/erp-integration.md`（含 Mermaid 輪詢時序圖、欄位對照表、C# 範例）+ `docs/openapi.json` 匯出；C# 範例真的建了 `docs/erp-integration-sample/` 用 `dotnet build` 編譯驗證過。82 項單元測試全過（新增 11 項）。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -397,3 +423,18 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   6. 模組篩選測試：篩「PCB 瑕疵偵測」後總筆數正確變成 8、AI 良率變成 0.0%（8 筆全部 AI 判 NG）、最終良率 12.5%，跟未篩選時的全域統計數字不同，證明篩選確實套用到 `/api/inspections/stats`。
 - **CSV 匯出**：帶追溯資訊呼叫一次辨識後匯出 CSV，確認 header 含 `work_order`／`review_verdict` 等新欄位，且資料列有正確寫入的工單號。
 - **既有測試無回歸**：`pytest`，71 項全過（62 項既有 + 9 項新增，13 秒），confirm 前後兩次執行都是同樣結果，且測試流程不會污染專案真實的 `data/inspections.db`／`data/images/`（`tests/conftest.py` 的 `client` fixture 新增 `INSPECTION_IMAGES_DIR` 隔離，這是開發過程中第一次沒隔離時真的把測試圖寫進 `data/images/` 才發現要修的，發現後已清除誤寫的檔案並補上隔離）。
+
+### Phase 10：功能驗證
+
+- **API Key**：`tests/test_erp_integration.py::test_api_key_missing_or_wrong_is_401_correct_key_is_200` 用不帶預設 header 的獨立 `TestClient` 驗證三種情況（沒帶/帶錯/帶對）都符合預期；另外用真實瀏覽器/curl 對正在跑的伺服器直接測過：沒帶 key → `401`、錯 key → `401`、對的 key（`.env` 的 `dev-erp-key-change-me`）→ `200`，13 個辨識端點（用 `/api/general/describe` 代表）完全不受影響，不帶 key 也正常回應（缺檔案的 `422` 是參數驗證，不是認證擋下來的）。
+- **開發中踩到「CORS 監測假象」的坑，發現後修正測試而不是強行讓它過**：一開始想用 `monkeypatch.setenv("CORS_ORIGINS", ...)` 改白名單再發請求驗證，結果測試看起來會過，但實際上是因為改的值剛好跟預設值一樣（湊巧沒露餡）。往下追才發現 `CORSMiddleware` 的白名單是 `main.py` 模組載入當下就讀死、烤進中介層物件的，不是每個請求動態重讀——這代表在同一個 pytest session 裡，`main` 模組只會被 import 一次，之後任何測試對 `CORS_ORIGINS` 的 monkeypatch 都不會影響已經建好的 `app`。改成直接測「目前這個 session 裡 `app` 實際持有的白名單」（也就是預設值：`127.0.0.1:8000` 允許、任意其他網域不允許）之後，測試才是測到真正在跑的行為。這個坑也記進了「已知限制」，避免以後改 `.env` 的 `CORS_ORIGINS` 卻忘記要重啟服務。
+- **since_id 升冪查詢**：插入 5 筆紀錄後用 `since_id=第2筆的id` 查詢，正確只回傳後面 3 筆且是 id 升冪排序，跟沒帶 `since_id` 時的預設降冪明確不同。
+- **reviews 端點**：對一筆紀錄複判後，`since=很久以前的時間` 抓得到這筆（`reviewed_at` 在範圍內），`since=未來時間` 抓不到，符合「事後被複判的舊紀錄」這個設計目的。
+- **上傳大小限制／假圖片偵測**：`MAX_UPLOAD_MB=0` 時任何檔案都回 `413` 且訊息含「過大」；副檔名 `.png` 但內容其實是純文字的檔案回 `400` 且訊息含「無法讀取圖片」（Pillow 實際開檔驗證抓到的，不是看副檔名判斷）。
+- **webhook 三種情境都用真的本機 HTTP server 測，不是 mock**：`tests/test_erp_integration.py` 用 Python 內建的 `ThreadingHTTPServer` 起一個真的會收請求的伺服器（`_CapturingHandler` 把收到的 JSON body 存進 list）：
+  1. OK 判定：呼叫 `/api/defect/pcb`（假偵測器回傳無瑕疵）後等 0.3 秒，確認伺服器完全沒收到任何請求。
+  2. NG 判定：呼叫同一端點（假偵測器回傳有瑕疵）後輪詢等待，確認伺服器收到的 JSON 裡 `inspection_id`／`verdict`／`module` 都正確。
+  3. 接收端掛掉：先開一個 server 拿到保證沒人聽的 port 再馬上關掉，設成 `ERP_WEBHOOK_URL`，量測辨識 API 的實際回應時間 `< 2 秒`（`httpx` 的 timeout 設 5 秒，代表主執行緒確實沒有在等這個 thread，符合「daemon thread 立即送、不擋住辨識回應」的設計），並確認 `webhook_queue` 表裡多了一筆待重試紀錄。
+  4. 重試成功：延續情境 3 的佇列項目，把同一個 port 的 server 重新開起來後手動呼叫 `webhook.retry_pending_once()`，確認伺服器這次真的收到請求、且 `webhook_queue` 清空（重試成功後從佇列移除）。
+- **C# 範例真的編譯過**：`dotnet new console` 建立 `docs/erp-integration-sample/`、`dotnet add package Microsoft.Data.SqlClient`（實際從 nuget.org 下載 7.1.0 版）、把文件裡的範例程式碼貼進 `Program.cs`，`dotnet build` 輸出「建置成功，0 個警告，0 個錯誤」；SQL Server 連線邏輯本身沒有真的跑（沒有可連的 SQL Server 執行個體），這點在 `docs/erp-integration.md` 裡誠實寫「未編譯驗證」的地方只有連線行為，語法/型別正確性是真的驗證過的。
+- **既有測試無回歸**：`pytest`，82 項全過（71 項既有 + 11 項新增，約 14 秒）。

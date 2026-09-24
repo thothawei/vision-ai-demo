@@ -40,6 +40,12 @@
 |---|---|---|---|---|---|
 | Chart.js | 4.5.1（查證 `master` 分支 `package.json`，2026-09-24） | MIT | 是 | ⑭ 品檢看板：每日良率折線、NG 原因柏拉圖、各模組件數 | https://github.com/chartjs/Chart.js ；放 `frontend/vendor/chart.min.js`（離線優先，不用 CDN，符合硬性規則第 2 條核心離線） |
 
+## .NET 套件（僅 Phase 10 文件範例編譯驗證用，不是本系統執行期相依）
+
+| 名稱 | 查證版本 | 授權 | 可商用 | 用途 | 來源 |
+|---|---|---|---|---|---|
+| Microsoft.Data.SqlClient | 7.1.0（`dotnet add package` 實際從 nuget.org 安裝取得的版本，2026-09-24） | MIT | 是 | `docs/erp-integration-sample/` 驗證 `docs/erp-integration.md` 的 C# 範例能 `dotnet build` 編譯，不是 vision-ai-demo 本身的相依（本系統是 Python） | https://www.nuget.org/packages/Microsoft.Data.SqlClient |
+
 ### 評估後不採用
 
 | 名稱 | 查證版本 | 授權 | 不採用原因 |

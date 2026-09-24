@@ -178,6 +178,12 @@ uvicorn main:app --reload
 
 畫面最上方的「工單號／料號／批號／站別／操作員」欄位（存 `localStorage`）會自動帶進每次辨識的追溯資訊；`.env` 的 `SAVE_IMAGES`（預設 `true`）控制要不要把每次辨識的原圖與標註圖存到 `data/images/`。
 
+## ERP 串接（`/api/inspections*`）
+
+`/api/inspections*` 需要 `X-API-Key`（`.env` 的 `API_KEYS`，格式 `名稱:key,名稱:key`），13 個辨識端點不用。首次啟動請把 `.env.example` 裡的預設 key（`dev-erp-key-change-me`）換成隨機字串，並同步更新 `frontend/index.html` 的 `FRONTEND_API_KEY` 常數（兩邊要一致，見已知限制）。
+
+完整認證方式、`since_id` 增量輪詢流程（含時序圖）、欄位對照表、C# `HttpClient` 範例，見 [docs/erp-integration.md](docs/erp-integration.md)；即時 API 契約見 `GET /openapi.json`（快照存在 [docs/openapi.json](docs/openapi.json)）。
+
 ## 測試
 
 ```bash
@@ -202,6 +208,9 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M8-1 包裝檢核只做完全字串/日期相等比對**：OCR 或 LLM 抽取有任何誤差（例如 O/0 混淆）都會被判「不一致」而 NG，需要人工核對細節再判斷。
 - **追溯資訊是自由文字，沒有輸入驗證**：工單號/料號等欄位不檢查格式、不比對任何工單主檔（還沒接 ERP），同一工單打錯字會被當成不同工單，篩選查不到。
 - **品檢看板的 NG 原因柏拉圖是白名單制**：只有 defect/ppe/anomaly/safety/medical_packaging 五個模組定義了「怎麼抽出缺陷類別」，之後新增模組要記得補上，不然不會出現在柏拉圖。
+- **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在啟動時讀死進中介層，不是每個請求動態重讀。
+- **API Key 可以用 `?api_key=` query 參數帶**（給 `<img>`／CSV 下載連結用，瀏覽器沒辦法幫這兩種情境帶自訂 header），代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log，單機無公開網路曝露情境下可接受。
+- **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 送出失敗會重試最多 5 次後放棄，ERP 端仍需要自己跑 `since_id` 輪詢當保底。
 - 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
 
 ## 專案結構
@@ -210,7 +219,7 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 vision-ai-demo/
 ├── backend/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
-│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄
+│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄、API Key 驗證、webhook
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
 │   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE) / defect(M6) / nameplate(M7) / medical(M8) / inspections
 │   └── requirements.txt
@@ -222,5 +231,5 @@ vision-ai-demo/
 ├── models/                     # 權重，gitignore
 ├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore
 ├── tests/                      # pytest：單元測試（假模型）+ live 測試（真模型，-m live）
-└── docs/                       # 規劃文件、授權查證紀錄
+└── docs/                       # 規劃文件、授權查證紀錄、erp-integration.md、openapi.json
 ```

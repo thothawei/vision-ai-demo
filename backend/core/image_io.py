@@ -2,6 +2,7 @@
 
 import base64
 import io
+import os
 
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -12,10 +13,21 @@ from core.schemas import ModuleError
 _FORMAT_EXT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "BMP": "bmp", "GIF": "gif"}
 
 
+def _max_upload_mb() -> int:
+    return int(os.environ.get("MAX_UPLOAD_MB", "20"))
+
+
 def load_image(image_bytes: bytes) -> Image.Image:
-    """讀取上傳的圖片並依 EXIF 轉正（手機直拍照片常見方向錯誤）。"""
+    """讀取上傳的圖片並依 EXIF 轉正（手機直拍照片常見方向錯誤）。
+
+    大小上限（`MAX_UPLOAD_MB`，預設 20）在這裡檢查，是所有模組讀圖的唯一入口；
+    不信任副檔名/Content-Type，一律靠 Pillow 實際開檔驗證是不是真的圖片。"""
     if not image_bytes:
         raise ModuleError("檔案是空的", 400)
+    max_mb = _max_upload_mb()
+    size_mb = len(image_bytes) / (1024 * 1024)
+    if size_mb > max_mb:
+        raise ModuleError(f"檔案過大（{size_mb:.1f}MB），上限 {max_mb}MB", 413)
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image.load()

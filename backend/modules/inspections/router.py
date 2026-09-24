@@ -7,6 +7,7 @@ from core.inspection_log import (
     get_inspection,
     get_stats,
     query_inspections,
+    query_reviewed_since,
     to_csv,
     update_review,
 )
@@ -25,10 +26,17 @@ def list_inspections(
     lot_no: str | None = None,
     station: str | None = None,
     limit: int = 200,
+    since_id: int | None = None,
 ):
     return query_inspections(
-        module, verdict, date_from, date_to, work_order, part_no, lot_no, station, limit,
+        module, verdict, date_from, date_to, work_order, part_no, lot_no, station, limit, since_id,
     )
+
+
+@router.get("/reviews")
+def list_reviews(since: str, limit: int = 200):
+    """給 ERP 抓「事後被改判」的紀錄：since 是 ISO 時間字串（例如 2026-09-24T00:00:00）。"""
+    return query_reviewed_since(since, limit)
 
 
 @router.get("/export.csv")

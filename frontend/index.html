@@ -814,6 +814,19 @@ const MODULE_LABELS = {
   medical_packaging: "包裝追溯碼檢核", medical_pneumonia_demo: "醫學影像分類展示",
 };
 
+// Phase 10：/api/inspections* 現在需要 X-API-Key，這組 key 要跟後端 .env 的 API_KEYS
+// 裡 frontend: 那組一致（單機 demo 的取捨：兩邊各自一份設定，換 key 要兩邊一起改）。
+const FRONTEND_API_KEY = "dev-frontend-key-change-me";
+
+function apiKeyHeaders(extra) {
+  return Object.assign({ "X-API-Key": FRONTEND_API_KEY }, extra || {});
+}
+
+function withApiKeyParam(params) {
+  params.set("api_key", FRONTEND_API_KEY); // <img src> 與純連結下載無法帶自訂 header，退回 query 參數
+  return params;
+}
+
 const dashModuleSelect = document.getElementById("dash-filter-module");
 Object.entries(MODULE_LABELS).forEach(([value, label]) => {
   const opt = document.createElement("option");
@@ -849,7 +862,7 @@ function renderDashChart(id, config) {
 async function fetchStats(groupBy) {
   const params = dashFilterParams();
   params.set("group_by", groupBy);
-  const res = await fetch("/api/inspections/stats?" + params.toString());
+  const res = await fetch("/api/inspections/stats?" + params.toString(), { headers: apiKeyHeaders() });
   if (!res.ok) throw new Error((await res.json()).detail || "看板統計失敗");
   return res.json();
 }
@@ -942,7 +955,7 @@ function verdictBadgeHtml(verdict) {
 
 async function refreshDashTable() {
   const params = dashFilterParams();
-  const res = await fetch("/api/inspections?" + params.toString());
+  const res = await fetch("/api/inspections?" + params.toString(), { headers: apiKeyHeaders() });
   const records = await res.json();
   const tbody = document.getElementById("dash-table-body");
   tbody.innerHTML = "";
@@ -973,13 +986,13 @@ function buildDetailPanel(record) {
 
   if (record.image_path) {
     const img = document.createElement("img");
-    img.src = `/api/inspections/${record.id}/image?kind=raw`;
+    img.src = `/api/inspections/${record.id}/image?` + withApiKeyParam(new URLSearchParams({ kind: "raw" })).toString();
     img.alt = "原圖";
     wrap.appendChild(img);
   }
   if (record.annotated_path) {
     const img = document.createElement("img");
-    img.src = `/api/inspections/${record.id}/image?kind=annotated`;
+    img.src = `/api/inspections/${record.id}/image?` + withApiKeyParam(new URLSearchParams({ kind: "annotated" })).toString();
     img.alt = "標註圖";
     wrap.appendChild(img);
   }
@@ -1017,7 +1030,7 @@ function buildDetailPanel(record) {
     try {
       const res = await fetch(`/api/inspections/${record.id}/review`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: apiKeyHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ review_verdict: verdict, reviewer: reviewer || null, review_note: note || null }),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "複判失敗");
@@ -1034,7 +1047,7 @@ function buildDetailPanel(record) {
 
 document.getElementById("dash-refresh-btn").addEventListener("click", refreshDashboard);
 document.getElementById("dash-export-btn").addEventListener("click", () => {
-  const params = dashFilterParams();
+  const params = withApiKeyParam(dashFilterParams());
   window.open("/api/inspections/export.csv?" + params.toString(), "_blank");
 });
 document.querySelector('[data-tab="dashboard"]').addEventListener("click", refreshDashboard);
