@@ -31,7 +31,8 @@ STEPS = [
     (13, "13_pneumonia.png", "#pneumonia-file", "pneumonia_sample.png", "#pneumonia-btn", 5, None),
     (14, None, None, None, None, 3, "assembly"),  # 特殊流程，見下方 capture_assembly
     (15, None, None, None, None, 3, "colordiff"),  # 特殊流程，見下方 capture_colordiff
-    (16, None, None, None, None, 0, "dashboard"),  # 特殊流程，見下方 capture_dashboard
+    (16, None, None, None, None, 15, "shipping"),  # 特殊流程，見下方 capture_shipping
+    (17, None, None, None, None, 0, "dashboard"),  # 特殊流程，見下方 capture_dashboard
 ]
 
 
@@ -62,6 +63,9 @@ def main():
                 continue
             if special == "colordiff":
                 capture_colordiff(page)
+                continue
+            if special == "shipping":
+                capture_shipping(page)
                 continue
             if special == "dashboard":
                 capture_dashboard(page)
@@ -218,6 +222,25 @@ def capture_colordiff(page):
     print(f"[15] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
 
+def capture_shipping(page):
+    """Phase 14 M12：填一個跟標籤內容對不上的預期料號，示範 NG 案例（比全對的 OK 更有意義）。"""
+    label = SAMPLES / "shipping_label_mismatch.png"
+    if not label.exists():
+        print("[16] 跳過（tests/samples/shipping_label_mismatch.png 不存在，先跑 make_samples.py）")
+        return
+
+    page.set_input_files("#shipping-file", str(label))
+    page.fill("#shipping-expected-part-no", "SC-M8-30")  # 標籤上實際是 SC-M6-20，故意不符
+    page.fill("#shipping-expected-lot-no", "LOT2026A")
+    page.fill("#shipping-expected-quantity", "5000")
+    page.click("#shipping-check-btn")
+    page.wait_for_selector("#shipping-status:has-text('完成')", timeout=30000)
+
+    out_path = OUT_DIR / "16_shipping.png"
+    page.screenshot(path=str(out_path), full_page=True)
+    print(f"[16] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+
+
 def capture_dashboard(page):
     """Phase 9 品檢看板：套用篩選、展開一列看原圖/標註圖，示範真實資料而非空畫面。"""
     page.wait_for_selector("#dash-stat-row .dash-stat", timeout=10000)
@@ -225,9 +248,9 @@ def capture_dashboard(page):
     page.locator(".dash-table tbody tr.clickable").first.click()
     page.wait_for_timeout(500)
 
-    out_path = OUT_DIR / "16_dashboard.png"
+    out_path = OUT_DIR / "17_dashboard.png"
     page.screenshot(path=str(out_path), full_page=True)
-    print(f"[16] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+    print(f"[17] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

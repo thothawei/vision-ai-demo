@@ -142,7 +142,8 @@
   <button class="tab-btn" data-tab="pneumonia">⑬ 醫學影像分類展示</button>
   <button class="tab-btn" data-tab="assembly">⑭ 組裝防呆比對</button>
   <button class="tab-btn" data-tab="colordiff">⑮ 烤漆/陽極色差</button>
-  <button class="tab-btn" data-tab="dashboard">⑯ 品檢紀錄與看板</button>
+  <button class="tab-btn" data-tab="shipping">⑯ 出貨標籤比對</button>
+  <button class="tab-btn" data-tab="dashboard">⑰ 品檢紀錄與看板</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -510,6 +511,30 @@
     <canvas class="zone-canvas" id="colordiff-canvas"></canvas>
     <div class="status" id="colordiff-status"></div>
     <div class="result" id="colordiff-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-shipping">
+  <div class="card">
+    <h2>出貨標籤 vs 工單比對</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳出貨標籤照片，OCR+AI 讀出標籤上的料號/數量/批號（標籤上如果也有 GS1 條碼，批號優先信任條碼），
+      跟「預期值」比對。預期值優先順序：下面手動輸入的欄位 &gt; 畫面最上方的追溯資訊（料號/批號）。
+      三項都沒填預期值時只會讀出標籤內容，不會判 OK/NG。
+    </p>
+    <div class="row">
+      <input type="file" id="shipping-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="shipping-file">📷 拍照</button>
+      <button id="shipping-check-btn">開始檢核</button>
+    </div>
+    <div class="field-row">
+      <label>預期料號（選填） <input type="text" id="shipping-expected-part-no" placeholder="留空用最上方追溯資訊的料號"></label>
+      <label>預期批號（選填） <input type="text" id="shipping-expected-lot-no" placeholder="留空用最上方追溯資訊的批號"></label>
+      <label>預期數量（選填） <input type="number" id="shipping-expected-quantity"></label>
+    </div>
+    <img class="preview" id="shipping-preview">
+    <div class="status" id="shipping-status"></div>
+    <div class="result" id="shipping-result"></div>
   </div>
 </div>
 
@@ -1482,13 +1507,38 @@ document.getElementById("colordiff-check-btn").addEventListener("click", () => {
     document.getElementById("colordiff-check-btn"));
 });
 
-// ⑯ 品檢紀錄與看板
+// ⑯ 出貨標籤 vs 工單比對（M12）
+const shippingFile = document.getElementById("shipping-file");
+setupPreview(shippingFile, document.getElementById("shipping-preview"));
+document.getElementById("shipping-check-btn").addEventListener("click", () => {
+  const files = Array.from(shippingFile.files);
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  const statusEl = document.getElementById("shipping-status");
+  const resultEl = document.getElementById("shipping-result");
+  const btn = document.getElementById("shipping-check-btn");
+
+  const params = new URLSearchParams();
+  const expectedPartNo = document.getElementById("shipping-expected-part-no").value.trim();
+  const expectedLotNo = document.getElementById("shipping-expected-lot-no").value.trim();
+  const expectedQuantity = document.getElementById("shipping-expected-quantity").value;
+  if (expectedPartNo) params.set("expected_part_no", expectedPartNo);
+  if (expectedLotNo) params.set("expected_lot_no", expectedLotNo);
+  if (expectedQuantity) params.set("expected_quantity", expectedQuantity);
+
+  if (files.length > 1) { callBatchApi("shipping", files, Object.fromEntries(params), {}, statusEl, resultEl, btn); return; }
+  const formData = new FormData();
+  formData.append("file", files[0]);
+  const url = "/api/shipping/check-label" + (params.toString() ? "?" + params.toString() : "");
+  callApi(url, formData, statusEl, resultEl, btn);
+});
+
+// ⑰ 品檢紀錄與看板
 const MODULE_LABELS = {
   general: "現場照片辨識", docs: "製造文件結構化", anomaly: "外觀瑕疵異常檢測",
   defect: "PCB 瑕疵偵測", codes: "追溯碼辨識", measure: "計數與量測",
   safety: "危險區域入侵", ppe: "安全帽偵測", nameplate: "銘牌/七段/指針錶",
   medical_packaging: "包裝追溯碼檢核", medical_pneumonia_demo: "醫學影像分類展示",
-  assembly: "組裝防呆比對", colordiff: "烤漆/陽極色差",
+  assembly: "組裝防呆比對", colordiff: "烤漆/陽極色差", shipping: "出貨標籤比對",
 };
 
 // Phase 10：/api/inspections* 現在需要 X-API-Key，這組 key 要跟後端 .env 的 API_KEYS

@@ -17,6 +17,7 @@ from modules.measure.service import count_parts, measure_part
 from modules.medical.service import check_packaging, classify_pneumonia_demo
 from modules.nameplate.service import read_gauge, read_nameplate, read_seven_segment
 from modules.safety.service import detect_intrusion, detect_ppe
+from modules.shipping.service import check_shipping_label
 
 
 def _float(params: dict, key: str, default: float | None) -> float | None:
@@ -104,6 +105,16 @@ def _pneumonia(image_bytes: bytes, params: dict) -> InspectionResult:
     return classify_pneumonia_demo(image_bytes)
 
 
+def _shipping(image_bytes: bytes, params: dict) -> InspectionResult:
+    expected_quantity = params.get("expected_quantity")
+    return check_shipping_label(
+        image_bytes,
+        params.get("expected_part_no") or None,
+        params.get("expected_lot_no") or None,
+        int(expected_quantity) if expected_quantity not in (None, "") else None,
+    )
+
+
 ACTIONS = {
     "general": _general,
     "docs": _docs,
@@ -119,6 +130,7 @@ ACTIONS = {
     "gauge": _gauge,
     "packaging": _packaging,
     "pneumonia": _pneumonia,
+    "shipping": _shipping,
 }
 
 

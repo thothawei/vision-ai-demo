@@ -176,6 +176,17 @@ flowchart LR
 - **前端 M10/M11 共用一個「拖曳畫矩形」canvas 控制器（`createRectCanvasController`），不是各寫一份**：M10 需要畫多個不重複的 ROI（每次拖曳都新增一個矩形），M11 需要「標準色區」跟「量測區」各一個且可以重畫覆蓋舊的（用 `tag` 區分，同 tag 重畫會取代）。同一個函式用「有沒有傳 tag」決定行為，比寫兩份幾乎一樣的滑鼠事件處理程式碼更好維護。
 - **開發環境沒有真實相機可用，M10/M11 全部用合成圖驗證，已跟使用者確認可接受**：`ffmpeg -f avfoundation` 偵測得到本機 FaceTime HD 相機，但實際拍照會卡在等待 macOS 相機權限彈窗（這個 session 沒有圖形互動視窗可以點「允許」），逾時失敗。跟前面幾個 Phase 用 Wikimedia Commons 真人照片、`ffmpeg` 合成真實素材轉的影片不同，這次沒有替代的真實照片來源，誠實記錄成已知限制，不假裝測過。
 
+## 技術決策與理由（Phase 14，M12）
+
+出貨標籤 vs 工單比對。使用者確認「manual 參數 > trace header」的預期值優先順序後動工。
+
+- **單階段 OCR→LLM→Pydantic schema，沿用 M7 銘牌讀取的模式**：出貨標籤只有一種版面（不像 M4 需要先分類文件類型），`backend/schemas/shipping_label.py` 定義 `{料號, 數量, 批號}` 三個必要字串欄位，RapidOCR 讀文字 → LLM 一次整理成這個結構 → Pydantic 驗證失敗就直接 NG（看不懂標籤內容本身就是要人工介入的狀況，不是「無法比對」的 INFO）。
+- **批號優先信任條碼，料號/數量一律用 OCR/LLM**：GS1 標準有明確的 AI(10) 批號欄位可以從條碼可靠解出（重用 `modules.codes.service.describe_barcode`），但料號、數量沒有本專案模擬情境下可信任的標準 AI 對應，全部只能靠印刷文字辨識。這不是「條碼比較好一律優先」的一般原則，是「哪個欄位在 GS1 標準裡有結構化保證」的具體判斷。
+- **預期值優先順序：明確帶的 query 參數 > Phase 9 追溯資訊（`X-Part-No`/`X-Lot-No` header）**：使用者在開工前回報確認。`check_shipping_label()` 內部用 `expected_part_no or trace.get("part_no")` 這種 Python 慣用寫法直接表達優先序，不用另外寫 if/else；前端「預期料號/預期批號」輸入框留空時，畫面提示文字直接寫「留空用最上方追溯資訊的料號/批號」，讓使用者知道行為。
+- **沒有任何預期值可比對時回 `INFO`，不是 OK**：如果三個預期值都沒給（沒填手動輸入、也沒帶追溯資訊），代表這次呼叫的目的只是「讀出標籤內容」，不是「檢核」，跟 M5 沒畫危險區域時只做人員偵測回 `INFO` 是同一種邏輯——沒有比對基準時不能宣稱「合格」。
+- **真的用本機 Ollama 驗證三種情境，不是只靠假 LLM 的單元測試**：全對／料號不符／條碼批號優先於印刷文字，三種情境都用 Playwright 對正在跑的伺服器實測過，`qwen3.5:9b` 從標籤 OCR 文字正確抽出料號/批號/數量（含帶單位的「5000 PCS」正確解析出整數 5000）。
+- **開發中意外抓到的真實 bug：批次上傳完全沒有用到手動輸入的預期值**：前端串好「多選檔案自動走批次」後，用 Playwright 測批次上傳（2 張標籤圖 + 填了預期料號/批號）發現結果全部是 `INFO`（照理應該有 OK 或 NG），用 curl 單獨測 `POST /api/batch/shipping?expected_part_no=...` 直接重現，回應裡 `預期料號` 是 `null`。查 `backend/modules/batch/router.py` 才發現：這個路由函式的參數列表是 Phase 11 建立時針對當時 14 個動作固定寫死的，新增 M12 的 `expected_part_no`/`expected_lot_no`/`expected_quantity` 這三個參數時只在 `core/batch_dispatch.py` 的 `_shipping()` 裡讀 `params.get(...)`，卻忘記在 `batch/router.py` 的函式簽名裡宣告這三個參數——FastAPI 對函式簽名沒宣告的 query 參數就是直接忽略，不會報錯也不會警告，url 打對了也沒用。修法是把這三個參數加進 `batch()` 的簽名，`tests/test_batch.py` 補一個回歸測試釘住（`test_batch_shipping_passes_expected_values_as_query_params`）。這個坑值得記住：**每次在 `core/batch_dispatch.py` 幫某個動作加新參數，都要同步檢查 `modules/batch/router.py` 的函式簽名有沒有列出來**，兩邊是分開維護的，其中一邊忘記加不會有任何型別檢查或執行期警告提醒你。
+
 ## 目錄結構
 
 ```
@@ -198,7 +209,8 @@ vision-ai-demo/
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計、webhook_queue）
 │   ├── schemas/
 │   │   ├── documents.py         # M4 工單/出貨單/進料檢驗報告 Pydantic schema
-│   │   └── nameplate.py         # M7 銘牌欄位 Pydantic schema
+│   │   ├── nameplate.py         # M7 銘牌欄位 Pydantic schema
+│   │   └── shipping_label.py    # M12 出貨標籤欄位 Pydantic schema
 │   ├── modules/
 │   │   ├── general/            # M9 開放式辨識
 │   │   ├── docs/                # M4 製造文件結構化
@@ -212,7 +224,8 @@ vision-ai-demo/
 │   │   ├── inspections/         # 檢驗紀錄查詢 / CSV 匯出 / 複判 / 看板統計 / 圖片
 │   │   ├── batch/                # Phase 11：POST /api/batch/{action} 批次上傳
 │   │   ├── assembly/             # Phase 13：M10 組裝防呆／黃金樣本比對
-│   │   └── colordiff/            # Phase 13：M11 烤漆/陽極色差 ΔE
+│   │   ├── colordiff/            # Phase 13：M11 烤漆/陽極色差 ΔE
+│   │   └── shipping/             # Phase 14：M12 出貨標籤 vs 工單比對
 │   └── requirements.txt
 ├── frontend/
 │   ├── index.html               # 分頁式單頁（16 個分頁，15 個辨識分頁多選批次上傳+拍照，M5/M10/M11 有 canvas 畫框，⑯ 品檢看板用 Chart.js）
@@ -261,6 +274,7 @@ vision-ai-demo/
 │   ├── test_export_reviewed.py    # Phase 12：已複判紀錄 → YOLO/MVTec 格式匯出
 │   ├── test_assembly.py           # Phase 13：M10 黃金樣本設定/ORB對齊/SSIM比對
 │   ├── test_colordiff.py          # Phase 13：M11 色差 ΔE（含 CIEDE2000 標準測試向量）
+│   ├── test_shipping.py           # Phase 14：M12 出貨標籤 vs 工單比對
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -356,6 +370,8 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **M10 的黃金樣本只支援一個角度**：如果同一個料號在產線上會被拍成好幾種角度（例如翻面、側拍），需要建立好幾個不同料號名稱的黃金樣本設定分別比對，沒有「同一個料號多個角度樣板」的機制。
 - **M11 色差比對假設整張照片光源均勻**：標準色區跟量測區如果分別在陰影/反光處，就算實體顏色完全一樣也可能量出明顯 ΔE，這是量測方法本身（不控制光源環境）的限制，不是程式邏輯的問題。
 - **M10/M11 沒有用真實相機拍攝的照片測試過**：開發環境沒有可互動授權相機的管道，這輪跟使用者確認後用合成圖驗證，之後有真實照片時應該補測。
+- **M12 出貨標籤比對只有批號能信任條碼，料號/數量完全依賴 OCR/LLM 準確度**：印刷字模糊、字體特殊、或紙張反光都可能讓 LLM 讀錯料號/數量，這種誤判會被當成「不一致」判 NG，需要人工核對「問題」欄位再判斷，跟 M8-1 包裝檢核的已知限制是同一種模式。
+- **`core/batch_dispatch.py` 跟 `modules/batch/router.py` 是分開維護的兩份參數列表，加新動作的新參數容易漏掉其中一邊**：Phase 14 開發 M12 批次上傳時真的漏過（見技術決策的踩坑紀錄），FastAPI 對函式簽名沒宣告的 query 參數是靜默忽略、不會報錯，之後每次幫某個動作加新參數都要記得兩邊一起改。
 
 ## 待辦（Phase 進度）
 
@@ -373,6 +389,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 11：產線化輸入。`scripts/watch_folder.py` 監看資料夾自動辨識、搬 done/error、等檔案大小穩定才讀；`POST /api/batch/{action}` 批次上傳（14 個動作代號，單張失敗不中斷整批），13 個分頁 `<input>` 改可多選、選多張自動走批次並用縮圖卡片呈現結果；`POST /api/safety/video`、`/api/safety/ppe/video` 短影片逐幀抽樣（重構出 `_detect_intrusion_on_bgr`／`_detect_ppe_on_bgr` 共用邏輯），檢驗紀錄只寫一筆彙總；13 個分頁加「📷 拍照」按鈕（`getUserMedia`+`DataTransfer` 塞回既有 `<input>`）。RTSP 定時抓圖依使用者指示跳過。開發中用真實伺服器測試意外抓到 `core/image_io.load_image()` 的 500 錯誤（ultralytics monkeypatch PIL 副作用）並修正。97 項單元測試全過（新增 15 項），並用真實 Ollama/YOLO 模型 + 自製影片 + Playwright 假相機裝置驗證整條批次上傳／影片抽幀／資料夾監控／拍照流程。
 - [x] Phase 12：自有資料導入流程。M3 自訂類別（`POST /api/anomaly/categories` 上傳 zip、單一 worker 執行緒背景排隊擬合、`anomalib.data.Folder` 不套用 MVTec 目錄結構）；門檻調校（無 NG 用良品 99th percentile、有 NG 用 ROC/Youden's J，前端直方圖+拖拉滑桿即時算誤判率/漏判率）；`scripts/export_reviewed.py` 複判資料回流（PPE/defect → YOLO、anomaly → MVTec 格式），標註校正工具選定 Label Studio Community（Apache-2.0，不裝進 venv）。開發中用 MVTec `bottle`（模擬「自家零件」，只用原始照片不用 ground_truth 遮罩）真實跑完整流程時抓到 anomalib 內建正規化把分數裁成退化的 `threshold=1.0`，追出根因（`Folder` 內部自動切的驗證集範圍太窄）並修正（關掉正規化，改用原始距離分數）；修完 AUROC=0.9977、門檻=40.13，真實比較出「只用良品估計」NG 漏判率 9.5% vs「用 NG 做 ROC」漏判率 0%。113 項單元測試全過（新增 16 項），並用真實 PatchCore 擬合（155-158 秒）、真實 ultralytics `.val()`、瀏覽器實際操作門檻調校滑桿驗證整條流程。
 - [x] Phase 13（先做 M10/M11，使用者指示分批做）：補齊台中常見辨識。M10 組裝防呆／黃金樣本比對（ORB+homography 對齊、SSIM 逐 ROI 比對，對齊失敗誠實回 `INFO`）；M11 烤漆/陽極色差 ΔE（`skimage.color.deltaE_ciede2000`，標準色可框選或手動輸入 Lab 值，門檻預設 3.0 可調）。前端新增共用的「拖曳畫矩形」canvas 控制器（`createRectCanvasController`），16 個分頁。開發中真實校準 SSIM 門檻時發現：不做高斯模糊預處理，`warpPerspective` 對齊後的插值誤差會讓「旋轉但零件都對」的情境跟「零件真的裝反」的分數太接近，加模糊後才拉開安全邊界；另外第一版忘記讓 `GOLDEN_SAMPLES_DIR` 可用 env 覆寫，測試污染了專案真實的 `data/golden_samples/`（跟 Phase 9/12 同一種坑），已修正並補上隔離。132 項單元測試全過（新增 19 項），並用 Playwright 實際拖曳畫框驗證 M10（完整正視角 OK、少一顆 NG、裝反 NG）與 M11（框選/手動 Lab 兩種模式）前端互動全流程；M10/M11 只用合成圖驗證，開發環境沒有可互動授權的真實相機，已跟使用者確認可接受。
+- [x] Phase 14（M12）：出貨標籤 vs 工單比對。重用 M1 條碼解析（批號優先信任 GS1 條碼）+ M7 銘牌讀取的單階段 OCR→LLM→Pydantic schema 模式，抽出標籤上的料號/數量/批號，跟預期值（明確參數 > Phase 9 追溯資訊，使用者確認的優先序）比對，三項都沒預期值回 `INFO`。17 個分頁。開發中用 Playwright 測批次上傳時抓到真實 bug：`modules/batch/router.py` 的函式簽名忘記宣告新增的 `expected_part_no`/`expected_lot_no`/`expected_quantity` 三個參數，FastAPI 靜默忽略沒宣告的 query 參數，批次上傳的預期值全部沒傳到後端，已修正並補回歸測試。142 項單元測試全過（新增 10 項），並真打本機 Ollama 驗證全對/料號不符/條碼優先/批次上傳四種情境。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -571,3 +588,14 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   - 測試用真實伺服器（不是 `TestClient`），驗證完後清掉 Playwright 留下的 `data/golden_samples/playwright_part/` 測試資料，避免污染展示系統。
 - **截圖腳本（`scripts/capture_screenshots.py`）新增 M10/M11 的特殊流程**（`capture_assembly`/`capture_colordiff`），實際跑過一次產生 `14_assembly.png`／`15_colordiff.png`，人工核對畫面內容：M10 截圖清楚顯示 6 個彩色 ROI 框（畫在黃金樣本上）跟比對結果（5 個綠框 OK + 1 個紅框 NG，對應「少一顆」的示範案例）；M11 截圖清楚顯示標準色區（橙框）跟量測區（藍框）疊在色塊圖上，結果表格正確列出兩邊 Lab 值與 ΔE00。因為 M10/M11 插在既有分頁中間（⑭⑮），⑯ 品檢看板的截圖檔名跟著從 `14_dashboard.png` 改成 `16_dashboard.png`，`capture_dashboard()` 函式也同步更新。
 - **既有測試無回歸**：`pytest`，132 項全過（113 項既有 + 19 項新增：`test_assembly.py` 10 項、`test_colordiff.py` 9 項，約 18-19 秒）。
+
+### Phase 14：功能驗證（M12 出貨標籤比對）
+
+- **單元測試涵蓋 9 種情境**（`tests/test_shipping.py`）：料號/數量/批號全部一致判 OK；料號不符判 NG；數量不符判 NG；三項預期值都沒給時誠實回 `INFO`（不是硬猜 OK/NG）；預期值改用 Phase 9 追溯資訊（`work_order`/`part_no`/`lot_no` header）當預設值；明確傳入的參數會蓋過追溯資訊（驗證優先序：手動參數 > 追溯 header）；有 GS1 條碼時批號一律信任條碼值而非 OCR/LLM 讀到的批號；LLM 回傳缺欄位觸發 Pydantic 驗證錯誤時判 NG；空白圖片在呼叫 LLM 之前就被擋下回 400。
+- **真打本機 Ollama 驗證三種情境（用 Playwright 對正在跑的伺服器操作，非 `TestClient`）**：
+  1. 全部一致：上傳料號/批號/數量都對得上的出貨標籤圖，填入對應預期值送出，3595ms 後正確判定 OK，三項比對欄位（`料號一致`/`數量一致`/`批號一致`）全部 `true`。
+  2. 料號不符：預期值故意填錯（`SC-M8-30` vs 圖上真實料號 `SC-M6-20`），正確判 NG，「問題」欄位清楚列出「料號」。
+  3. 條碼優先：標籤圖同時有 GS1 條碼與印刷批號文字、且刻意讓兩者不同，比對結果採用條碼批號而非印刷文字批號，跟 M8-1 包裝檢核「條碼優先」的既有邏輯一致。
+- **開發中用 Playwright 測批次上傳時抓到真實 bug，並用 curl 重現＋驗證修復**：第一次用批次上傳（`⑯ 出貨標籤比對` 分頁多選檔案）測試時，畫面顯示「INFO 2」而非預期的 OK/NG，跟單張上傳（同一組參數）結果不一致。用 curl 直接打 `POST /api/batch/shipping?expected_part_no=SC-M6-20&...` 重現，回應裡 `"預期料號": null`——確認手動輸入的預期值完全沒有傳到 service。追到 `backend/modules/batch/router.py` 的 `batch()` 函式簽名是 Phase 11 建立時針對當時 14 個動作寫死的固定參數列表，新增 M12 這三個參數時只在 `core/batch_dispatch.py` 的 `_shipping()` 裡讀 `params.get(...)`，卻忘記同步在 `batch/router.py` 的函式簽名裡宣告——FastAPI 對函式簽名沒宣告的 query 參數是直接忽略，不會報錯也不會警告，這正是這個 bug 沒有在寫程式當下被發現的原因。修法：把 `expected_part_no`/`expected_lot_no`/`expected_quantity` 加進 `batch()` 的簽名與 `params` dict；補上 `tests/test_batch.py::test_batch_shipping_passes_expected_values_as_query_params` 回歸測試釘住。修完後重跑同一個 curl 重現指令，回應正確顯示 `"預期料號": "SC-M6-20"`、`"料號一致": true`；重新用 Playwright 走一次批次上傳，畫面正確顯示「OK 1」。
+- **截圖驗證**：`scripts/capture_screenshots.py` 新增 `capture_shipping()`，真跑一次產生 `16_shipping.png`（人工用 Read 工具核對：清楚顯示上傳的出貨標籤圖、填入的預期值、AI 判定 NG 與「問題：料號」的明細，這是刻意用不符的預期值 `SC-M8-30` 示範 NG 情境）；因為 M12 插在既有分頁後面（⑯），品檢看板從 `16_dashboard.png` 改名 `17_dashboard.png`，`capture_dashboard()` 同步更新，17 張截圖全部重新產生。
+- **既有測試無回歸**：`pytest`，142 項全過（132 項既有 + 10 項新增：`test_shipping.py` 9 項、`test_batch.py` 批次參數回歸測試 1 項，約 21.7 秒）。

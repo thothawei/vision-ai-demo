@@ -27,6 +27,7 @@ from modules.measure.router import router as measure_router  # noqa: E402
 from modules.medical.router import router as medical_router  # noqa: E402
 from modules.nameplate.router import router as nameplate_router  # noqa: E402
 from modules.safety.router import router as safety_router  # noqa: E402
+from modules.shipping.router import router as shipping_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -93,6 +94,7 @@ app.include_router(inspections_router)
 app.include_router(batch_router)
 app.include_router(assembly_router)
 app.include_router(colordiff_router)
+app.include_router(shipping_router)
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")

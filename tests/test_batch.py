@@ -72,3 +72,25 @@ def test_batch_intrusion_shares_zone_form_field(client, fake_person_detector, wa
     body = res.json()
     assert body["failed"] == 0
     assert body["results"][0]["result"]["verdict"] == "NG"  # 整張圖都算危險區域，一定入侵
+
+
+def test_batch_shipping_passes_expected_values_as_query_params(client, fake_llm_queue):
+    """回歸測試：Phase 14 M12 開發時發現 batch router 沒列出 expected_part_no/expected_lot_no/
+    expected_quantity 這三個參數，FastAPI 會直接忽略多餘的 query string，導致批次上傳時
+    這幾個預期值完全沒有傳到 service，全部誤判成 INFO（沒東西可比對）。"""
+    fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "LOT2026A"}, "fake:model"))
+    from samples import make_samples
+
+    import io
+    buf = io.BytesIO()
+    make_samples.make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS").save(buf, format="PNG")
+
+    res = client.post(
+        "/api/batch/shipping",
+        params={"expected_part_no": "SC-M6-20", "expected_lot_no": "LOT2026A", "expected_quantity": 5000},
+        files=[("files", ("label.png", buf.getvalue(), "image/png"))],
+    )
+    body = res.json()
+    assert body["failed"] == 0
+    assert body["ok"] == 1
+    assert body["results"][0]["result"]["items"][0]["料號一致"] is True

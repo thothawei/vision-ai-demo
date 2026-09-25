@@ -305,6 +305,47 @@ def make_color_chip_scene(standard_rgb: tuple[int, int, int], measured_rgb: tupl
     return canvas
 
 
+# ---------- M12 出貨標籤 vs 工單比對 ----------
+
+def make_shipping_label(
+    part_no: str = "SC-M6-20",
+    lot_no: str = "LOT2026A",
+    quantity: str = "5000 PCS",
+    with_barcode: bool = False,
+    barcode_lot_no: str | None = None,
+) -> Image.Image:
+    """出貨標籤：印刷文字（料號/批號/數量）+ 可選的 GS1 條碼。
+    barcode_lot_no 不給就跟印刷批號一致；給不同值可測「條碼跟印刷文字批號對不上」的情境
+    （這裡指條碼本身內嵌的批號，跟 check_shipping_label() 拿去跟「預期批號」比對的邏輯是兩回事：
+    這個函式只負責生出「標籤上寫的批號到底是什麼」，條碼優先於印刷文字被讀取）。
+    """
+    font = _font(30)
+    lines = [
+        "出貨標籤 SHIPPING LABEL",
+        f"料號 P/N: {part_no}",
+        f"批號 LOT: {lot_no}",
+        f"數量 QTY: {quantity}",
+    ]
+
+    if with_barcode:
+        barcode_batch = barcode_lot_no if barcode_lot_no is not None else lot_no
+        content = f"(10){barcode_batch}"
+        barcode = zxingcpp.create_barcode(content, zxingcpp.DataMatrix, gs1=True)
+        barcode_img = Image.fromarray(np.array(zxingcpp.write_barcode_to_image(barcode, scale=6))).convert("RGB")
+        canvas = Image.new("RGB", (600, 60 + len(lines) * 45 + barcode_img.height + 20), "white")
+        draw = ImageDraw.Draw(canvas)
+        for i, line in enumerate(lines):
+            draw.text((30, 30 + i * 45), line, fill="black", font=font)
+        canvas.paste(barcode_img, (30, 30 + len(lines) * 45 + 10))
+        return canvas
+
+    canvas = Image.new("RGB", (600, 60 + len(lines) * 45), "white")
+    draw = ImageDraw.Draw(canvas)
+    for i, line in enumerate(lines):
+        draw.text((30, 30 + i * 45), line, fill="black", font=font)
+    return canvas
+
+
 if __name__ == "__main__":
     for name, maker in [
         ("work_order.png", make_work_order),
@@ -318,6 +359,7 @@ if __name__ == "__main__":
         ("packaging_match.png", make_packaging),
         ("assembly_golden.png", make_assembly_scene),
         ("color_chip.png", lambda: make_color_chip_scene((180, 60, 60), (185, 65, 62))),
+        ("shipping_label_mismatch.png", lambda: make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS")),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)

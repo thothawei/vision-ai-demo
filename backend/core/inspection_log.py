@@ -118,6 +118,15 @@ def _extract_defect_labels_packaging(summary):
     return labels
 
 
+@_extractor("shipping")
+def _extract_defect_labels_shipping(summary):
+    labels = []
+    for item in summary:
+        for problem in item.get("問題") or []:
+            labels.append(f"出貨標籤不符：{problem}")
+    return labels
+
+
 def extract_defect_labels(module: str, summary: list | dict) -> list[str]:
     """從 record_result 存進 summary_json 的 items 抽出缺陷類別清單。
     沒有對應規則的模組（或 summary 格式不是預期的 list）一律回傳 []，不猜測。"""

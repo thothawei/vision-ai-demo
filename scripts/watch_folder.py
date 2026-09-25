@@ -39,6 +39,7 @@ ACTION_URLS = {
     "gauge": "/api/nameplate/gauge",
     "packaging": "/api/medical/packaging-check",
     "pneumonia": "/api/medical/pneumonia-demo",
+    "shipping": "/api/shipping/check-label",
 }
 
 TRACE_HEADER_MAP = {
