@@ -161,6 +161,21 @@ flowchart LR
     I -- 否 --> K[保留舊權重，記錄這次嘗試沒有改善]
 ```
 
+## 技術決策與理由（Phase 13，先做 M10/M11）
+
+補齊台中常見辨識，使用者指示分批做、這輪先做 M10（組裝防呆／黃金樣本比對）跟 M11（烤漆/陽極色差 ΔE），M12/M5+/M8-1+/鋼材表面瑕疵資料集查證留到之後。
+
+- **M10 對齊用 ORB + homography，不是逐 ROI 各自比對原圖座標**：使用者上傳的待測照片跟黃金樣本的拍攝角度/距離不會完全一樣，`_align_to_golden()` 先用 ORB 特徵配對 + `findHomography`（RANSAC）把待測圖 `warpPerspective` 對齊到黃金樣本的座標系，之後每個 ROI 才能直接用黃金樣本定義時的同一組座標去裁切比較，不用使用者自己對齊拍攝角度。
+- **對齊失敗回傳 `INFO` 而不是硬猜 OK/NG**：特徵配對數不足（`< MIN_GOOD_MATCHES=8`）或 RANSAC inlier 比例太低（`< MIN_INLIER_RATIO=0.5`）時，代表這張照片跟黃金樣本差異太大（可能根本拍錯東西、角度太刁鑽），誠實回報「無法對齊」比硬判一個可能誤導的 OK/NG 更負責任。
+- **黃金樣本設定存成檔案（`data/golden_samples/<料號>/golden.png` + `rois.json`），不是資料庫表**：跟 M3 自訂類別的 registry 風格一致，`GOLDEN_SAMPLES_DIR` 可用 env 變數覆寫（同 `INSPECTION_DB`/`INSPECTION_IMAGES_DIR` 的模式），測試才能隔離、不會寫進專案真實的 `data/golden_samples/`。**這是真的踩到的坑**：第一版沒做這個 env 覆寫，`pytest` 十項測試全綠燈，但意外把 `test_part` 這個測試用的黃金樣本寫進了專案真實目錄，跟 Phase 9 image-saving、Phase 12 anomaly categories 是同一種「忘記隔離全域檔案路徑」的坑，模式一樣：先加 `_golden_dir()` 讀 env、再讓 `tests/conftest.py` 的 `client` fixture 一起隔離。
+- **SSIM 比對前先對兩邊 ROI 做 5x5 高斯模糊，不是直接比對原始像素**：實測校準時發現 `warpPerspective` 對齊後（尤其 ±15 度旋轉這種真實的拍攝角度誤差）插值造成的像素級誤差，會讓「零件其實都裝對」的情境 SSIM 掉到 0.75-0.83，跟「零件真的裝反」的 0.708 太接近，很難找到一個門檻同時兼顧兩種情境。先做輕度高斯模糊、只比較區塊級結構相似度之後，旋轉/縮放情境的最差分數回升到 0.92 以上，跟「裝反」的 0.71 之間有足夠安全邊界，門檻可以抓 0.85。這個調整過程是拿實際校準數字反覆試出來的，不是憑經驗一次到位。
+- **M10 測試合成圖的零件圖案設計成不對稱（方塊+三角形，不是純圓形）**：純圓形零件旋轉 180 度看起來完全一樣，SSIM 比不出「裝反」這種方向性錯誤；改成方塊配一個指向性的三角形之後，旋轉 180 度會讓三角形尖端反向，SSIM 才能真的偵測到方向錯誤，這是驗收條件本身要求「零件轉 180 度判 NG」隱含的測試設計限制。
+- **M11 用 `skimage.color.deltaE_ciede2000`，不是自己實作 CIEDE2000 公式**：CIEDE2000 的公式本身有大量特殊處理（色相角度的非線性加權、$R_T$ 旋轉項等），自己重寫容易出錯且沒有查核價值；用 scikit-image 這個成熟套件的實作，測試裡額外拿 CIEDE2000 論文（Sharma et al. 2005）公開的標準測試向量直接驗證 skimage 算得對（誤差 <0.001），不是只信任套件文件宣稱正確。
+- **M11 的門檻預設 3.0，是有出處的產業慣例數字，不是隨便挑的**：CIEDE2000 的 ΔE 值域裡，<1 是「肉眼幾乎分不出來」、1-2 是「有經驗的檢驗員才看得出來」、2-10 是「一般人一眼就看得出差異」，3.0 落在「有感但不算嚴重瑕疵」的常見工業公差區間，前端可調整。
+- **M11 標準色可以用「框一塊標準色區」或「直接輸入標準 Lab 值」兩種模式，不是只支援其中一種**：實務上有時現場沒有實體標準色板可以拍（例如色卡在別的地方、或標準值是客戶給的色票數據），直接輸入 Lab 值更快；有實體標準色板時直接框選更準（不用自己查表換算 Lab）。兩種模式共用同一個 `check_color_difference()` 服務函式，只是 `reference_lab` 的來源不同。
+- **前端 M10/M11 共用一個「拖曳畫矩形」canvas 控制器（`createRectCanvasController`），不是各寫一份**：M10 需要畫多個不重複的 ROI（每次拖曳都新增一個矩形），M11 需要「標準色區」跟「量測區」各一個且可以重畫覆蓋舊的（用 `tag` 區分，同 tag 重畫會取代）。同一個函式用「有沒有傳 tag」決定行為，比寫兩份幾乎一樣的滑鼠事件處理程式碼更好維護。
+- **開發環境沒有真實相機可用，M10/M11 全部用合成圖驗證，已跟使用者確認可接受**：`ffmpeg -f avfoundation` 偵測得到本機 FaceTime HD 相機，但實際拍照會卡在等待 macOS 相機權限彈窗（這個 session 沒有圖形互動視窗可以點「允許」），逾時失敗。跟前面幾個 Phase 用 Wikimedia Commons 真人照片、`ffmpeg` 合成真實素材轉的影片不同，這次沒有替代的真實照片來源，誠實記錄成已知限制，不假裝測過。
+
 ## 目錄結構
 
 ```
@@ -195,10 +210,12 @@ vision-ai-demo/
 │   │   ├── nameplate/            # M7 銘牌／七段顯示器／指針錶
 │   │   ├── medical/              # M8 包裝追溯碼檢核／醫學影像分類展示
 │   │   ├── inspections/         # 檢驗紀錄查詢 / CSV 匯出 / 複判 / 看板統計 / 圖片
-│   │   └── batch/                # Phase 11：POST /api/batch/{action} 批次上傳
+│   │   ├── batch/                # Phase 11：POST /api/batch/{action} 批次上傳
+│   │   ├── assembly/             # Phase 13：M10 組裝防呆／黃金樣本比對
+│   │   └── colordiff/            # Phase 13：M11 烤漆/陽極色差 ΔE
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 分頁式單頁（14 個分頁，13 個辨識分頁多選批次上傳+拍照，M5 有 canvas 畫多邊形，⑭ 品檢看板用 Chart.js）
+│   ├── index.html               # 分頁式單頁（16 個分頁，15 個辨識分頁多選批次上傳+拍照，M5/M10/M11 有 canvas 畫框，⑯ 品檢看板用 Chart.js）
 │   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
@@ -208,7 +225,7 @@ vision-ai-demo/
 │   ├── prepare_hardhat.py      # Hard Hat Workers Pascal VOC → YOLO 格式（M5 PPE）
 │   ├── train_medmnist.py       # M8-2 PneumoniaMNIST 小型 CNN 訓練，含類別權重
 │   ├── watch_folder.py         # Phase 11：資料夾監控，新圖自動辨識、搬到 done/error
-│   └── capture_screenshots.py  # Playwright 產生 README Demo 截圖，含 ⑭ 品檢看板
+│   └── capture_screenshots.py  # Playwright 產生 README Demo 截圖（16 張），含 M10/M11 canvas 互動
 ├── notebooks/
 │   ├── train_pcb_defect.ipynb  # M6 訓練，Colab GPU 版（重用 scripts/prepare_deeppcb.py）
 │   └── train_ppe.ipynb         # M5 PPE 訓練，Colab GPU 版
@@ -242,6 +259,8 @@ vision-ai-demo/
 │   ├── test_watch_folder.py      # Phase 11：資料夾監控核心邏輯
 │   ├── test_anomaly_categories.py # Phase 12：自訂類別 zip 驗證/排隊/門檻 registry
 │   ├── test_export_reviewed.py    # Phase 12：已複判紀錄 → YOLO/MVTec 格式匯出
+│   ├── test_assembly.py           # Phase 13：M10 黃金樣本設定/ORB對齊/SSIM比對
+│   ├── test_colordiff.py          # Phase 13：M11 色差 ΔE（含 CIEDE2000 標準測試向量）
 │   ├── test_live_ollama.py     # 真打 Ollama，pytest -m live
 │   ├── test_live_safety.py      # 真打 YOLO + 真人照片，pytest -m live
 │   ├── test_live_anomaly.py     # 真打 PatchCore + MVTec AD 測試集，pytest -m live
@@ -333,6 +352,10 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - **M3 自訂類別的異常分數是 PatchCore 原始距離值，不是 0~1 的正規化分數**：關掉了 anomalib 內建正規化（見技術決策的踩坑紀錄），不同類別之間的分數尺度不能直接比較，每個類別的門檻都是獨立算出來的，不能套用到別的類別。
 - **自訂類別擬合佇列是進程內記憶體，伺服器重啟會遺失排隊中的工作**：`queue.Queue()` 不是持久化佇列，`categories.json` 裡狀態卡在 `fitting` 但實際上該次擬合已經因為重啟而中斷的情況，需要使用者自己重新上傳。
 - **`export_reviewed.py` 匯出的框是 AI 當時的預測，品質取決於當時的模型**：如果 AI 本身框得不準，匯出的「預標註」也會不準，人工校正的工作量可能不小；這支腳本的價值是省下「從零開始框」的時間，不是省下「校正」的時間。
+- **M10 組裝防呆的 SSIM 比對只看結構相似度，看不出「哪裡不一樣」**：判定結果只有 OK/NG 跟一個相似度分數，不會告訴使用者是缺件、裝反、還是髒污/反光造成的誤判，需要人工看標註圖上的紅框自己判斷。
+- **M10 的黃金樣本只支援一個角度**：如果同一個料號在產線上會被拍成好幾種角度（例如翻面、側拍），需要建立好幾個不同料號名稱的黃金樣本設定分別比對，沒有「同一個料號多個角度樣板」的機制。
+- **M11 色差比對假設整張照片光源均勻**：標準色區跟量測區如果分別在陰影/反光處，就算實體顏色完全一樣也可能量出明顯 ΔE，這是量測方法本身（不控制光源環境）的限制，不是程式邏輯的問題。
+- **M10/M11 沒有用真實相機拍攝的照片測試過**：開發環境沒有可互動授權相機的管道，這輪跟使用者確認後用合成圖驗證，之後有真實照片時應該補測。
 
 ## 待辦（Phase 進度）
 
@@ -349,6 +372,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 10：ERP 串接介面 + 基本資安。`/api/inspections*` 加 `X-API-Key` 驗證（13 個辨識端點刻意不套，見技術決策）；`since_id` 增量拉取（id 升冪，跟預設降冪明確區分）+ `GET /api/inspections/reviews?since=` 抓事後複判；NG 時 daemon thread 立即 POST `ERP_WEBHOOK_URL`、失敗才進 `webhook_queue` 由背景執行緒重試；`CORS_ORIGINS` 白名單（預設只允許本機）、`MAX_UPLOAD_MB`（預設 20，超過 413）、`load_image()` 不信任副檔名一律用 Pillow 實際開檔驗證。`docs/erp-integration.md`（含 Mermaid 輪詢時序圖、欄位對照表、C# 範例）+ `docs/openapi.json` 匯出；C# 範例真的建了 `docs/erp-integration-sample/` 用 `dotnet build` 編譯驗證過。82 項單元測試全過（新增 11 項）。
 - [x] Phase 11：產線化輸入。`scripts/watch_folder.py` 監看資料夾自動辨識、搬 done/error、等檔案大小穩定才讀；`POST /api/batch/{action}` 批次上傳（14 個動作代號，單張失敗不中斷整批），13 個分頁 `<input>` 改可多選、選多張自動走批次並用縮圖卡片呈現結果；`POST /api/safety/video`、`/api/safety/ppe/video` 短影片逐幀抽樣（重構出 `_detect_intrusion_on_bgr`／`_detect_ppe_on_bgr` 共用邏輯），檢驗紀錄只寫一筆彙總；13 個分頁加「📷 拍照」按鈕（`getUserMedia`+`DataTransfer` 塞回既有 `<input>`）。RTSP 定時抓圖依使用者指示跳過。開發中用真實伺服器測試意外抓到 `core/image_io.load_image()` 的 500 錯誤（ultralytics monkeypatch PIL 副作用）並修正。97 項單元測試全過（新增 15 項），並用真實 Ollama/YOLO 模型 + 自製影片 + Playwright 假相機裝置驗證整條批次上傳／影片抽幀／資料夾監控／拍照流程。
 - [x] Phase 12：自有資料導入流程。M3 自訂類別（`POST /api/anomaly/categories` 上傳 zip、單一 worker 執行緒背景排隊擬合、`anomalib.data.Folder` 不套用 MVTec 目錄結構）；門檻調校（無 NG 用良品 99th percentile、有 NG 用 ROC/Youden's J，前端直方圖+拖拉滑桿即時算誤判率/漏判率）；`scripts/export_reviewed.py` 複判資料回流（PPE/defect → YOLO、anomaly → MVTec 格式），標註校正工具選定 Label Studio Community（Apache-2.0，不裝進 venv）。開發中用 MVTec `bottle`（模擬「自家零件」，只用原始照片不用 ground_truth 遮罩）真實跑完整流程時抓到 anomalib 內建正規化把分數裁成退化的 `threshold=1.0`，追出根因（`Folder` 內部自動切的驗證集範圍太窄）並修正（關掉正規化，改用原始距離分數）；修完 AUROC=0.9977、門檻=40.13，真實比較出「只用良品估計」NG 漏判率 9.5% vs「用 NG 做 ROC」漏判率 0%。113 項單元測試全過（新增 16 項），並用真實 PatchCore 擬合（155-158 秒）、真實 ultralytics `.val()`、瀏覽器實際操作門檻調校滑桿驗證整條流程。
+- [x] Phase 13（先做 M10/M11，使用者指示分批做）：補齊台中常見辨識。M10 組裝防呆／黃金樣本比對（ORB+homography 對齊、SSIM 逐 ROI 比對，對齊失敗誠實回 `INFO`）；M11 烤漆/陽極色差 ΔE（`skimage.color.deltaE_ciede2000`，標準色可框選或手動輸入 Lab 值，門檻預設 3.0 可調）。前端新增共用的「拖曳畫矩形」canvas 控制器（`createRectCanvasController`），16 個分頁。開發中真實校準 SSIM 門檻時發現：不做高斯模糊預處理，`warpPerspective` 對齊後的插值誤差會讓「旋轉但零件都對」的情境跟「零件真的裝反」的分數太接近，加模糊後才拉開安全邊界；另外第一版忘記讓 `GOLDEN_SAMPLES_DIR` 可用 env 覆寫，測試污染了專案真實的 `data/golden_samples/`（跟 Phase 9/12 同一種坑），已修正並補上隔離。132 項單元測試全過（新增 19 項），並用 Playwright 實際拖曳畫框驗證 M10（完整正視角 OK、少一顆 NG、裝反 NG）與 M11（框選/手動 Lab 兩種模式）前端互動全流程；M10/M11 只用合成圖驗證，開發環境沒有可互動授權的真實相機，已跟使用者確認可接受。
 
 ## 測試紀錄（真實驗證，非猜測）
 
@@ -533,3 +557,17 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
   - anomaly：用 `bottle_custom` 的一張 NG 測試圖辨識後人工複判，匯出成 MVTec 格式（`good/`、`defect/`），`export_anomaly_mvtec("bottle_custom", ...)` 正確把這筆歸進 `defect/`。
 - **收尾清理**：驗收用的 `bottle_custom`／`bottle_good_only` 兩個示範類別（連同 `models/anomaly/` 與 `data/custom_anomaly/` 底下的產物、`categories.json` 裡的條目）驗收完就清掉了，不留在系統裡當成正式功能誤導使用者；下載的 `data/mvtec_ad/bottle/` 原始資料集保留（不進版控，之後要重跑驗收或展示可以省下載時間）。
 - **既有測試無回歸**：`pytest`，113 項全過（97 項既有 + 16 項新增：`test_anomaly_categories.py` 11 項、`test_export_reviewed.py` 5 項，約 15-17 秒）。
+
+### Phase 13：功能驗證（先做 M10/M11）
+
+- **M10 對齊穩健性用手算校準數字驗證，不是憑感覺調參數**：拿合成的組裝黃金樣本（900x500，6 個不對稱零件圖案）逐一測試：完整正視角自比對 SSIM=1.0；「少一顆」該 ROI 掉到 0.212；「裝反」該 ROI 掉到 0.708。第一版沒做高斯模糊，`±15 度旋轉` 這種「零件其實都裝對，只是拍攝角度不同」的情境，`warpPerspective` 對齊後的插值誤差讓最差 ROI 掉到 0.75-0.83（±15 度旋轉最差 0.7662、-15 度旋轉某個角落 ROI 甚至到 0.7528），跟「裝反」的 0.708 太接近，找不到一個門檻同時兼顧兩種情境；加上 5x5 高斯模糊後，旋轉情境最差分數回升到 0.9196、縮放情境到 0.986，跟「裝反」的 0.7132 之間有足夠安全邊界，最後定案 `SSIM_THRESHOLD=0.85`。這個過程完全是拿實測數字反覆調整校準出來的，中間至少推翻了兩次「應該可以了」的假設（先試 0.6 抓不到裝反、再試 0.8 在 -15 度旋轉時仍誤判）。
+- **M10 端到端測試涵蓋 10 種情境**（`tests/test_assembly.py`）：建立/查詢黃金樣本、料號格式驗證、ROI 數量下限、找不到料號回 404、完整正視角判 OK、缺件判 NG（且正確標出是哪個 ROI）、裝反判 NG（且正確標出是哪個 ROI）、±15 度旋轉/±20% 縮放都判 OK 且對齊 inlier 比例都 >0.5、純雜訊圖對齊失敗回 `INFO`（不是硬猜 OK/NG）。
+- **開發中意外踩到的真實 bug：`GOLDEN_SAMPLES_DIR` 第一版沒有 env 覆寫機制，測試把資料寫進專案真實目錄**：`tests/test_assembly.py` 十項測試第一次全部綠燈通過，但跑完後 `ls data/golden_samples/` 發現多了一個 `test_part` 資料夾——跟 Phase 9 存圖、Phase 12 自訂類別 registry 是同一種坑（module-level 常數路徑沒有讀 env，測試沒有機制隔離）。修法比照前兩次的模式：加 `_golden_dir()` 函式每次呼叫都重讀 `os.environ.get("GOLDEN_SAMPLES_DIR", ...)`，`tests/conftest.py` 的 `client` fixture 一起補上隔離。修完後清掉誤寫的資料夾，重跑測試確認乾淨。
+- **M11 用 CIEDE2000 論文公開的標準測試向量直接驗證 skimage 本身算得對**（`test_known_ciede2000_test_vectors_match_skimage`）：4 組來自 Sharma et al. 2005 論文的已知 Lab 值配對與預期 ΔE00，呼叫 `skimage.color.deltaE_ciede2000` 算出來的結果跟論文數字誤差 <0.001；另外一項測試（`test_pipeline_matches_skimage_deltaE_ciede2000_directly`）獨立算「正確答案」（自己呼叫 `rgb2lab`+`deltaE_ciede2000`）跟服務層回傳的數字比對，確認「裁切 ROI→算平均 Lab→呼叫 skimage」這條完整管線沒有在中間哪個環節算錯，不是只測 skimage 本身。
+- **M11 門檻可調整用同一張圖、兩種門檻值得到不同判定驗證**（`test_threshold_is_configurable`）：同一張色差圖，`threshold=0.1` 判 NG、`threshold=50` 判 OK，證明門檻參數真的有傳到判定邏輯，不是寫死忽略的參數。
+- **前端 Playwright 實際拖曳畫框驗證，不是只測後端 API**：
+  - M10：真的用滑鼠在 canvas 上拖曳畫出 6 個 ROI（座標依 canvas 顯示縮放比例換算）、輸入料號、點「儲存黃金樣本」，確認狀態列顯示「已儲存：playwright_part（6 個 ROI）」；接著上傳完整正視角照片比對，畫面顯示 `assembly · OK`；換成「少一顆」的照片再比一次，畫面顯示 `assembly · NG` 且明細裡 ROI 3 相似度 0.2197、判定 NG，跟單元測試的手算數字一致。
+  - M11：真的拖曳畫「標準色區」跟「量測區」兩個矩形，送出後得到 `ΔE00=1.728`、判定合格；再勾選「手動輸入標準 Lab 值」填入 `[50,20,20]`，同一張圖送出得到不同的 `ΔE00=12.842`、判定不合格——證明兩種標準來源模式都真的接到後端邏輯，不是介面擺著沒串起來。
+  - 測試用真實伺服器（不是 `TestClient`），驗證完後清掉 Playwright 留下的 `data/golden_samples/playwright_part/` 測試資料，避免污染展示系統。
+- **截圖腳本（`scripts/capture_screenshots.py`）新增 M10/M11 的特殊流程**（`capture_assembly`/`capture_colordiff`），實際跑過一次產生 `14_assembly.png`／`15_colordiff.png`，人工核對畫面內容：M10 截圖清楚顯示 6 個彩色 ROI 框（畫在黃金樣本上）跟比對結果（5 個綠框 OK + 1 個紅框 NG，對應「少一顆」的示範案例）；M11 截圖清楚顯示標準色區（橙框）跟量測區（藍框）疊在色塊圖上，結果表格正確列出兩邊 Lab 值與 ΔE00。因為 M10/M11 插在既有分頁中間（⑭⑮），⑯ 品檢看板的截圖檔名跟著從 `14_dashboard.png` 改成 `16_dashboard.png`，`capture_dashboard()` 函式也同步更新。
+- **既有測試無回歸**：`pytest`，132 項全過（113 項既有 + 19 項新增：`test_assembly.py` 10 項、`test_colordiff.py` 9 項，約 18-19 秒）。

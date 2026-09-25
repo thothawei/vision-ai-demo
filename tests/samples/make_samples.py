@@ -253,6 +253,58 @@ def make_gauge(min_angle_deg: float = 135, max_angle_deg: float = 45,
     return Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
 
 
+# ---------- M10 組裝防呆／黃金樣本比對 ----------
+
+ASSEMBLY_PART_POSITIONS = [(150, 150), (450, 150), (750, 150), (150, 350), (450, 350), (750, 350)]
+ASSEMBLY_ROIS = [
+    [(cx - 30) / 900, (cy - 30) / 500, (cx + 30) / 900, (cy + 30) / 500]
+    for cx, cy in ASSEMBLY_PART_POSITIONS
+]
+
+
+def _draw_assembly_component(draw: ImageDraw.ImageDraw, cx: int, cy: int, rotated: bool = False) -> None:
+    """有方向性的零件圖案（底色方塊 + 指向一邊的三角形），模擬接頭/零件裝反的情境——
+    純圓形零件旋轉 180 度看起來完全一樣，SSIM 比不出方向錯誤，所以刻意設計成不對稱。"""
+    draw.rectangle((cx - 25, cy - 25, cx + 25, cy + 25), fill=(60, 60, 60), outline="black")
+    if not rotated:
+        draw.polygon([(cx, cy - 18), (cx - 14, cy + 10), (cx + 14, cy + 10)], fill=(220, 180, 60))  # 尖端朝上
+    else:
+        draw.polygon([(cx, cy + 18), (cx - 14, cy - 10), (cx + 14, cy - 10)], fill=(220, 180, 60))  # 尖端朝下（180度）
+
+
+def make_assembly_scene(missing_index: int | None = None, rotated_index: int | None = None) -> Image.Image:
+    """模擬組裝面板：邊框+格線紋理（給 ORB 抓特徵點用，純灰底特徵點太少）+ 6 個零件。
+    missing_index：拿掉哪一顆（模擬漏裝）；rotated_index：哪一顆裝反 180 度。兩者互斥時各自獨立套用。"""
+    canvas_w, canvas_h = 900, 500
+    image = Image.new("RGB", (canvas_w, canvas_h), (230, 230, 230))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((20, 20, canvas_w - 20, canvas_h - 20), outline="black", width=4)
+    for x in range(60, canvas_w - 20, 80):
+        draw.line((x, 20, x, canvas_h - 20), fill=(195, 195, 195), width=1)
+    for y in range(60, canvas_h - 20, 80):
+        draw.line((20, y, canvas_w - 20, y), fill=(195, 195, 195), width=1)
+    for cx, cy in [(50, 50), (canvas_w - 50, 50), (50, canvas_h - 50), (canvas_w - 50, canvas_h - 50)]:
+        draw.line((cx - 15, cy, cx + 15, cy), fill="black", width=3)
+        draw.line((cx, cy - 15, cx, cy + 15), fill="black", width=3)
+
+    for i, (cx, cy) in enumerate(ASSEMBLY_PART_POSITIONS):
+        if i == missing_index:
+            continue
+        _draw_assembly_component(draw, cx, cy, rotated=(i == rotated_index))
+    return image
+
+
+# ---------- M11 烤漆/陽極色差 ΔE ----------
+
+def make_color_chip_scene(standard_rgb: tuple[int, int, int], measured_rgb: tuple[int, int, int]) -> Image.Image:
+    """左半「標準色區」、右半「量測區」的純色色塊圖，兩邊 RGB 已知，供 ΔE 計算比對用。"""
+    canvas = Image.new("RGB", (600, 300), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((40, 40, 280, 260), fill=standard_rgb)
+    draw.rectangle((320, 40, 560, 260), fill=measured_rgb)
+    return canvas
+
+
 if __name__ == "__main__":
     for name, maker in [
         ("work_order.png", make_work_order),
@@ -264,6 +316,8 @@ if __name__ == "__main__":
         ("seven_segment.png", make_seven_segment),
         ("gauge.png", make_gauge),
         ("packaging_match.png", make_packaging),
+        ("assembly_golden.png", make_assembly_scene),
+        ("color_chip.png", lambda: make_color_chip_scene((180, 60, 60), (185, 65, 62))),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)

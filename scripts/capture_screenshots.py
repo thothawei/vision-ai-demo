@@ -29,7 +29,9 @@ STEPS = [
     (11, "11_gauge.png", "#gauge-file", "gauge.png", "#gauge-btn", 5, None),
     (12, "12_packaging.png", "#packaging-file", "packaging_mismatch.png", "#packaging-btn", 15, None),
     (13, "13_pneumonia.png", "#pneumonia-file", "pneumonia_sample.png", "#pneumonia-btn", 5, None),
-    (14, None, None, None, None, 0, "dashboard"),  # 特殊流程，見下方 capture_dashboard
+    (14, None, None, None, None, 3, "assembly"),  # 特殊流程，見下方 capture_assembly
+    (15, None, None, None, None, 3, "colordiff"),  # 特殊流程，見下方 capture_colordiff
+    (16, None, None, None, None, 0, "dashboard"),  # 特殊流程，見下方 capture_dashboard
 ]
 
 
@@ -54,6 +56,12 @@ def main():
                 file_selector = "#measure-file"
             if special == "safety":
                 capture_safety(page)
+                continue
+            if special == "assembly":
+                capture_assembly(page)
+                continue
+            if special == "colordiff":
+                capture_colordiff(page)
                 continue
             if special == "dashboard":
                 capture_dashboard(page)
@@ -126,6 +134,90 @@ def capture_safety(page):
     print(f"[6] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
 
+def capture_assembly(page):
+    """Phase 13 M10：先在黃金樣本上拖曳畫 6 個 ROI 並儲存，再用「少一顆零件」的照片跑一次
+    比對（示範 NG 案例比單純 OK 更有意義），畫面同時看得到 ROI 標註跟比對結果。"""
+    golden = SAMPLES / "assembly_golden.png"
+    if not golden.exists():
+        print("[14] 跳過（tests/samples/assembly_golden.png 不存在，先跑 make_samples.py）")
+        return
+
+    page.set_input_files("#assembly-golden-file", str(golden))
+    canvas = page.locator("#assembly-golden-canvas")
+    canvas.wait_for(state="visible", timeout=10000)
+    page.wait_for_function("document.querySelector('#assembly-golden-canvas').width > 0", timeout=10000)
+    page.wait_for_timeout(300)
+    box = canvas.bounding_box()
+
+    # 合成圖是 900x500，6 個零件中心在 (150,150)(450,150)(750,150)(150,350)(450,350)(750,350)
+    scale_x, scale_y = box["width"] / 900, box["height"] / 500
+    positions = [(150, 150), (450, 150), (750, 150), (150, 350), (450, 350), (750, 350)]
+    for cx, cy in positions:
+        x1, y1 = (cx - 30) * scale_x, (cy - 30) * scale_y
+        x2, y2 = (cx + 30) * scale_x, (cy + 30) * scale_y
+        page.mouse.move(box["x"] + x1, box["y"] + y1)
+        page.mouse.down()
+        page.mouse.move(box["x"] + x2, box["y"] + y2, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(80)
+
+    page.fill("#assembly-part-no", "demo_part")
+    page.click("#assembly-save-golden-btn")
+    page.wait_for_timeout(800)
+
+    missing_photo = SAMPLES / "assembly_missing_demo.png"
+    if not missing_photo.exists():
+        import sys as _sys
+        _sys.path.insert(0, str(SAMPLES))
+        import make_samples as _ms
+        _ms.make_assembly_scene(missing_index=2).save(missing_photo)
+
+    page.set_input_files("#assembly-inspect-file", str(missing_photo))
+    page.wait_for_timeout(300)
+    page.select_option("#assembly-inspect-part", "demo_part")
+    page.click("#assembly-inspect-btn")
+    page.wait_for_selector("#assembly-inspect-status:has-text('完成')", timeout=15000)
+
+    out_path = OUT_DIR / "14_assembly.png"
+    page.screenshot(path=str(out_path), full_page=True)
+    print(f"[14] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+
+
+def capture_colordiff(page):
+    """Phase 13 M11：拖曳畫標準色區跟量測區，跑一次 ΔE 檢核。"""
+    chip = SAMPLES / "color_chip.png"
+    if not chip.exists():
+        print("[15] 跳過（tests/samples/color_chip.png 不存在，先跑 make_samples.py）")
+        return
+
+    page.set_input_files("#colordiff-file", str(chip))
+    canvas = page.locator("#colordiff-canvas")
+    canvas.wait_for(state="visible", timeout=10000)
+    page.wait_for_function("document.querySelector('#colordiff-canvas').width > 0", timeout=10000)
+    page.wait_for_timeout(300)
+    box = canvas.bounding_box()
+    scale_x, scale_y = box["width"] / 600, box["height"] / 300
+
+    def drag(x1, y1, x2, y2):
+        page.mouse.move(box["x"] + x1 * scale_x, box["y"] + y1 * scale_y)
+        page.mouse.down()
+        page.mouse.move(box["x"] + x2 * scale_x, box["y"] + y2 * scale_y, steps=5)
+        page.mouse.up()
+        page.wait_for_timeout(150)
+
+    page.click("#colordiff-draw-ref-btn")
+    drag(60, 60, 260, 240)
+    page.click("#colordiff-draw-measure-btn")
+    drag(340, 60, 540, 240)
+
+    page.click("#colordiff-check-btn")
+    page.wait_for_selector("#colordiff-status:has-text('完成')", timeout=15000)
+
+    out_path = OUT_DIR / "15_colordiff.png"
+    page.screenshot(path=str(out_path), full_page=True)
+    print(f"[15] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+
+
 def capture_dashboard(page):
     """Phase 9 品檢看板：套用篩選、展開一列看原圖/標註圖，示範真實資料而非空畫面。"""
     page.wait_for_selector("#dash-stat-row .dash-stat", timeout=10000)
@@ -133,9 +225,9 @@ def capture_dashboard(page):
     page.locator(".dash-table tbody tr.clickable").first.click()
     page.wait_for_timeout(500)
 
-    out_path = OUT_DIR / "14_dashboard.png"
+    out_path = OUT_DIR / "16_dashboard.png"
     page.screenshot(path=str(out_path), full_page=True)
-    print(f"[14] 已存 {out_path.relative_to(PROJECT_ROOT)}")
+    print(f"[16] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

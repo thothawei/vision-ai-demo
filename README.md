@@ -21,6 +21,8 @@
 | 指針錶讀值（指針角度偵測 → 讀值換算） | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
 | 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
+| 組裝防呆／黃金樣本比對（零件有無、方向對不對） | OpenCV ORB + homography 對齊 + SSIM ROI 比對 | 合成情境全對，對齊在 ±15° 旋轉/±20% 縮放下仍成功 |
+| 烤漆/陽極色差 ΔE（CIELAB） | scikit-image CIEDE2000 | 與 CIEDE2000 論文標準測試向量誤差 <0.001 |
 | 品檢紀錄與看板（工單/料號/批號追溯、原圖與標註圖存檔、人工複判、良率/NG 原因柏拉圖） | SQLite + Chart.js | — |
 
 各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [CLAUDE.md](CLAUDE.md)。
@@ -44,7 +46,9 @@
 | 指針錶讀值 | ![指針錶讀值](docs/screenshots/11_gauge.png) |
 | 包裝追溯碼檢核 | ![包裝追溯碼檢核](docs/screenshots/12_packaging.png) |
 | 醫學影像分類展示 | ![醫學影像分類展示](docs/screenshots/13_pneumonia.png) |
-| 品檢紀錄與看板 | ![品檢紀錄與看板](docs/screenshots/14_dashboard.png) |
+| 組裝防呆比對 | ![組裝防呆比對](docs/screenshots/14_assembly.png) |
+| 烤漆/陽極色差 | ![烤漆/陽極色差](docs/screenshots/15_colordiff.png) |
+| 品檢紀錄與看板 | ![品檢紀錄與看板](docs/screenshots/16_dashboard.png) |
 
 重新產生截圖（需先啟動後端，見下方「啟動」）：
 
@@ -220,6 +224,12 @@ python scripts/export_reviewed.py --module anomaly --out ./export_anomaly --cate
 
 現場誤判 → 人工複判 → 匯出 → 標註校正 → 重訓 → 比較新舊指標 → 上線 的完整流程圖見 [CLAUDE.md](CLAUDE.md)。
 
+## 補齊台中常見辨識（Phase 13，先做 M10/M11）
+
+- **組裝防呆／黃金樣本比對**：「建立黃金樣本設定」卡片上傳一張正確的組裝照片，在圖上拖曳畫出多個 ROI（零件應該在的位置）存成料號設定；「比對檢測」選料號上傳待測照片，會用 ORB 特徵 + homography 自動對齊到黃金樣本的角度，逐一比對每個 ROI（SSIM），任一 ROI 沒過就整體判 NG。API：`POST /api/assembly/golden-samples`、`GET /api/assembly/golden-samples`、`POST /api/assembly/inspect?part_no=`。
+- **烤漆/陽極色差 ΔE**：上傳照片後按「畫標準色區」拖曳框一塊標準色（或勾選改用手動輸入標準 Lab 值），再按「畫量測區」框待測區域，計算 CIEDE2000 色差 ΔE00，超過門檻（預設 3.0，可調）判不合格。API：`POST /api/color/check`。
+- 本輪只做 M10、M11；M12（出貨標籤比對）、M5+（跌倒偵測）、M8-1+（包裝比對容錯）、鋼材表面瑕疵資料集查證留到之後分批做。
+
 ## 測試
 
 ```bash
@@ -254,6 +264,9 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **自訂類別擬合固定用 CPU、同時只跑一個**：150-250 張照片實測約 150-160 秒；佇列是進程內的 `queue.Queue`，伺服器重啟排隊中的工作會遺失（需要重新上傳）。
 - **自訂類別關掉了 anomalib 內建的分數正規化**：改用自己的 ROC/百分位數邏輯算門檻，異常分數是 PatchCore 的原始距離值（不是 0~1），不同類別之間的分數不能直接比較大小。
 - **`export_reviewed.py` 匯出的標註是 AI 當時的預測，不是保證正確的標註**：一定要經過人工在 Label Studio／CVAT 校正過才能拿去重訓，直接拿去訓練會讓模型學到自己的錯誤。
+- **M10 組裝防呆的 ROI 比對是 SSIM，只看「有沒有差異」不看「差異是什麼」**：能分辨「缺件」跟「零件裝反」，但沒辦法講出具體是哪種異常；對齊失敗（特徵配對不足或 RANSAC inlier 比例太低）會誠實回傳 `INFO`，不會硬猜 OK/NG。
+- **M11 色差 ΔE 的門檻預設 3.0**：CIEDE2000 業界常見「肉眼可辨但不算嚴重」的邊界，實際產線公差需要依材質/客戶要求調整；同一張照片的標準色區與量測區要在相近光源下拍攝，光源色溫差異會讓 ΔE 失真。
+- **M10/M11 只用合成圖驗證，沒有真實相機拍攝的測試照片**：這個開發環境沒有可互動授權相機的管道（`ffmpeg -f avfoundation` 需要圖形介面才能核准 macOS 相機權限），驗收時已跟使用者確認用合成圖即可。
 
 ## 專案結構
 
@@ -263,7 +276,7 @@ vision-ai-demo/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
 │   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄、API Key 驗證、webhook
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
-│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE+影片) / defect(M6) / nameplate(M7) / medical(M8) / inspections / batch
+│   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE+影片) / defect(M6) / nameplate(M7) / medical(M8) / inspections / batch / assembly(M10) / colordiff(M11)
 │   └── requirements.txt
 ├── frontend/
 │   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板，各分頁支援多選批次上傳 + 相機拍照）

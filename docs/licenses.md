@@ -35,6 +35,7 @@
 | httpx | 0.28.1 | BSD-3-Clause | 是 | pure | FastAPI TestClient 相依 | https://pypi.org/project/httpx/ |
 | watchdog | 6.0.0（PyPI JSON API 查證，2026-09-24） | Apache-2.0 | 是 | 有 wheel | `scripts/watch_folder.py` 資料夾監控（Phase 11） | https://pypi.org/project/watchdog/ |
 | scikit-learn | 1.9.1（PyPI JSON API 查證，2026-09-24） | BSD-3-Clause | 是 | 有 wheel | M3 自訂類別門檻調校（ROC/Youden's J，Phase 12） | https://pypi.org/project/scikit-learn/ |
+| scikit-image | 0.26.0（PyPI JSON API 查證，2026-09-25） | BSD-3-Clause（少量元件 MIT） | 是 | 有 wheel | M10 黃金樣本 ROI 比對（SSIM）、M11 色差 ΔE（CIEDE2000），Phase 13 | https://pypi.org/project/scikit-image/ |
 
 ## 前端套件（vendor，Phase 9 新增）
 

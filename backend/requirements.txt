@@ -33,3 +33,6 @@ watchdog==6.0.0
 
 # Phase 12：M3 自訂類別門檻調校（ROC/Youden's J）
 scikit-learn==1.9.1
+
+# Phase 13：M10 黃金樣本 ROI 比對（SSIM）、M11 色差 ΔE（CIEDE2000）
+scikit-image==0.26.0

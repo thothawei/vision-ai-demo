@@ -41,6 +41,7 @@ def client(tmp_path, monkeypatch):
     # 每個測試用獨立的 SQLite 與圖片目錄，不污染 data/inspections.db、data/images/
     monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
     monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
+    monkeypatch.setenv("GOLDEN_SAMPLES_DIR", str(tmp_path / "golden_samples"))
     # Phase 10：/api/inspections* 需要 X-API-Key，預設帶好測試 key，
     # 這樣既有測試（呼叫 /api/inspections*）不用逐一加 header；
     # 專門測「沒帶/帶錯 key」行為的測試改用不帶預設 header 的 client。

@@ -140,7 +140,9 @@
   <button class="tab-btn" data-tab="gauge">⑪ 指針錶讀值</button>
   <button class="tab-btn" data-tab="packaging">⑫ 包裝追溯碼檢核</button>
   <button class="tab-btn" data-tab="pneumonia">⑬ 醫學影像分類展示</button>
-  <button class="tab-btn" data-tab="dashboard">⑭ 品檢紀錄與看板</button>
+  <button class="tab-btn" data-tab="assembly">⑭ 組裝防呆比對</button>
+  <button class="tab-btn" data-tab="colordiff">⑮ 烤漆/陽極色差</button>
+  <button class="tab-btn" data-tab="dashboard">⑯ 品檢紀錄與看板</button>
 </div>
 
 <div class="panel active" id="panel-general">
@@ -439,6 +441,78 @@
   </div>
 </div>
 
+<div class="panel" id="panel-assembly">
+  <div class="card">
+    <h2>建立黃金樣本設定</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳一張「完全正確」的組裝照片當黃金樣本，在畫面上拖曳畫出多個 ROI（零件應該在的位置）。
+      之後比對時會用 ORB 特徵 + homography 把待測照片自動對齊到這張黃金樣本的角度，再逐一比對每個 ROI。
+    </p>
+    <div class="row">
+      <input type="file" id="assembly-golden-file" accept="image/*">
+      <input type="text" id="assembly-part-no" placeholder="料號">
+    </div>
+    <div class="row">
+      <button type="button" id="assembly-roi-undo-btn">刪除最後一個 ROI</button>
+      <button type="button" id="assembly-roi-clear-btn">清除全部 ROI</button>
+      <button type="button" id="assembly-save-golden-btn">儲存黃金樣本</button>
+    </div>
+    <div class="hint" id="assembly-golden-hint">尚未選擇圖片</div>
+    <canvas class="zone-canvas" id="assembly-golden-canvas"></canvas>
+    <div class="status" id="assembly-save-status"></div>
+    <table class="dash-table" id="assembly-part-table" style="margin-top:12px;">
+      <thead><tr><th>料號</th><th>ROI 數</th></tr></thead>
+      <tbody id="assembly-part-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>比對檢測</h2>
+    <div class="row">
+      <select id="assembly-inspect-part"></select>
+      <input type="file" id="assembly-inspect-file" accept="image/*" multiple>
+      <button type="button" class="camera-btn" data-target="assembly-inspect-file">📷 拍照</button>
+      <button id="assembly-inspect-btn">開始比對</button>
+    </div>
+    <img class="preview" id="assembly-inspect-preview">
+    <div class="status" id="assembly-inspect-status"></div>
+    <div class="result" id="assembly-inspect-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-colordiff">
+  <div class="card">
+    <h2>烤漆/陽極色差 ΔE</h2>
+    <p style="color:var(--muted); font-size:13px;">
+      上傳照片後先按「畫標準色區」拖曳框一塊標準色（或勾選改用手動輸入標準 Lab 值），再按「畫量測區」框待測區域，
+      計算 CIEDE2000 色差 ΔE00，超過門檻判不合格。
+    </p>
+    <div class="row">
+      <input type="file" id="colordiff-file" accept="image/*">
+      <button type="button" class="camera-btn" data-target="colordiff-file">📷 拍照</button>
+    </div>
+    <div class="field-row">
+      <label><input type="checkbox" id="colordiff-manual-lab"> 手動輸入標準 Lab 值</label>
+      <span id="colordiff-manual-lab-fields" style="display:none;">
+        L <input type="number" id="colordiff-lab-l" step="0.1" value="50">
+        a <input type="number" id="colordiff-lab-a" step="0.1" value="0">
+        b <input type="number" id="colordiff-lab-b" step="0.1" value="0">
+      </span>
+      <label>門檻 ΔE00 <input type="number" id="colordiff-threshold" step="0.1" value="3.0"></label>
+    </div>
+    <div class="row">
+      <button type="button" id="colordiff-draw-ref-btn">畫標準色區</button>
+      <button type="button" id="colordiff-draw-measure-btn">畫量測區</button>
+      <button type="button" id="colordiff-rect-clear-btn">清除框選</button>
+      <button id="colordiff-check-btn">開始檢核</button>
+    </div>
+    <div class="hint" id="colordiff-hint">尚未選擇圖片</div>
+    <canvas class="zone-canvas" id="colordiff-canvas"></canvas>
+    <div class="status" id="colordiff-status"></div>
+    <div class="result" id="colordiff-result"></div>
+  </div>
+</div>
+
 <div class="panel" id="panel-dashboard">
   <div class="card">
     <h2>品檢看板</h2>
@@ -694,6 +768,100 @@ document.getElementById("camera-capture-btn").addEventListener("click", () => {
 document.querySelectorAll(".camera-btn").forEach((btn) => {
   btn.addEventListener("click", () => openCamera(btn.dataset.target));
 });
+
+// M10/M11 共用：拖曳畫矩形 ROI 的 canvas 控制器。
+// mode 無 tag：每次拖曳都新增一個矩形（M10 多個 ROI）。
+// 有 tag（例如 "ref"/"measure"）：同一個 tag 重畫會取代舊的（M11 標準色區/量測區各只有一個）。
+function createRectCanvasController(canvas) {
+  const ctx = canvas.getContext("2d");
+  let img = null;
+  let items = []; // [{tag: string|null, rect: [x1,y1,x2,y2]}]
+  let currentTag = null;
+  let dragging = null;
+  const COLOR_SEQ = ["#0071e3", "#34c759", "#ff9500", "#ff3b30", "#af52de", "#5ac8fa"];
+  const TAG_COLORS = { ref: "#ff9500", measure: "#0071e3" };
+
+  function colorFor(item, idx) {
+    if (item.tag && TAG_COLORS[item.tag]) return TAG_COLORS[item.tag];
+    return COLOR_SEQ[idx % COLOR_SEQ.length];
+  }
+
+  function redraw(previewRect) {
+    if (!img) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    items.forEach((item, idx) => {
+      const [x1, y1, x2, y2] = item.rect;
+      ctx.strokeStyle = colorFor(item, idx);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, (x2 - x1) * canvas.width, (y2 - y1) * canvas.height);
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.font = "13px sans-serif";
+      const label = item.tag ? (item.tag === "ref" ? "標準" : "量測") : String(idx + 1);
+      ctx.fillText(label, x1 * canvas.width + 4, y1 * canvas.height + 14);
+    });
+    if (previewRect) {
+      const [x1, y1, x2, y2] = previewRect;
+      ctx.strokeStyle = "#8e8e93";
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, (x2 - x1) * canvas.width, (y2 - y1) * canvas.height);
+      ctx.setLineDash([]);
+    }
+  }
+
+  function loadFile(file) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        img = image;
+        const maxW = 860;
+        const scale = Math.min(1, maxW / img.width);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.style.display = "block";
+        items = [];
+        redraw();
+        resolve();
+      };
+      image.src = URL.createObjectURL(file);
+    });
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    if (!img) return;
+    const r = canvas.getBoundingClientRect();
+    dragging = { x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height };
+  });
+  canvas.addEventListener("mousemove", (e) => {
+    if (!dragging || !img) return;
+    const r = canvas.getBoundingClientRect();
+    const x2 = (e.clientX - r.left) / r.width, y2 = (e.clientY - r.top) / r.height;
+    redraw([Math.min(dragging.x1, x2), Math.min(dragging.y1, y2), Math.max(dragging.x1, x2), Math.max(dragging.y1, y2)]);
+  });
+  canvas.addEventListener("mouseup", (e) => {
+    if (!dragging || !img) return;
+    const r = canvas.getBoundingClientRect();
+    const x2 = (e.clientX - r.left) / r.width, y2 = (e.clientY - r.top) / r.height;
+    const x1 = Math.min(dragging.x1, x2), y1 = Math.min(dragging.y1, y2);
+    const xx2 = Math.max(dragging.x1, x2), yy2 = Math.max(dragging.y1, y2);
+    dragging = null;
+    if (xx2 - x1 > 0.01 && yy2 - y1 > 0.01) {
+      if (currentTag) items = items.filter((it) => it.tag !== currentTag);
+      items.push({ tag: currentTag, rect: [x1, y1, xx2, yy2] });
+    }
+    redraw();
+  });
+
+  return {
+    loadFile,
+    setTag: (tag) => { currentTag = tag; },
+    getRect: (tag) => { const it = items.find((i) => i.tag === tag); return it ? it.rect : null; },
+    getAllRects: () => items.map((i) => i.rect),
+    removeLast: () => { items.pop(); redraw(); },
+    clear: () => { items = []; redraw(); },
+    hasImage: () => img !== null,
+  };
+}
 
 const generalFile = document.getElementById("general-file");
 setupPreview(generalFile, document.getElementById("general-preview"));
@@ -1177,12 +1345,150 @@ document.getElementById("pneumonia-btn").addEventListener("click", () => {
   callApi("/api/medical/pneumonia-demo", formData, statusEl, resultEl, btn);
 });
 
-// ⑭ 品檢紀錄與看板
+// ⑭ 組裝防呆比對（M10）
+const assemblyGoldenFile = document.getElementById("assembly-golden-file");
+const assemblyGoldenCanvas = document.getElementById("assembly-golden-canvas");
+const assemblyGoldenCtl = createRectCanvasController(assemblyGoldenCanvas);
+const assemblyGoldenHint = document.getElementById("assembly-golden-hint");
+
+assemblyGoldenFile.addEventListener("change", async () => {
+  const file = assemblyGoldenFile.files[0];
+  if (!file) return;
+  await assemblyGoldenCtl.loadFile(file);
+  assemblyGoldenHint.textContent = "在圖上拖曳畫出每個零件應該在的 ROI，可以畫多個";
+});
+
+document.getElementById("assembly-roi-undo-btn").addEventListener("click", () => assemblyGoldenCtl.removeLast());
+document.getElementById("assembly-roi-clear-btn").addEventListener("click", () => assemblyGoldenCtl.clear());
+
+async function refreshAssemblyPartTable() {
+  const res = await fetch("/api/assembly/golden-samples");
+  const parts = await res.json();
+  const tbody = document.getElementById("assembly-part-tbody");
+  tbody.innerHTML = "";
+  parts.forEach((p) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${p.part_no}</td><td>${p.roi_count}</td>`;
+    tbody.appendChild(tr);
+  });
+  const select = document.getElementById("assembly-inspect-part");
+  const current = select.value;
+  select.innerHTML = "";
+  parts.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.part_no; opt.textContent = p.part_no;
+    select.appendChild(opt);
+  });
+  if (parts.some((p) => p.part_no === current)) select.value = current;
+}
+
+document.getElementById("assembly-save-golden-btn").addEventListener("click", async () => {
+  const partNo = document.getElementById("assembly-part-no").value.trim();
+  const statusEl = document.getElementById("assembly-save-status");
+  const file = assemblyGoldenFile.files[0];
+  const rois = assemblyGoldenCtl.getAllRects();
+  if (!partNo) { alert("請輸入料號"); return; }
+  if (!file) { alert("請先選擇黃金樣本照片"); return; }
+  if (rois.length === 0) { alert("至少要畫 1 個 ROI"); return; }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("rois", JSON.stringify(rois));
+  statusEl.textContent = "儲存中…";
+  statusEl.className = "status";
+  try {
+    const res = await fetch("/api/assembly/golden-samples?part_no=" + encodeURIComponent(partNo), {
+      method: "POST", body: formData, headers: traceHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "儲存失敗");
+    statusEl.textContent = `已儲存：${data.part_no}（${data.roi_count} 個 ROI）`;
+    await refreshAssemblyPartTable();
+  } catch (err) {
+    statusEl.textContent = "錯誤：" + err.message;
+    statusEl.className = "status error";
+  }
+});
+
+const assemblyInspectFile = document.getElementById("assembly-inspect-file");
+setupPreview(assemblyInspectFile, document.getElementById("assembly-inspect-preview"));
+document.getElementById("assembly-inspect-btn").addEventListener("click", () => {
+  const files = Array.from(assemblyInspectFile.files);
+  const partNo = document.getElementById("assembly-inspect-part").value;
+  if (files.length === 0) { alert("請先選擇照片"); return; }
+  if (!partNo) { alert("請先建立至少一個料號設定"); return; }
+  const statusEl = document.getElementById("assembly-inspect-status");
+  const resultEl = document.getElementById("assembly-inspect-result");
+  const btn = document.getElementById("assembly-inspect-btn");
+  const formData = new FormData();
+  formData.append("file", files[0]);
+  callApi("/api/assembly/inspect?part_no=" + encodeURIComponent(partNo), formData, statusEl, resultEl, btn);
+});
+
+refreshAssemblyPartTable();
+
+// ⑮ 烤漆/陽極色差 ΔE（M11）
+const colordiffFile = document.getElementById("colordiff-file");
+const colordiffCanvas = document.getElementById("colordiff-canvas");
+const colordiffCtl = createRectCanvasController(colordiffCanvas);
+const colordiffHint = document.getElementById("colordiff-hint");
+
+colordiffFile.addEventListener("change", async () => {
+  const file = colordiffFile.files[0];
+  if (!file) return;
+  await colordiffCtl.loadFile(file);
+  colordiffHint.textContent = "按「畫標準色區」或「畫量測區」後在圖上拖曳畫框";
+});
+
+document.getElementById("colordiff-draw-ref-btn").addEventListener("click", () => {
+  colordiffCtl.setTag("ref");
+  colordiffHint.textContent = "現在拖曳畫「標準色區」";
+});
+document.getElementById("colordiff-draw-measure-btn").addEventListener("click", () => {
+  colordiffCtl.setTag("measure");
+  colordiffHint.textContent = "現在拖曳畫「量測區」";
+});
+document.getElementById("colordiff-rect-clear-btn").addEventListener("click", () => colordiffCtl.clear());
+
+document.getElementById("colordiff-manual-lab").addEventListener("change", (e) => {
+  document.getElementById("colordiff-manual-lab-fields").style.display = e.target.checked ? "inline" : "none";
+});
+
+document.getElementById("colordiff-check-btn").addEventListener("click", () => {
+  const file = colordiffFile.files[0];
+  if (!file) { alert("請先選擇照片"); return; }
+  const useManualLab = document.getElementById("colordiff-manual-lab").checked;
+  const measureRect = colordiffCtl.getRect("measure");
+  if (!measureRect) { alert("請先按「畫量測區」並在圖上拖曳畫框"); return; }
+
+  const params = new URLSearchParams();
+  params.set("threshold", document.getElementById("colordiff-threshold").value || "3.0");
+  params.set("measure_rect", JSON.stringify(measureRect));
+  if (useManualLab) {
+    const l = document.getElementById("colordiff-lab-l").value || "50";
+    const a = document.getElementById("colordiff-lab-a").value || "0";
+    const b = document.getElementById("colordiff-lab-b").value || "0";
+    params.set("ref_lab", JSON.stringify([parseFloat(l), parseFloat(a), parseFloat(b)]));
+  } else {
+    const refRect = colordiffCtl.getRect("ref");
+    if (!refRect) { alert("請先按「畫標準色區」並在圖上拖曳畫框，或勾選手動輸入標準 Lab 值"); return; }
+    params.set("ref_rect", JSON.stringify(refRect));
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  callApi("/api/color/check?" + params.toString(), formData,
+    document.getElementById("colordiff-status"), document.getElementById("colordiff-result"),
+    document.getElementById("colordiff-check-btn"));
+});
+
+// ⑯ 品檢紀錄與看板
 const MODULE_LABELS = {
   general: "現場照片辨識", docs: "製造文件結構化", anomaly: "外觀瑕疵異常檢測",
   defect: "PCB 瑕疵偵測", codes: "追溯碼辨識", measure: "計數與量測",
   safety: "危險區域入侵", ppe: "安全帽偵測", nameplate: "銘牌/七段/指針錶",
   medical_packaging: "包裝追溯碼檢核", medical_pneumonia_demo: "醫學影像分類展示",
+  assembly: "組裝防呆比對", colordiff: "烤漆/陽極色差",
 };
 
 // Phase 10：/api/inspections* 現在需要 X-API-Key，這組 key 要跟後端 .env 的 API_KEYS

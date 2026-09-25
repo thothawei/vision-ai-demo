@@ -15,8 +15,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from core import api_auth, context  # noqa: E402
 from core.schemas import ModuleError  # noqa: E402
 from modules.anomaly.router import router as anomaly_router  # noqa: E402
+from modules.assembly.router import router as assembly_router  # noqa: E402
 from modules.batch.router import router as batch_router  # noqa: E402
 from modules.codes.router import router as codes_router  # noqa: E402
+from modules.colordiff.router import router as colordiff_router  # noqa: E402
 from modules.defect.router import router as defect_router  # noqa: E402
 from modules.docs.router import router as docs_router  # noqa: E402
 from modules.general.router import router as general_router  # noqa: E402
@@ -89,6 +91,8 @@ app.include_router(medical_router)
 app.include_router(safety_router)
 app.include_router(inspections_router)
 app.include_router(batch_router)
+app.include_router(assembly_router)
+app.include_router(colordiff_router)
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
