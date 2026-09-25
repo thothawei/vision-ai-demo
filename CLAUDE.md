@@ -187,6 +187,15 @@ flowchart LR
 - **真的用本機 Ollama 驗證三種情境，不是只靠假 LLM 的單元測試**：全對／料號不符／條碼批號優先於印刷文字，三種情境都用 Playwright 對正在跑的伺服器實測過，`qwen3.5:9b` 從標籤 OCR 文字正確抽出料號/批號/數量（含帶單位的「5000 PCS」正確解析出整數 5000）。
 - **開發中意外抓到的真實 bug：批次上傳完全沒有用到手動輸入的預期值**：前端串好「多選檔案自動走批次」後，用 Playwright 測批次上傳（2 張標籤圖 + 填了預期料號/批號）發現結果全部是 `INFO`（照理應該有 OK 或 NG），用 curl 單獨測 `POST /api/batch/shipping?expected_part_no=...` 直接重現，回應裡 `預期料號` 是 `null`。查 `backend/modules/batch/router.py` 才發現：這個路由函式的參數列表是 Phase 11 建立時針對當時 14 個動作固定寫死的，新增 M12 的 `expected_part_no`/`expected_lot_no`/`expected_quantity` 這三個參數時只在 `core/batch_dispatch.py` 的 `_shipping()` 裡讀 `params.get(...)`，卻忘記在 `batch/router.py` 的函式簽名裡宣告這三個參數——FastAPI 對函式簽名沒宣告的 query 參數就是直接忽略，不會報錯也不會警告，url 打對了也沒用。修法是把這三個參數加進 `batch()` 的簽名，`tests/test_batch.py` 補一個回歸測試釘住（`test_batch_shipping_passes_expected_values_as_query_params`）。這個坑值得記住：**每次在 `core/batch_dispatch.py` 幫某個動作加新參數，都要同步檢查 `modules/batch/router.py` 的函式簽名有沒有列出來**，兩邊是分開維護的，其中一邊忘記加不會有任何型別檢查或執行期警告提醒你。
 
+## 收尾（Phase 15，作品集呈現，範圍簡化版）
+
+使用者明確指示「跳過剩下的項目，直接進入收尾」——`docs/next-phase-gap-plan-prompt.md` 規劃裡 Phase 13 剩餘的 M5+（跌倒偵測）／M8-1+（包裝比對容錯）／鋼材表面瑕疵資料集重新查證，以及 Phase 14（ONNX/OpenVINO 效能評測、Docker、CI、Windows 相容性）全部不做，直接跳到 Phase 15 的作品集呈現收尾。這是使用者主動收斂範圍的決定，不是查證後發現不可行，README「未納入功能」已誠實區分這兩種情況。
+
+- **收尾只做 Phase 15 規劃裡跟「面試展示」直接相關的三項，不做 GIF 錄製與 `pytest -m e2e` marker 改造**：README 加 Mermaid 系統架構圖、`docs/demo-script.md`（5 分鐘面試腳本）、確認 `scripts/capture_screenshots.py` 涵蓋目前 16 個辨識分頁（Phase 14/M12 收尾時已經做過，這次不用重跑）。GIF 錄製與截圖腳本轉成正式 e2e 測試 marker 屬於「錦上添花」而非「面試展示必要」，範圍已經跟使用者的「跳過剩下項目」指示一致收斂掉。
+- **demo-script.md 的 ERP 串接段落刻意寫「誠實版」**：`docs/erp-integration.md` 跟 C# 範例只驗證到「介面設計完成、可編譯」（`dotnet build` 通過，但沒有真實 SQL Server 執行個體可以連線測試），demo-script.md 沒有寫「打開 manufacturing-erp 品檢查詢頁看到剛才那筆」這種暗示已經實際串接測試過的橋段，改成明確說明目前的驗證程度停在哪裡——這是規則 19「Fidelity to sources」與規則 6「Calibrated honesty」的直接應用，面試被追問「這兩個系統真的串起來了嗎」時要能誠實回答，不能被腳本自己的措辭誤導。
+- **架構圖的模組數字（16 個辨識分頁）直接數 `frontend/index.html` 的 `data-tab` 屬性得出，不是憑印象寫**：`grep -n 'data-tab="' frontend/index.html` 實際數出 16 個辨識分頁 + 1 個看板分頁（`dashboard`），架構圖與 README 各處的分頁數字保持一致。
+- **README「未納入功能」新增四項，明確標註跟前面幾項（授權不明/需要硬體）不同性質**：這四項（M5+、M8-1+、鋼材資料集、Phase 14 全部）是「使用者確認範圍已足夠，主動決定不做」，不是「查證後發現做不到」，兩種情況混在一起寫會誤導讀者以為這個作品集技術上做不到這些功能。
+
 ## 目錄結構
 
 ```
@@ -390,6 +399,7 @@ pytest -m live -s                       # 真打本機模型，需先 ollama ser
 - [x] Phase 12：自有資料導入流程。M3 自訂類別（`POST /api/anomaly/categories` 上傳 zip、單一 worker 執行緒背景排隊擬合、`anomalib.data.Folder` 不套用 MVTec 目錄結構）；門檻調校（無 NG 用良品 99th percentile、有 NG 用 ROC/Youden's J，前端直方圖+拖拉滑桿即時算誤判率/漏判率）；`scripts/export_reviewed.py` 複判資料回流（PPE/defect → YOLO、anomaly → MVTec 格式），標註校正工具選定 Label Studio Community（Apache-2.0，不裝進 venv）。開發中用 MVTec `bottle`（模擬「自家零件」，只用原始照片不用 ground_truth 遮罩）真實跑完整流程時抓到 anomalib 內建正規化把分數裁成退化的 `threshold=1.0`，追出根因（`Folder` 內部自動切的驗證集範圍太窄）並修正（關掉正規化，改用原始距離分數）；修完 AUROC=0.9977、門檻=40.13，真實比較出「只用良品估計」NG 漏判率 9.5% vs「用 NG 做 ROC」漏判率 0%。113 項單元測試全過（新增 16 項），並用真實 PatchCore 擬合（155-158 秒）、真實 ultralytics `.val()`、瀏覽器實際操作門檻調校滑桿驗證整條流程。
 - [x] Phase 13（先做 M10/M11，使用者指示分批做）：補齊台中常見辨識。M10 組裝防呆／黃金樣本比對（ORB+homography 對齊、SSIM 逐 ROI 比對，對齊失敗誠實回 `INFO`）；M11 烤漆/陽極色差 ΔE（`skimage.color.deltaE_ciede2000`，標準色可框選或手動輸入 Lab 值，門檻預設 3.0 可調）。前端新增共用的「拖曳畫矩形」canvas 控制器（`createRectCanvasController`），16 個分頁。開發中真實校準 SSIM 門檻時發現：不做高斯模糊預處理，`warpPerspective` 對齊後的插值誤差會讓「旋轉但零件都對」的情境跟「零件真的裝反」的分數太接近，加模糊後才拉開安全邊界；另外第一版忘記讓 `GOLDEN_SAMPLES_DIR` 可用 env 覆寫，測試污染了專案真實的 `data/golden_samples/`（跟 Phase 9/12 同一種坑），已修正並補上隔離。132 項單元測試全過（新增 19 項），並用 Playwright 實際拖曳畫框驗證 M10（完整正視角 OK、少一顆 NG、裝反 NG）與 M11（框選/手動 Lab 兩種模式）前端互動全流程；M10/M11 只用合成圖驗證，開發環境沒有可互動授權的真實相機，已跟使用者確認可接受。
 - [x] Phase 14（M12）：出貨標籤 vs 工單比對。重用 M1 條碼解析（批號優先信任 GS1 條碼）+ M7 銘牌讀取的單階段 OCR→LLM→Pydantic schema 模式，抽出標籤上的料號/數量/批號，跟預期值（明確參數 > Phase 9 追溯資訊，使用者確認的優先序）比對，三項都沒預期值回 `INFO`。17 個分頁。開發中用 Playwright 測批次上傳時抓到真實 bug：`modules/batch/router.py` 的函式簽名忘記宣告新增的 `expected_part_no`/`expected_lot_no`/`expected_quantity` 三個參數，FastAPI 靜默忽略沒宣告的 query 參數，批次上傳的預期值全部沒傳到後端，已修正並補回歸測試。142 項單元測試全過（新增 10 項），並真打本機 Ollama 驗證全對/料號不符/條碼優先/批次上傳四種情境。
+- [x] Phase 15（收尾，範圍簡化版）：使用者指示跳過剩餘規劃項目（M5+/M8-1+/鋼材資料集查證、Phase 14 部署效能）直接收尾。README 新增 Mermaid 系統架構圖（輸入來源→FastAPI 辨識模組→SQLite→看板/複判/ERP輪詢/webhook）；新增 `docs/demo-script.md`（5 分鐘面試腳本，含常見追問與回答，ERP 串接段落誠實寫「介面完成、未真實連線測試」，不誇大既有進度）；README「未納入功能」新增四項並明確標註是「使用者確認範圍已足夠」而非「查證後發現做不到」。142 項單元測試無回歸（純文件變更）。
 
 ## 測試紀錄（真實驗證，非猜測）
 

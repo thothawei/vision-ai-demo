@@ -2,7 +2,29 @@
 
 本機執行的視覺辨識系統，對應台中／中科製造業常見情境（工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝）。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
 
-技術決策、每個開發階段的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)。
+技術決策、每個開發階段的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)；5 分鐘面試 Demo 腳本見 [docs/demo-script.md](docs/demo-script.md)。
+
+## 系統架構
+
+```mermaid
+flowchart LR
+    subgraph 輸入來源
+        A1[網頁上傳/拍照]
+        A2[資料夾監控\nwatch_folder.py]
+        A3[批次上傳\nPOST /api/batch/{action}]
+    end
+    A1 --> B
+    A2 --> B
+    A3 --> B
+    B[FastAPI 辨識模組\n16 個辨識分頁 M1-M12/M9] --> C[(SQLite\ninspections.db\n+ 原圖/標註圖存檔)]
+    C --> D[品檢看板\nChart.js 良率/柏拉圖]
+    C --> E[人工複判\nPATCH /review]
+    C --> F[ERP 輪詢\nGET /api/inspections?since_id=]
+    B -- NG 立即通知 --> G[Webhook\n失敗進佇列重試]
+    E --> C
+```
+
+輸入來源（網頁拍照/上傳、資料夾監控、批次 API）都走同一組共用回應格式（`{module, verdict, items, annotated_image, ...}`）寫入 SQLite；品檢看板與 ERP 都讀同一份紀錄，人工複判會回寫並反映到看板的良率/一致率統計。
 
 ## 功能
 
@@ -71,6 +93,10 @@ venv/bin/python scripts/capture_screenshots.py
 - **振動／聲音預測保養**：不屬於影像辨識範疇，且需要感測器硬體，不在本專案規劃範圍內。
 - **Google Cloud Vision／Azure AI Vision**：免費額度有限且需綁信用卡，改用完全免費的本機 Ollama + Gemini 免費層方案。
 - **NEU-DET 鋼材表面瑕疵資料集（M6 原規劃選項）**：官方頁面未附任何授權條款（只要求引用論文），查證後授權狀態不明，改用授權明確為 MIT 的 DeepPCB 資料集。
+- **M5+ 人員跌倒偵測**：`docs/next-phase-gap-plan-prompt.md` 規劃項目，使用者確認作品集展示範圍已足夠，本輪停在 Phase 13 的 M10/M11/M12，這項不做——跟上面幾項不同，這不是授權/硬體卡關，是主動收斂範圍的決定。
+- **M8-1+ 包裝比對容錯（字元混淆正規化 + rapidfuzz 相似度、三級判定）**：同上，規劃項目但這輪不做，M8-1 現行的「完全字串相等」比對邏輯維持不變（見已知限制）。
+- **鋼材表面瑕疵資料集重新查證（KolektorSDD2、Magnetic Tile Defect 等）**：同上，這輪不做，M6 沿用既有的 DeepPCB 資料集。
+- **Phase 14：部署、效能、工程品質**（ONNX/OpenVINO 匯出與 benchmark、Dockerfile/docker-compose、GitHub Actions CI、Windows 相容性驗證、`tests/real_samples/` 真實照片驗證集）：規劃內容需要額外硬體/環境（Intel CPU 測 OpenVINO、Windows 機器、GitHub Actions 額度）與明顯更大的工程投入，作為單人作品集 demo 這輪選擇不做，使用者已確認。
 
 ## 安裝
 
@@ -226,12 +252,12 @@ python scripts/export_reviewed.py --module anomaly --out ./export_anomaly --cate
 
 現場誤判 → 人工複判 → 匯出 → 標註校正 → 重訓 → 比較新舊指標 → 上線 的完整流程圖見 [CLAUDE.md](CLAUDE.md)。
 
-## 補齊台中常見辨識（Phase 13-14，分批做）
+## 補齊台中常見辨識（Phase 13-14）
 
 - **組裝防呆／黃金樣本比對**：「建立黃金樣本設定」卡片上傳一張正確的組裝照片，在圖上拖曳畫出多個 ROI（零件應該在的位置）存成料號設定；「比對檢測」選料號上傳待測照片，會用 ORB 特徵 + homography 自動對齊到黃金樣本的角度，逐一比對每個 ROI（SSIM），任一 ROI 沒過就整體判 NG。API：`POST /api/assembly/golden-samples`、`GET /api/assembly/golden-samples`、`POST /api/assembly/inspect?part_no=`。
 - **烤漆/陽極色差 ΔE**：上傳照片後按「畫標準色區」拖曳框一塊標準色（或勾選改用手動輸入標準 Lab 值），再按「畫量測區」框待測區域，計算 CIEDE2000 色差 ΔE00，超過門檻（預設 3.0，可調）判不合格。API：`POST /api/color/check`。
 - **出貨標籤 vs 工單比對**：上傳出貨標籤照片，OCR+AI 讀出標籤上的料號/數量/批號（標籤上如果也有 GS1 條碼，批號優先信任條碼），跟「預期值」比對——預期值優先順序：手動輸入 > 畫面最上方的追溯資訊（料號/批號）；三項都沒填只會讀出標籤內容，不判 OK/NG。API：`POST /api/shipping/check-label`。
-- M5+（跌倒偵測）、M8-1+（包裝比對容錯）、鋼材表面瑕疵資料集查證留到之後分批做。
+- **M5+（跌倒偵測）、M8-1+（包裝比對容錯）、鋼材表面瑕疵資料集查證、Phase 14（ONNX/OpenVINO 效能評測、Docker、CI、Windows 相容性驗證）：使用者確認作品集展示範圍已足夠，本輪不做**，不是查證後發現不可行——跟前面「未納入功能」的授權/硬體限制不同，這批是刻意收斂範圍的決定，詳見下方「未納入功能」。
 
 ## 測試
 
