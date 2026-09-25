@@ -24,6 +24,8 @@ flowchart LR
     E --> C
 ```
 
+上面的 Mermaid 圖在手機瀏覽器上會被 GitHub 縮得很小、字很難看清楚；如果在手機上看，可以改點這張靜態 PNG（同一張圖，點開可用手機原生的圖片檢視器縮放）：[docs/architecture.png](docs/architecture.png)。
+
 輸入來源（網頁拍照/上傳、資料夾監控、批次 API）都走同一組共用回應格式（`{module, verdict, items, annotated_image, ...}`）寫入 SQLite；品檢看板與 ERP 都讀同一份紀錄，人工複判會回寫並反映到看板的良率/一致率統計。
 
 ## 功能
