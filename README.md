@@ -11,7 +11,7 @@ flowchart LR
     subgraph 輸入來源
         A1[網頁上傳/拍照]
         A2[資料夾監控\nwatch_folder.py]
-        A3[批次上傳\nPOST /api/batch/{action}]
+        A3["批次上傳\nPOST /api/batch/(action)"]
     end
     A1 --> B
     A2 --> B

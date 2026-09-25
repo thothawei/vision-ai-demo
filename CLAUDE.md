@@ -194,6 +194,7 @@ flowchart LR
 - **收尾只做 Phase 15 規劃裡跟「面試展示」直接相關的三項，不做 GIF 錄製與 `pytest -m e2e` marker 改造**：README 加 Mermaid 系統架構圖、`docs/demo-script.md`（5 分鐘面試腳本）、確認 `scripts/capture_screenshots.py` 涵蓋目前 16 個辨識分頁（Phase 14/M12 收尾時已經做過，這次不用重跑）。GIF 錄製與截圖腳本轉成正式 e2e 測試 marker 屬於「錦上添花」而非「面試展示必要」，範圍已經跟使用者的「跳過剩下項目」指示一致收斂掉。
 - **demo-script.md 的 ERP 串接段落刻意寫「誠實版」**：`docs/erp-integration.md` 跟 C# 範例只驗證到「介面設計完成、可編譯」（`dotnet build` 通過，但沒有真實 SQL Server 執行個體可以連線測試），demo-script.md 沒有寫「打開 manufacturing-erp 品檢查詢頁看到剛才那筆」這種暗示已經實際串接測試過的橋段，改成明確說明目前的驗證程度停在哪裡——這是規則 19「Fidelity to sources」與規則 6「Calibrated honesty」的直接應用，面試被追問「這兩個系統真的串起來了嗎」時要能誠實回答，不能被腳本自己的措辭誤導。
 - **架構圖的模組數字（16 個辨識分頁）直接數 `frontend/index.html` 的 `data-tab` 屬性得出，不是憑印象寫**：`grep -n 'data-tab="' frontend/index.html` 實際數出 16 個辨識分頁 + 1 個看板分頁（`dashboard`），架構圖與 README 各處的分頁數字保持一致。
+- **README 的 Mermaid 架構圖用 `mermaid-cli`（`npx @mermaid-js/mermaid-cli`）實際渲染驗證過語法，不是只憑「看起來像對」就相信 GitHub 會正確顯示**：第一版 `A3[批次上傳\nPOST /api/batch/{action}]` 節點文字裡的花括號 `{action}` 被 Mermaid 剖析器誤認成菱形節點（diamond）的起始符號，`mmdc` 實際跑出 `Parse error on line 5 ... Expecting ... got 'DIAMOND_START'`；這正是「Verify before claiming」的具體案例——如果沒有真的渲染，README 這張圖在 GitHub 上會直接顯示成一坨錯誤訊息而不是圖表，但純文字閱讀完全看不出語法有問題。修法：改成 `A3["批次上傳\nPOST /api/batch/(action)"]`（花括號改圓括號＋外層加雙引號），重新用 `mmdc` 渲染成功，並輸出 PNG 人工核對圖形內容與描述一致。同時重新跑了 `scripts/capture_screenshots.py` 產生的 17 張截圖驗證 `docs/demo-script.md` 裡引用的分頁編號（④追溯碼辨識、③外觀瑕疵異常檢測、⑰品檢紀錄與看板）跟實際畫面一致。
 - **README「未納入功能」新增四項，明確標註跟前面幾項（授權不明/需要硬體）不同性質**：這四項（M5+、M8-1+、鋼材資料集、Phase 14 全部）是「使用者確認範圍已足夠，主動決定不做」，不是「查證後發現做不到」，兩種情況混在一起寫會誤導讀者以為這個作品集技術上做不到這些功能。
 
 ## 目錄結構
