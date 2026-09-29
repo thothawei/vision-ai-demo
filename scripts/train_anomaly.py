@@ -10,7 +10,7 @@ PatchCore 不是傳統意義的「訓練」：只用良品照片擬合一個 mem
     python scripts/train_anomaly.py --category all   # 三類都跑
 
 資料集需先手動下載到 data/mvtec_ad/<category>/（MVTec AD 官方目錄結構），
-下載連結見 docs/licenses.md；CC BY-NC-SA 4.0，僅供學習/作品集展示。
+下載連結見 docs/licenses.md；CC BY-NC-SA 4.0，僅供學習與技術展示，不得用於商業產線。
 """
 
 import argparse

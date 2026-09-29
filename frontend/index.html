@@ -1542,7 +1542,7 @@ const MODULE_LABELS = {
 };
 
 // Phase 10：/api/inspections* 現在需要 X-API-Key，這組 key 要跟後端 .env 的 API_KEYS
-// 裡 frontend: 那組一致（單機 demo 的取捨：兩邊各自一份設定，換 key 要兩邊一起改）。
+// 裡 frontend: 那組一致（單機部署的取捨：兩邊各自一份設定，換 key 要兩邊一起改）。
 const FRONTEND_API_KEY = "dev-frontend-key-change-me";
 
 function apiKeyHeaders(extra) {
