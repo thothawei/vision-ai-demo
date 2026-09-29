@@ -54,15 +54,34 @@ def _update_entry(name: str, **fields) -> dict:
         return entry
 
 
+def _overlay_active_version(name: str, entry: dict) -> dict:
+    """狀態檔記的是「最近一次擬合」；切換（回滾）版本之後，顯示的版本、AUROC、門檻要以目前啟用的版本為準。"""
+    if entry.get("status") != "done":
+        return entry
+    from core import model_registry
+
+    active = model_registry.get_active(f"anomaly-{name}")
+    if active is None:
+        return entry
+    entry = dict(entry, model_version=active["version"])
+    if "image_auroc" in active["metrics"]:
+        entry["image_auroc"] = active["metrics"]["image_auroc"]
+    threshold_file = Path(active["weights_abs"]).parents[2] / "threshold.json"
+    if threshold_file.exists():
+        entry["threshold"] = json.loads(threshold_file.read_text())["threshold"]
+    return entry
+
+
 def get_status(name: str) -> dict | None:
     reg = _load_registry()
     entry = reg.get(name)
-    return dict(name=name, **entry) if entry else None
+    return dict(name=name, **_overlay_active_version(name, entry)) if entry else None
 
 
-def list_custom_categories() -> list[dict]:
+def list_custom_categories(overlay: bool = False) -> list[dict]:
+    """overlay=True 時（給管理畫面的類別表）以目前啟用版本的資訊為準；預設不查登錄表（推論路徑每次請求都會呼叫）。"""
     reg = _load_registry()
-    return [dict(name=k, **v) for k, v in sorted(reg.items())]
+    return [dict(name=k, **(_overlay_active_version(k, v) if overlay else v)) for k, v in sorted(reg.items())]
 
 
 def _safe_extract_images(zf: zipfile.ZipFile, dest: Path) -> list[Path]:
@@ -135,17 +154,25 @@ def enqueue_category(name: str, good_zip_bytes: bytes, defect_zip_bytes: bytes |
     return get_status(name)
 
 
+def _category_root(name: str) -> Path:
+    """類別目前啟用版本的資料夾（門檻、評分、指標檔都在這裡）；沒有登錄時退回舊的每類別資料夾。"""
+    from core import model_registry
+
+    return model_registry.active_anomaly_root(name, MODELS_DIR / name)
+
+
 def set_threshold(name: str, threshold: float) -> dict:
     entry = get_status(name)
     if entry is None or entry.get("status") != "done":
         raise ModuleError(f"類別「{name}」還沒有擬合完成，無法設定門檻", 400)
-    weights_dir = MODELS_DIR / name
-    (weights_dir / "threshold.json").write_text(json.dumps({"threshold": threshold}, ensure_ascii=False, indent=2))
+    root = _category_root(name)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "threshold.json").write_text(json.dumps({"threshold": threshold}, ensure_ascii=False, indent=2))
     return _update_entry(name, threshold=threshold)
 
 
 def get_scores(name: str) -> list[dict]:
-    scores_path = MODELS_DIR / name / "scores.json"
+    scores_path = _category_root(name) / "scores.json"
     if not scores_path.exists():
         raise ModuleError(f"類別「{name}」沒有評分資料（可能還沒擬合完成）", 404)
     return json.loads(scores_path.read_text())
@@ -162,11 +189,25 @@ def _run_fit(name: str) -> None:
     defect_dir = category_dir / "defect"
     defect_paths = sorted(p for p in defect_dir.glob("*") if p.suffix.lower() in IMAGE_EXTS) if defect_dir.exists() else []
 
-    result = train_anomaly.train_custom(name, good_paths, defect_paths or None, export_root=MODELS_DIR / name)
+    # 每次擬合都寫進新的版本資料夾（不覆寫舊版本），完成後登錄並啟用；失敗就清掉半成品
+    from core import model_registry
+
+    model_id = f"anomaly-{name}"
+    version, root = model_registry.new_version_dir(model_id)
+    try:
+        result = train_anomaly.train_custom(name, good_paths, defect_paths or None, export_root=root)
+        weights = root / "weights" / "torch" / "model.pt"
+        metrics = json.loads((root / "metrics.json").read_text()) if (root / "metrics.json").exists() else {}
+        model_registry.register_version(
+            model_id, weights, metrics, f"自訂類別擬合（良品 {len(good_paths)} 張、NG {len(defect_paths)} 張）",
+            "system:fit", activate=True, version=version)
+    except Exception:
+        shutil.rmtree(root, ignore_errors=True)
+        raise
 
     from modules.anomaly import service as anomaly_service
 
-    anomaly_service.invalidate_cache(name)  # 重訓覆蓋舊權重時，清掉可能存在的舊快取推論器
+    anomaly_service.invalidate_cache(name)  # 提早釋放舊版本的推論器（快取本來就以版本為鍵）
 
     _update_entry(
         name,
@@ -174,8 +215,9 @@ def _run_fit(name: str) -> None:
         finished_at=datetime.now().isoformat(timespec="seconds"),
         image_auroc=result["image_auroc"],
         threshold_source=result["threshold_source"],
-        threshold=json.loads((MODELS_DIR / name / "threshold.json").read_text())["threshold"],
+        threshold=json.loads((root / "threshold.json").read_text())["threshold"],
         fit_seconds=result["fit_seconds"],
+        model_version=version,
     )
 
 

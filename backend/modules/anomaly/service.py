@@ -21,6 +21,7 @@ import torch
 
 from core.image_io import bgr_to_data_url, load_image
 from core.inspection_log import record_result
+from core import model_registry
 from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 
@@ -29,7 +30,7 @@ MODULE = "anomaly"
 MODELS_DIR = Path(__file__).resolve().parents[3] / "models" / "anomaly"
 CATEGORIES = ["metal_nut", "screw", "tile"]
 
-_inferencers: dict[str, object] = {}
+_cache = model_registry.VersionedCache()
 
 
 def _custom_category_names() -> set[str]:
@@ -51,7 +52,8 @@ def is_valid_category(category: str) -> bool:
 
 
 def _load_threshold(category: str) -> float | None:
-    threshold_path = MODELS_DIR / category / "threshold.json"
+    """門檻跟著「目前啟用的版本」走（每次擬合的距離分數尺度不同，回滾版本時門檻要一起回滾）。"""
+    threshold_path = model_registry.active_anomaly_root(category, MODELS_DIR / category) / "threshold.json"
     if not threshold_path.exists():
         return None
     return json.loads(threshold_path.read_text())["threshold"]
@@ -86,28 +88,27 @@ def inspect_part(image_bytes: bytes, category: str) -> InspectionResult:
 
 
 def invalidate_cache(category: str) -> None:
-    """類別重新擬合、權重被覆蓋後呼叫，避免繼續用記憶體裡舊的推論器服務新請求。"""
-    _inferencers.pop(category, None)
+    """類別有新版本或切換版本後可呼叫，丟掉記憶體裡的舊推論器（快取本來就以版本為鍵，這只是提早釋放）。"""
+    _cache.drop(f"anomaly-{category}")
+
+
+def _load_inferencer(path, category: str):
+    from anomalib.deploy import TorchInferencer
+
+    # anomalib 的 TorchInferencer 預設拒絕 unpickle（可能執行任意程式碼的資安風險）。
+    # 這裡載入的是本機訓練、經模型登錄驗證過 sha256 的權重，不是下載來路不明的檔案，可信任；
+    # 所以權重只能由伺服器端腳本登錄，網頁不提供上傳。只在載入時開啟，不動全域環境。
+    os.environ["TRUST_REMOTE_CODE"] = "1"
+    with log_model_load(f"anomaly-patchcore:{category}"):
+        return TorchInferencer(path=path, device="cpu")
 
 
 def _get_inferencer(category: str):
-    if category not in _inferencers:
-        from anomalib.deploy import TorchInferencer
-
-        weights_path = MODELS_DIR / category / "weights" / "torch" / "model.pt"
-        if not weights_path.exists():
-            raise ModuleError(
-                f"找不到 {category} 的異常檢測模型，請先執行 "
-                f"`python scripts/train_anomaly.py --category {category}` 擬合並匯出",
-                503,
-            )
-        # anomalib 的 TorchInferencer 預設拒絕 unpickle（可能執行任意程式碼的資安風險）。
-        # 這裡載入的是 scripts/train_anomaly.py 在本機訓練、自己匯出的權重，不是下載來路不明
-        # 的檔案，可信任；只在載入這個模組期間開啟，不動全域環境。
-        os.environ["TRUST_REMOTE_CODE"] = "1"
-        with log_model_load(f"anomaly-patchcore:{category}"):
-            _inferencers[category] = TorchInferencer(path=weights_path, device="cpu")
-    return _inferencers[category]
+    resolved = model_registry.resolve(
+        f"anomaly-{category}", MODELS_DIR / category / "weights" / "torch" / "model.pt",
+        f"找不到 {category} 的異常檢測模型，請先執行 "
+        f"`python scripts/train_anomaly.py --category {category}` 擬合並匯出")
+    return _cache.get(resolved, lambda path: _load_inferencer(path, category))
 
 
 def _draw_heatmap(image, anomaly_map: torch.Tensor) -> np.ndarray:

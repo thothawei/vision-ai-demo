@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     cors_origins: str = _f(
         "http://127.0.0.1:8000,http://localhost:8000", "允許的前端網域（逗號分隔）", apply="restart"
     )
+    image_retention_days: int = _f(180, "圖片保存天數（給 scripts/cleanup_images.py 用；有人工複判的圖片預設不清）")
     max_upload_mb: int = _f(20, "單張圖片大小上限（MB），超過回 413")
     max_video_mb: int = _f(200, "影片大小上限（MB）")
     erp_webhook_url: str | None = _f(None, "NG 時 POST 通知的網址；空白＝不啟用")

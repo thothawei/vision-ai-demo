@@ -20,6 +20,7 @@ import numpy as np
 
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core import model_registry
 from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 from core.settings import get_settings
@@ -36,26 +37,27 @@ DEFAULT_SAMPLE_INTERVAL_S = 1.0
 DEFAULT_MAX_DURATION_S = 60.0
 VIDEO_THUMBNAIL_MAX_SIDE = 320
 
-_model = None
-_ppe_model = None
+PERSON_MODEL_ID = "person-detector"
+PPE_MODEL_ID = "ppe-helmet"
+_person_cache = model_registry.VersionedCache()
+_ppe_cache = model_registry.VersionedCache()
+
+
+def _load_person_yolo(path):
+    from ultralytics import YOLO
+
+    with log_model_load("person-yolo11n"):
+        return YOLO(str(path))
 
 
 def _get_model():
     """延遲載入，缺權重時回傳清楚錯誤。"""
-    global _model
-    if _model is None:
-        if not WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到 YOLO 權重 {WEIGHTS_PATH}，請先執行："
-                "`python -c \"from ultralytics import YOLO; YOLO('yolo11n.pt')\"` "
-                f"再把下載到的 yolo11n.pt 搬到 {WEIGHTS_PATH}",
-                503,
-            )
-        from ultralytics import YOLO
-
-        with log_model_load("person-yolo11n"):
-            _model = YOLO(str(WEIGHTS_PATH))
-    return _model
+    resolved = model_registry.resolve(
+        PERSON_MODEL_ID, WEIGHTS_PATH,
+        f"找不到 YOLO 權重 {WEIGHTS_PATH}，請先執行："
+        "`python -c \"from ultralytics import YOLO; YOLO('yolo11n.pt')\"` "
+        f"再把下載到的 yolo11n.pt 搬到 {WEIGHTS_PATH}")
+    return _person_cache.get(resolved, _load_person_yolo)
 
 
 def _detect_intrusion_on_bgr(bgr: np.ndarray, zone_px: np.ndarray | None) -> tuple[list[dict], bool, np.ndarray]:
@@ -175,21 +177,21 @@ def _detect_persons(bgr: np.ndarray) -> list[dict]:
     return persons
 
 
-def _get_ppe_model():
-    global _ppe_model
-    if _ppe_model is None:
-        if not PPE_WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到 PPE 安全帽偵測權重 {PPE_WEIGHTS_PATH}，請先執行 "
-                "`python scripts/prepare_hardhat.py` 準備資料，再訓練 "
-                "`YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', ...)`（見 CLAUDE.md）",
-                503,
-            )
-        from ultralytics import YOLO
+def _load_ppe_yolo(path):
+    from ultralytics import YOLO
 
-        with log_model_load("ppe-yolo11n"):
-            _ppe_model = YOLO(str(PPE_WEIGHTS_PATH))
-    return _ppe_model
+    with log_model_load("ppe-yolo11n"):
+        return YOLO(str(path))
+
+
+def _get_ppe_model():
+    resolved = model_registry.resolve(
+        PPE_MODEL_ID, PPE_WEIGHTS_PATH,
+        f"找不到 PPE 安全帽偵測權重 {PPE_WEIGHTS_PATH}，請先執行 "
+        "`python scripts/prepare_hardhat.py` 準備資料，再訓練 "
+        "`YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', ...)`（見 docs/dev/decisions.md），"
+        "訓練完用 `python scripts/register_model.py` 登錄")
+    return _ppe_cache.get(resolved, _load_ppe_yolo)
 
 
 def _detect_ppe_on_bgr(bgr: np.ndarray) -> tuple[list[dict], int, np.ndarray]:

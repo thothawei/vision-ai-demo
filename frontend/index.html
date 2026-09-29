@@ -619,6 +619,15 @@
   </div>
 </div>
 
+<div class="panel" id="panel-models">
+  <div class="card">
+    <h2>模型與版本</h2>
+    <p style="color:var(--muted); font-size:13px;">每個模型有多個版本，同時只有一個啟用。切換啟用版本即可回滾（異常檢測的門檻與評分跟著版本走）；每個版本首次載入時會驗證 SHA-256。新版本由管理者在伺服器上用 <code>scripts/register_model.py</code> 登錄（權重不透過網頁上傳）。首次使用內建模型時會自動登錄成 v1。</p>
+    <div id="models-list"></div>
+    <div class="status" id="models-status"></div>
+  </div>
+</div>
+
 </main>
 </div>
 

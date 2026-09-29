@@ -201,7 +201,7 @@ def run_recipe(recipe: dict, images: dict[str, bytes]) -> dict:
     steps_out, meta = [], []
     try:
         for step in recipe["steps"]:
-            request_scope.reset_images()
+            request_scope.reset_step()
             spec = registry.get_action(step["action"])
             entry = {"position": step["position"], "action": step["action"], "label": step["label"],
                      "image_slot": step["image_slot"], "verdict_kind": spec.verdict_kind if spec else "inspection"}
@@ -224,7 +224,7 @@ def run_recipe(recipe: dict, images: dict[str, bytes]) -> dict:
             meta.append({k: v for k, v in entry.items()})
     finally:
         scope.run_id = None
-        request_scope.reset_images()
+        request_scope.reset_step()
 
     verdict, reasons = combine(meta)
     with connect() as conn:

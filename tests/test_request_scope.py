@@ -61,7 +61,8 @@ def test_request_id_header_db_column_csv_and_log(client, fake_llm, warning_sign_
     assert res.headers["X-Request-ID"] == "req-abc-123"
     record = client.get(f"/api/inspections/{res.json()['inspection_id']}").json()
     assert record["request_id"] == "req-abc-123"
-    assert "request_id" in client.get("/api/inspections/export.csv").text.splitlines()[0].split(",")[-1]
+    header = client.get("/api/inspections/export.csv").text.splitlines()[0].split(",")
+    assert header[-3:] == ["request_id", "model_id", "model_version"]  # 新欄位一律追加在最後，不打亂既有欄位順序
     assert any("path=/api/general/describe" in r.getMessage() and "status=200" in r.getMessage()
                for r in caplog.records)
 

@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core import request_scope
+from core import migrations, request_scope
 from core.schemas import InspectionResult
 from core.settings import get_settings
 
@@ -24,150 +24,7 @@ logger = logging.getLogger("vision.inspection")
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "inspections.db"
 DEFAULT_IMAGES_DIR = Path(__file__).resolve().parents[2] / "data" / "images"
 
-_BASE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS inspections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    module TEXT NOT NULL,
-    verdict TEXT NOT NULL,
-    engine TEXT NOT NULL,
-    elapsed_ms INTEGER NOT NULL,
-    summary_json TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_inspections_module_time ON inspections(module, created_at);
 
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    display_name TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('operator', 'qc', 'admin')),
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    failed_attempts INTEGER NOT NULL DEFAULT 0,
-    locked_until TEXT
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    at TEXT NOT NULL,
-    actor TEXT NOT NULL,
-    action TEXT NOT NULL,
-    target_type TEXT NOT NULL,
-    target_id TEXT,
-    before_json TEXT,
-    after_json TEXT,
-    request_id TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
-
-CREATE TABLE IF NOT EXISTS parts (
-    part_no TEXT PRIMARY KEY,
-    name TEXT NOT NULL DEFAULT '',
-    spec TEXT NOT NULL DEFAULT '',
-    customer TEXT NOT NULL DEFAULT '',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS work_orders (
-    work_order_no TEXT PRIMARY KEY,
-    part_no TEXT NOT NULL REFERENCES parts(part_no),
-    quantity INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'done', 'cancelled')),
-    start_date TEXT,
-    end_date TEXT,
-    lot_no TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS recipes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    part_no TEXT NOT NULL REFERENCES parts(part_no),
-    version INTEGER NOT NULL,
-    is_active INTEGER NOT NULL DEFAULT 0,
-    note TEXT NOT NULL DEFAULT '',
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (part_no, version)
-);
-
-CREATE TABLE IF NOT EXISTS recipe_steps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id),
-    position INTEGER NOT NULL,
-    action TEXT NOT NULL,
-    params_json TEXT NOT NULL DEFAULT '{}',
-    image_slot TEXT NOT NULL DEFAULT 'main',
-    label TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS inspection_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id),
-    part_no TEXT NOT NULL,
-    work_order TEXT,
-    lot_no TEXT,
-    station TEXT,
-    operator TEXT,
-    created_by TEXT,
-    request_id TEXT,
-    adhoc INTEGER,
-    status TEXT NOT NULL DEFAULT 'running',
-    verdict TEXT NOT NULL DEFAULT 'INFO',
-    reasons_json TEXT NOT NULL DEFAULT '[]',
-    steps_json TEXT NOT NULL DEFAULT '[]'
-);
-CREATE INDEX IF NOT EXISTS idx_runs_created ON inspection_runs(created_at);
-
-CREATE TABLE IF NOT EXISTS measurements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    inspection_id INTEGER NOT NULL REFERENCES inspections(id),
-    run_id INTEGER,
-    created_at TEXT NOT NULL,
-    module TEXT NOT NULL,
-    part_no TEXT,
-    work_order TEXT,
-    lot_no TEXT,
-    station TEXT,
-    characteristic TEXT NOT NULL,
-    value REAL NOT NULL,
-    lsl REAL,
-    usl REAL,
-    target REAL,
-    unit TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_measurements_part_char ON measurements(part_no, characteristic, created_at);
-
-CREATE TABLE IF NOT EXISTS webhook_queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    inspection_id INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    created_at TEXT NOT NULL,
-    next_retry_at TEXT NOT NULL,
-    given_up INTEGER NOT NULL DEFAULT 0
-);
-"""
-
-# Phase 9 新增欄位：全部可 NULL，用 ALTER TABLE ADD COLUMN 補進舊 db。
-_NEW_COLUMNS = [
-    "work_order", "part_no", "lot_no", "station", "operator",
-    "image_path", "annotated_path",
-    "review_verdict", "reviewer", "reviewed_at", "review_note",
-    "images_json", "request_id", "created_by", "run_id", "adhoc",
-]
-
-_COLUMN_TYPES = {"run_id": "INTEGER", "adhoc": "INTEGER"}  # 其餘補進舊 db 的欄位都是 TEXT
-
-_ALL_COLUMNS = [
-    "id", "created_at", "module", "verdict", "engine", "elapsed_ms", "summary_json",
-    *_NEW_COLUMNS,
-]
 
 def extract_defect_labels(module: str, summary: list | dict) -> list[str]:
     """從 record_result 存進 summary_json 的 items 抽出缺陷類別清單。
@@ -197,17 +54,6 @@ def _save_images_enabled() -> bool:
     return get_settings().save_images
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
-    conn.executescript(_BASE_SCHEMA)
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(inspections)").fetchall()}
-    for col in _NEW_COLUMNS:
-        if col not in existing:
-            conn.execute(f"ALTER TABLE inspections ADD COLUMN {col} {_COLUMN_TYPES.get(col, 'TEXT')}")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_work_order ON inspections(work_order)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_part_no_time ON inspections(part_no, created_at)")
-    conn.commit()
-
-
 def connect() -> sqlite3.Connection:
     return _connect()
 
@@ -217,7 +63,7 @@ def _connect() -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    _migrate(conn)
+    migrations.migrate(conn, path)
     return conn
 
 
@@ -256,6 +102,8 @@ def log_inspection(
     request_id: str | None = None,
     created_by: str | None = None,
     run_id: int | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
 ) -> int:
     trace = trace or {}
     created_at = datetime.now().isoformat(timespec="seconds")
@@ -263,8 +111,9 @@ def log_inspection(
         cur = conn.execute(
             "INSERT INTO inspections "
             "(created_at, module, verdict, engine, elapsed_ms, summary_json, "
-            " work_order, part_no, lot_no, station, operator, request_id, created_by, run_id, adhoc)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " work_order, part_no, lot_no, station, operator, request_id, created_by, run_id, adhoc,"
+            " model_id, model_version)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 created_at,
                 module,
@@ -281,6 +130,8 @@ def log_inspection(
                 created_by,
                 run_id,
                 _is_adhoc(conn, trace.get("work_order")),
+                model_id,
+                model_version,
             ),
         )
         insert_measurements(conn, cur.lastrowid, created_at, module, summary, trace, run_id)
@@ -338,7 +189,8 @@ def record_result(
     trace = request_scope.get_trace()
     scope = request_scope.get_scope()
     inspection_id = log_inspection(
-        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user, scope.run_id
+        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user, scope.run_id,
+        scope.model_id, scope.model_version,
     )
     if scope.operator_override:
         from core import audit  # 延後匯入：audit 會匯入本檔的連線函式
@@ -458,18 +310,29 @@ def get_inspection(inspection_id: int) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
+IMAGE_EXPIRED = "expired"  # scripts/cleanup_images.py 清掉檔案後，路徑欄位改存這個值（紀錄本身保留）
+
+
+def _stored_image_path(record: dict, kind: str) -> str | None:
+    if kind == "raw":
+        return record["image_path"]
+    if kind == "annotated":
+        return record["annotated_path"]
+    return record["images"].get(kind)
+
+
+def is_image_expired(inspection_id: int, kind: str) -> bool:
+    record = get_inspection(inspection_id)
+    return record is not None and _stored_image_path(record, kind) == IMAGE_EXPIRED
+
+
 def get_image_file_path(inspection_id: int, kind: str) -> Path | None:
     """kind 為 raw、annotated 或其他 role（golden、reference）。找不到紀錄或該張圖沒存就回傳 None。"""
     record = get_inspection(inspection_id)
     if record is None:
         return None
-    if kind == "raw":
-        rel_path = record["image_path"]
-    elif kind == "annotated":
-        rel_path = record["annotated_path"]
-    else:
-        rel_path = record["images"].get(kind)
-    if not rel_path:
+    rel_path = _stored_image_path(record, kind)
+    if not rel_path or rel_path == IMAGE_EXPIRED:
         return None
     full_path = _images_dir().parent / rel_path
     return full_path if full_path.exists() else None
@@ -500,7 +363,7 @@ def to_csv(records: list[dict]) -> str:
         "id", "created_at", "module", "verdict", "engine", "elapsed_ms",
         "work_order", "part_no", "lot_no", "station", "operator",
         "review_verdict", "reviewer", "reviewed_at", "review_note",
-        "summary_json", "request_id",
+        "summary_json", "request_id", "model_id", "model_version",
     ]
     writer.writerow(header)
     for r in records:
@@ -509,7 +372,7 @@ def to_csv(records: list[dict]) -> str:
             r.get("work_order"), r.get("part_no"), r.get("lot_no"), r.get("station"), r.get("operator"),
             r.get("review_verdict"), r.get("reviewer"), r.get("reviewed_at"), r.get("review_note"),
             json.dumps(r["summary"], ensure_ascii=False),
-            r.get("request_id"),
+            r.get("request_id"), r.get("model_id"), r.get("model_version"),
         ])
     return buf.getvalue()
 

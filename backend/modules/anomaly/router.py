@@ -42,7 +42,7 @@ def create_category(
 
 @router.get("/categories")
 def list_categories():
-    return anomaly_training.list_custom_categories()
+    return anomaly_training.list_custom_categories(overlay=True)
 
 
 @router.get("/categories/{name}/status")

@@ -22,6 +22,7 @@ from PIL import Image
 from core import llm
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core import model_registry
 from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 from modules.codes.service import describe_barcode
@@ -127,22 +128,23 @@ class _SmallCNN(nn.Module):
 
 
 WEIGHTS_PATH = Path(__file__).resolve().parents[3] / "models" / "medical" / "pneumonia_cnn" / "model.pt"
-_model: _SmallCNN | None = None
+PNEUMONIA_MODEL_ID = "pneumonia-cnn"
+_cache = model_registry.VersionedCache()
+
+
+def _load_cnn(path) -> _SmallCNN:
+    with log_model_load("pneumonia-cnn"):
+        model = _SmallCNN()
+        model.load_state_dict(torch.load(path, map_location="cpu"))
+        model.eval()
+        return model
 
 
 def _get_model() -> _SmallCNN:
-    global _model
-    if _model is None:
-        if not WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到教學展示模型權重 {WEIGHTS_PATH}，請先執行 `python scripts/train_medmnist.py`", 503,
-            )
-        with log_model_load("pneumonia-cnn"):
-            model = _SmallCNN()
-            model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
-            model.eval()
-            _model = model
-    return _model
+    resolved = model_registry.resolve(
+        PNEUMONIA_MODEL_ID, WEIGHTS_PATH,
+        f"找不到教學展示模型權重 {WEIGHTS_PATH}，請先執行 `python scripts/train_medmnist.py`")
+    return _cache.get(resolved, _load_cnn)
 
 
 def classify_pneumonia_demo(image_bytes: bytes) -> InspectionResult:

@@ -41,6 +41,16 @@ os.environ.setdefault("SESSION_SECRET", "test-session-secret-" + "x" * 32)
 
 
 @pytest.fixture(autouse=True)
+def _isolate_data_paths(tmp_path, monkeypatch):
+    """所有測試（不只用 client 的）都預設使用暫存的資料庫、圖片與黃金樣本目錄。
+    任何函式只要會間接連到資料庫（例如模型登錄查詢），忘記隔離就會寫進真的 data/inspections.db；
+    Phase 21 寫測試時就真的踩到（junk 的模型版本被寫進真實資料庫），所以改成一律預設隔離。"""
+    monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
+    monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
+    monkeypatch.setenv("GOLDEN_SAMPLES_DIR", str(tmp_path / "golden_samples"))
+
+
+@pytest.fixture(autouse=True)
 def _ignore_real_dotenv(monkeypatch):
     """設定會讀專案根目錄的 .env（含真實的 Gemini key 等）；測試一律只看環境變數，
     不然 `monkeypatch.delenv` 蓋不住 .env 裡的值，測試可能拿真 key 打外部服務。"""

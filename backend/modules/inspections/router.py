@@ -6,6 +6,7 @@ from core import audit, recipes
 from core.auth import Principal, require_login, require_role
 from core.inspection_log import (
     get_image_file_path,
+    is_image_expired,
     get_inspection,
     get_stats,
     query_inspections,
@@ -130,6 +131,8 @@ def get_image(inspection_id: int, kind: str = "raw", _: Principal = Depends(_rea
     if kind not in ("annotated", *IMAGE_ROLES):
         raise HTTPException(status_code=400, detail=f"kind 只能是 annotated 或 {'、'.join(IMAGE_ROLES)}")
     path = get_image_file_path(inspection_id, kind)
+    if path is None and is_image_expired(inspection_id, kind):
+        raise HTTPException(status_code=410, detail=f"id={inspection_id} 的 {kind} 圖片已依保存期限清理（紀錄本身保留）")
     if path is None:
         raise HTTPException(status_code=404, detail=f"找不到 id={inspection_id} 的 {kind} 圖片")
     return FileResponse(path)

@@ -11,6 +11,9 @@ PatchCore 不是傳統意義的「訓練」：只用良品照片擬合一個 mem
 
 資料集需先手動下載到 data/mvtec_ad/<category>/（MVTec AD 官方目錄結構），
 下載連結見 docs/licenses.md；CC BY-NC-SA 4.0，僅供學習與技術展示，不得用於商業產線。
+
+每次擬合都寫進 `models/registry/anomaly-<類別>/v<N>/`（不覆寫舊版本）並登錄、啟用成新版本；
+回滾請用「管理 → 模型」或 `scripts/register_model.py activate`。
 """
 
 import argparse
@@ -22,6 +25,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import sys
+
 import torch
 from anomalib.data import Folder, MVTecAD
 from anomalib.deploy import ExportType
@@ -29,6 +34,10 @@ from anomalib.engine import Engine
 from anomalib.models import Patchcore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+
+from core import model_registry  # noqa: E402
+
 DATA_ROOT = PROJECT_ROOT / "data" / "mvtec_ad"
 MODELS_DIR = PROJECT_ROOT / "models" / "anomaly"
 CATEGORIES = ["metal_nut", "screw", "tile"]
@@ -66,13 +75,17 @@ def train_one(category: str) -> dict:
     if auroc is None:
         raise RuntimeError(f"engine.test 沒有回傳 AUROC，實際回傳鍵值：{list(metrics.keys())}")
 
-    weights_dir = MODELS_DIR / category
-    weights_dir.mkdir(parents=True, exist_ok=True)
+    model_id = f"anomaly-{category}"
+    version, weights_dir = model_registry.new_version_dir(model_id)  # 新版本資料夾，不覆寫舊版本
     ckpt_path = engine.trainer.checkpoint_callback.best_model_path or engine.trainer.checkpoint_callback.last_model_path
 
     # 匯出成 TorchInferencer 可直接載入的 .pt（把 pre-processor、門檻值一起包進去），
     # 服務層不需要重建完整的 Lightning 模組就能推論。
-    exported_dir = engine.export(model=model, export_type=ExportType.TORCH, export_root=weights_dir, ckpt_path=ckpt_path)
+    try:
+        exported_dir = engine.export(model=model, export_type=ExportType.TORCH, export_root=weights_dir, ckpt_path=ckpt_path)
+    except Exception:
+        shutil.rmtree(weights_dir, ignore_errors=True)
+        raise
 
     n_test = sum(1 for _ in (category_dir / "test").rglob("*.png"))
     result = {
@@ -84,6 +97,9 @@ def train_one(category: str) -> dict:
         "weights_path": str(Path(exported_dir).relative_to(PROJECT_ROOT)),
     }
     (weights_dir / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    model_registry.register_version(model_id, Path(exported_dir), result, f"MVTec AD {category} 擬合", "script:train_anomaly",
+                                    activate=True, version=version)
+    print(f"[{category}] 已登錄 {model_id} v{version} 並啟用")
     print(f"[{category}] image-level AUROC = {result['image_auroc']}（測試集 {n_test} 張，擬合耗時 {result['fit_seconds']}秒）")
     return result
 

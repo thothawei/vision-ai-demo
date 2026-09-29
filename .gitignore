@@ -20,3 +20,4 @@ tests/live_samples/*.jpg
 docs/erp-integration-sample/bin/
 docs/erp-integration-sample/obj/
 reports/
+backups/

@@ -230,3 +230,16 @@ flowchart LR
 - **回填不自動執行**：`scripts/backfill_measurements.py` 需要明確執行（會寫入資料庫，遵守「寫入資料庫要先問」），有 `--dry-run`，可重複執行（已有 measurements 的紀錄跳過）。
 - **報表**：`build_report` 一份資料，JSON／Excel（openpyxl，6 個工作表）／HTML 共用；可列印頁面靠瀏覽器「列印成 PDF」，不引入 PDF 套件；HTML 內容一律 `html.escape`。週報＝包含基準日的那一週（週一到週日）。各站別良率用最終判定（含複判）。報表的 Cpk 摘要每個（料號，特性）用期間內全部資料算（≥10 筆用 X̄-R n=5，否則 I-MR）。`scripts/daily_report.py` 直接呼叫 `build_report`，不需要伺服器，輸出到 `reports/`（gitignore）；排程只提供 launchd 範例與 Windows 工作排程器說明，不內建排程器。
 - **權限**：SPC 與報表 qc 以上或 API key 唯讀（與 stats、匯出一致）；operator 403。
+
+## 技術決策與理由（Phase 21，模型與資料治理）
+
+- **登錄表放同一個 SQLite**（使用者決定）：`model_versions` 一列一個版本，`UNIQUE(model_id, version)`，並用**部分唯一索引**（`WHERE status = 'active'`）讓資料庫本身保證「每個模型同時只有一個啟用版本」（測試直接更新第二個 active 會被資料庫擋下）。隨備份走、可交易更新、稽核好對。
+- **內建權重就地登錄成 v1，不搬檔也不複製**（使用者決定；異常檢測三個類別共 747MB，複製會讓 16GB 機器的磁碟白白多一份）：第一次 `resolve()` 時若該模型沒有任何版本且預設路徑存在才登錄；同時兩個請求搶著登錄時，靠唯一約束擋下後者再讀取。代價：就地登錄的檔案之後不能原地覆寫（SHA-256 會不符）；所以所有會產生新權重的路徑（`train_anomaly.py`、網頁擬合、`register_model.py`）一律寫進 `models/registry/<id>/v<N>/`。
+- **異常檢測的門檻與評分檔必須跟版本走**：PatchCore 的距離分數尺度每次擬合都不同，只把權重版本化、門檻留在類別資料夾，回滾後門檻就對不上。所以版本資料夾內同時放 `weights/torch/model.pt`、`threshold.json`、`scores.json`、`metrics.json`（`train_custom` 本來就吃 `export_root`，剛好對得上），`active_anomaly_root()` 取啟用版本的資料夾；舊資料夾結構的類別（就地登錄的 v1）仍讀原資料夾。類別狀態檔（`categories.json`）只記最近一次擬合，所以類別表與狀態端點會用啟用版本的版本號、AUROC、門檻覆蓋顯示；推論路徑每次請求都會呼叫的清單函式預設不查登錄表，避免每個請求對每個類別多一次資料庫查詢。
+- **權重只能由伺服器端腳本登錄，不做網頁上傳**（使用者決定）：異常檢測權重是 pickle（`TRUST_REMOTE_CODE`），開放上傳等於開放遠端執行程式碼。網頁只能切換啟用版本；切換前會確認該版本的權重檔存在且 SHA-256 相符，避免回滾到壞掉的版本。
+- **完整性驗證＝每個程序、每個版本首次載入時重算 SHA-256，不符就拒絕**（使用者決定）：實測 230MB 只要約 0.2 秒。代價是服務執行中被改動的檔案要到下次重啟才會被發現（已寫進限制與說明）；剛登錄的版本已算過雜湊，不重算。
+- **正式 migration 不用 Alembic**：SQLite 為主、變更以「加表、加欄位」為主，輕量的 `schema_version`＋`backend/migrations/NNN_*.py` 就夠。`001_baseline` 把 Phase 1–20 累積的建表與補欄位整合成一支可重複執行的 migration（任何舊狀態的資料庫都能升上來，用 Phase 15 當時真實的 DDL 與資料驗證）；每個程序對每個資料庫檔（路徑＋inode）只檢查一次，取代原本每次連線都跑一次 `PRAGMA table_info`；資料庫版本比程式新就拒絕連線，不支援降版。
+- **資料保存**：`cleanup_images.py` **預設只預覽**、`--apply` 才刪檔（使用者決定，刪檔不可回復）；有人工複判的圖片預設保留（再訓練資料來源）；只會刪 `INSPECTION_IMAGES_DIR` 底下的檔案（有測試：資料庫裡被改成指向 `../` 的路徑不會被拿來刪檔）；被清掉的路徑欄位改存 `expired`，圖片端點回 410 並說明，而不是 404。
+- **備份還原**：`backup.py` 用 `sqlite3` online backup API 取得一致快照（不是直接複製檔案），打成 `.tar.gz` 並附 manifest（schema 版本、每個檔案的 SHA-256）；不含 `.env`；輸出檔權限 0600（資料庫含密碼雜湊）；權重預設不含。`restore.py` 先驗 manifest 與每個檔案的 SHA-256、擋 manifest 沒列的多餘檔案與備份 schema 比程式新的情況，預設只預覽，`--yes` 才執行，且**既有資料改名保留而不是刪除**；解壓用 `tarfile` 的 `filter="data"` 擋路徑穿越。
+- **模型說明卡**：內容只用有出處的資料——登錄表、登錄時讀入的 `metrics.json`、`core/model_catalog.py` 的靜態說明；defect／ppe 沒有機器可讀的測試集指標，數字取自開發紀錄並標明出處；`metrics.json` 裡的本機路徑不放進說明卡。卡片由暫存資料庫（登錄真實權重、就地登錄）產生後進版控，不動真實資料庫。
+- **實作中踩到的坑**：新寫的兩個測試沒用 `client` fixture，而 `anomaly_training._category_root()` 已改成查登錄表（資料庫），結果測試悄悄連到真實 `data/inspections.db`——真實資料庫被 migration 升級，並被寫進 13 筆垃圾 `model_versions`。發現方式是看到版本號隨每次測試執行遞增。修法是 conftest 的 autouse fixture 讓所有測試預設隔離（另有測試守住），並用「把三個資料路徑環境變數設成不可寫再跑一次」＋比對真實資料庫前後 row 數與 mtime 驗證。

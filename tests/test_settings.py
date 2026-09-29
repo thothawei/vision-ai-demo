@@ -89,3 +89,12 @@ def test_no_direct_environ_reads_left_in_backend():
             if "os.environ.get" in line or "os.getenv" in line:
                 offenders.append(f"{path.relative_to(ROOT)}:{no}")
     assert offenders == []
+
+
+def test_every_test_is_isolated_from_the_real_data_directory(tmp_path):
+    """conftest 的 autouse fixture 讓所有測試預設使用暫存資料庫與目錄；這個測試守住它（沒用 client 也一樣）。"""
+    from core.inspection_log import _db_path, _images_dir
+    from modules.assembly.service import _golden_dir
+
+    assert _db_path() == tmp_path / "inspections.db"
+    assert _images_dir() == tmp_path / "images" and _golden_dir() == tmp_path / "golden_samples"

@@ -4,7 +4,7 @@ import { loadMe } from "./session.js";
 // 管理類頁面不是辨識動作，不在註冊表內；依角色顯示（伺服器端另有權限檢查，這裡只是不顯示按鈕）
 function adminTabs(role) {
   const tabs = [{ tab: "dashboard", label: role === "operator" ? "我的檢驗紀錄" : "品檢紀錄與看板" }];
-  if (role !== "operator") tabs.push({ tab: "master", label: "主檔與配方" }, { tab: "spc", label: "SPC 管制圖" });
+  if (role !== "operator") tabs.push({ tab: "master", label: "主檔與配方" }, { tab: "spc", label: "SPC 管制圖" }, { tab: "models", label: "模型" });
   if (role === "admin") tabs.push({ tab: "users", label: "使用者" }, { tab: "audit", label: "稽核紀錄" });
   return tabs;
 }

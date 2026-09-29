@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [0.21.0]
+
+### 新增
+- 模型登錄：每個模型多版本、同時一個啟用、可回滾（`GET /api/models`、`POST /api/models/{id}/versions/{v}/activate`、「管理 → 模型」頁、稽核 `model.activate`）；內建權重首次使用時就地登錄成 v1；每個版本首次載入時驗證 SHA-256。
+- 異常檢測每次擬合產生新版本（不覆寫舊版本），門檻與評分檔跟著版本走，回滾時一起回滾。
+- 檢驗紀錄新增 `model_id`、`model_version`（CSV 追加在最後）；`scripts/register_model.py`（登錄、列出、切換）。
+- 模型說明卡：`scripts/gen_model_cards.py` → `docs/model-cards/`。
+- 正式 schema migration：`schema_version` 表與 `backend/migrations/NNN_*.py`（每個程序對每個資料庫只檢查一次；資料庫比程式新就拒絕連線）。
+- 資料保存：`IMAGE_RETENTION_DAYS`（預設 180）與 `scripts/cleanup_images.py`（預設只預覽、`--apply` 才刪；有人工複判的圖片預設保留；被清掉的圖標記 `expired`，圖片端點回 410）。
+- 備份還原：`scripts/backup.py`（SQLite online backup、manifest 與 SHA-256、不含 `.env`、權限 0600）、`scripts/restore.py`（預設預覽、`--yes` 才執行、舊資料改名保留、拒絕損毀或較新版本的備份）。
+
+### 變更
+- 各模型服務改向登錄表取啟用版本（保留 `_get_model` 等接縫與 `WEIGHTS_PATH` 預設路徑）。
+- 測試預設隔離資料庫、圖片、黃金樣本目錄（autouse fixture），避免測試寫進真實資料。
+
 ## [0.20.0]
 
 ### 新增

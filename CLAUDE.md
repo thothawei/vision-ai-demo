@@ -48,6 +48,11 @@
 - **稽核**：會改變設定或他人資料的操作，都在 router 層呼叫 `audit.record(principal.actor, action, target_type, target_id, before, after)`；稽核內容不可含密碼或雜湊。`reviewer`、`created_by` 一律取自登入者，不信任請求 body。
 - **寫入請求的 Origin 檢查**（`main.py` 的 `csrf_origin_middleware`）：瀏覽器帶的 Origin 必須與 Host 相同，測試客戶端沒有 Origin 所以不受影響；反向代理不可改寫 Host。
 - **配方檢驗**（`core/recipes.py`）：配方版本不可變（改參數＝新版本），步驟參數用註冊表的 Pydantic 模型驗證；`ActionSpec.handler` 不為 None 的動作都可入配方，`batch_enabled=False` 只是不開放批次 API（assembly、colordiff）。每一步各自 `record_result`，靠 `request_scope.run_id` 關聯 run，每步前 `reset_images()`。合併判定在 `recipes.combine()`：inspection 類動作 NG→NG、出錯或 INFO→INFO，info 類動作不計。run 視角統計的最終判定由各步驟的複判動態合併（`get_run_stats`），不要把最終判定存死在 run 上。
+- **schema 變更一律新增 `backend/migrations/NNN_*.py`**（`NAME`＋`upgrade(conn)`，編號連續），不要改已釋出的號碼；`001_baseline` 可重複執行、涵蓋 Phase 1–20。連線時 `core/migrations.migrate` 每個程序對每個資料庫檔（路徑＋inode）只檢查一次；換檔或還原後要 `migrations.forget()`。資料庫版本比程式新會丟 `SchemaTooNew`。
+- **模型一律走 `core/model_registry.resolve(model_id, default_path, missing_message)`**：回傳啟用版本並驗證 SHA-256，同時把版本記進 `request_scope`（`record_result` 寫 `model_id`／`model_version`）；快取用 `VersionedCache`（以版本為鍵）。沒有版本且預設路徑存在時就地登錄 v1。服務的 `_get_model`／`_get_ppe_model`／`_get_inferencer` 與 `WEIGHTS_PATH` 是測試接縫，不要刪。**異常檢測的門檻、評分檔在版本資料夾內**（`active_anomaly_root`），不要再寫回 `models/anomaly/<類別>/`。權重只能由伺服器端腳本登錄（pickle 風險），不要加網頁上傳。
+- **批次逐張、配方逐步之前用 `request_scope.reset_step()`**（清圖片與模型資訊），不是只清圖片。
+- **測試一律預設隔離資料庫／圖片／黃金樣本目錄**（`tests/conftest.py` 的 autouse `_isolate_data_paths`，有測試守住）。任何函式一旦會間接查資料庫（例如模型登錄），沒隔離的測試就會寫進真實 `data/inspections.db`——Phase 21 真的踩到；偵測法：把 `INSPECTION_DB=/dev/null/x` 等三個環境變數設成不可寫再跑 pytest，並比對真實資料庫前後 row 數與 mtime。
+- **會刪資料或覆寫資料的腳本預設只預覽**（`cleanup_images.py`、`restore.py` 要 `--apply`／`--yes`；還原不刪舊資料而是改名保留）；備份不含 `.env`，但含密碼雜湊。
 - **量測值抽取在 `core/measurement_extractors.py`**（依 module 的字典，與缺陷抽取規則同型），由 `log_inspection` 在同一個連線寫入 `measurements`；新增可做 SPC 的特性就在那裡加，不要在各模組 service 裡寫。規格上下限只在結果有存目標與公差時才有（舊紀錄沒有公差 → 無規格）；多孔的孔徑刻意不收。
 - **SPC 的數學都在 `core/spc.py`（純 numpy、標準係數表）**，資料存取在 `core/spc_service.py`，測試用手算數值（A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。Western Electric 規則 4 預設 8 點（原始定義；規劃書寫 7 已與使用者確認改 8），`run_length` 可調。
 - **報表**在 `core/reports.py`（JSON／Excel／HTML 共用 `build_report`）；`scripts/daily_report.py` 直接呼叫它，輸出到 `reports/`（gitignore）。輸出到 HTML 的內容一律 `html.escape`（有測試）。
@@ -77,6 +82,8 @@ vision-ai-demo/
 │   │   ├── spc.py / spc_service.py  # Phase 20：管制圖、Cp／Cpk、Western Electric；量測值存取
 │   │   ├── reports.py           # Phase 20：日報／週報（JSON、Excel、HTML）
 │   │   ├── measurement_extractors.py # Phase 20：量測值正規化規則
+│   │   ├── model_registry.py / model_catalog.py # Phase 21：模型版本登錄、完整性驗證、內建模型說明
+│   │   ├── migrations.py        # Phase 21：schema 版本管理（migrations/NNN_*.py）
 │   │   ├── auth.py              # Phase 18：Principal、require_login／require_role（session 或 API key）
 │   │   ├── users.py             # Phase 18：本機帳號、argon2id、登入失敗鎖定
 │   │   ├── audit.py             # Phase 18：稽核紀錄
@@ -161,5 +168,5 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 0–15：辨識功能、看板、ERP 介面、產線輸入、自有資料導入、M10–M12（細節見 `docs/dev/progress.md`）。
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
-- [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [x] Phase 20：SPC 與報表。
-- [ ] Phase 21：模型與資料治理。 [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。
+- [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [x] Phase 20：SPC 與報表。 [x] Phase 21：模型與資料治理。
+- [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

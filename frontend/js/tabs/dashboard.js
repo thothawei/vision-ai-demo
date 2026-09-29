@@ -184,20 +184,33 @@ function buildDetailPanel(record) {
   const wrap = document.createElement("div");
   wrap.className = "dash-detail";
 
-  if (record.image_path) {
+  const expired = record.image_path === "expired" || record.annotated_path === "expired";
+  if (expired) {
+    const note = document.createElement("div");
+    note.className = "hint";
+    note.textContent = "圖片已依保存期限清理（紀錄本身保留）";
+    wrap.appendChild(note);
+  }
+  if (record.model_id) {
+    const info = document.createElement("div");
+    info.className = "hint";
+    info.textContent = `使用的模型：${record.model_id} v${record.model_version}`;
+    wrap.appendChild(info);
+  }
+  if (record.image_path && record.image_path !== "expired") {
     const img = document.createElement("img");
     img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: "raw" }).toString();
     img.alt = "原圖";
     wrap.appendChild(img);
   }
-  if (record.annotated_path) {
+  if (record.annotated_path && record.annotated_path !== "expired") {
     const img = document.createElement("img");
     img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: "annotated" }).toString();
     img.alt = "標註圖";
     wrap.appendChild(img);
   }
   const extraLabels = { golden: "黃金樣本", reference: "參考圖" };
-  Object.keys(record.images || {}).forEach((role) => {
+  Object.entries(record.images || {}).filter(([, stored]) => stored !== "expired").forEach(([role]) => {
     const img = document.createElement("img");
     img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: role }).toString();
     img.alt = extraLabels[role] || role;

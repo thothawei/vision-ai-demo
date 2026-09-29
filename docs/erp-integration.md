@@ -74,7 +74,7 @@ POST /api/master/work-orders:bulk-upsert
 - **每一列各自成功或失敗**：回應 `{"created": [...], "updated": [...], "errors": [{"index", "key", "error"}]}`，某列有誤（例如料號不在主檔）不影響其他列；欄位名稱拼錯（未知欄位）整批 422。單次最多 2000 列。
 - 每次推送寫一筆稽核（新增／更新筆數與工單號清單，最多列 200 個）。
 
-檢驗紀錄新增欄位（皆為選填、只增不改）：`run_id`（屬於哪次配方檢驗）、`adhoc`（1＝臨時檢驗：沒有工單或工單不在主檔）、`created_by`、`request_id`、`images`。
+檢驗紀錄新增欄位（皆為選填、只增不改）：`run_id`（屬於哪次配方檢驗）、`adhoc`（1＝臨時檢驗：沒有工單或工單不在主檔）、`created_by`、`request_id`、`images`、`model_id`／`model_version`（這次檢驗用的模型與版本；沒有模型的功能為空。CSV 匯出把這兩欄追加在最後）。
 
 ## 3. 欄位對照表
 

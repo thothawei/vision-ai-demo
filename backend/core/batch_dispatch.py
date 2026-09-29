@@ -17,7 +17,7 @@ def run_batch(action: str, files: list[tuple[str, bytes]], params: BaseModel | N
     counts = {"OK": 0, "NG": 0, "INFO": 0}
     failed = 0
     for filename, image_bytes in files:
-        request_scope.reset_images()  # 每張圖各自存圖，不要沿用上一張留下的 role
+        request_scope.reset_step()  # 每張圖各自存圖、各自記模型版本，不要沿用上一張留下的
         try:
             result = spec.handler(image_bytes, params)
             counts[result.verdict] = counts.get(result.verdict, 0) + 1
