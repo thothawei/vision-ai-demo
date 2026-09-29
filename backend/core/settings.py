@@ -44,6 +44,15 @@ class Settings(BaseSettings):
 
     log_level: str = _f("INFO", "日誌層級（DEBUG／INFO／WARNING／ERROR）", apply="restart")
 
+    session_secret: str | None = _f(
+        None, "登入 session 的簽章密鑰（至少 32 字元，未設定則拒絕啟動）；產生：python -c \"import secrets;print(secrets.token_urlsafe(48))\"",
+        apply="restart",
+    )
+    session_hours: int = _f(12, "登入有效時數", apply="restart")
+    session_cookie_secure: bool = _f(False, "cookie 是否只在 HTTPS 傳送（HTTPS 部署時設 true）", apply="restart")
+    login_max_failures: int = _f(5, "同一帳號連續登入失敗幾次後鎖定")
+    login_lock_minutes: int = _f(15, "登入失敗鎖定分鐘數")
+
 
 def get_settings() -> Settings:
     """即時類設定：每次呼叫重新讀取（成本為讀一個小檔案）。"""

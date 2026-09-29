@@ -68,9 +68,9 @@ def test_every_setting_documents_itself():
         assert (field.json_schema_extra or {}).get("apply") in ("live", "restart"), f"{name} 缺生效時機"
 
 
-def test_only_cors_and_log_level_need_restart():
+def test_only_startup_baked_settings_need_restart():
     restart = {n for n, f in Settings.model_fields.items() if f.json_schema_extra["apply"] == "restart"}
-    assert restart == {"cors_origins", "log_level"}
+    assert restart == {"cors_origins", "log_level", "session_secret", "session_hours", "session_cookie_secure"}
 
 
 def test_admin_guide_settings_table_is_up_to_date():

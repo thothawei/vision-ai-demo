@@ -1,4 +1,5 @@
 import { setupPreview, traceHeaders, callApi, callBatchApi } from "../common.js";
+import { apiFetch } from "../api.js";
 
 // ⑥ 異常檢測
 const anomalyFile = document.getElementById("anomaly-file");
@@ -24,7 +25,7 @@ let currentThresholdCategory = null;
 let thresholdChart = null;
 
 async function refreshAnomalyCategoryDropdown() {
-  const res = await fetch("/api/anomaly/categories/all");
+  const res = await apiFetch("/api/anomaly/categories/all");
   const data = await res.json();
   const select = document.getElementById("anomaly-category");
   const current = select.value;
@@ -41,7 +42,7 @@ async function refreshAnomalyCategoryDropdown() {
 }
 
 async function refreshAnomalyCategoryTable() {
-  const res = await fetch("/api/anomaly/categories");
+  const res = await apiFetch("/api/anomaly/categories");
   const categories = await res.json();
   const tbody = document.getElementById("anomaly-category-tbody");
   tbody.innerHTML = "";
@@ -86,7 +87,7 @@ document.getElementById("anomaly-create-btn").addEventListener("click", async ()
   statusEl.textContent = "送出中…";
   statusEl.className = "status";
   try {
-    const res = await fetch("/api/anomaly/categories?name=" + encodeURIComponent(name), {
+    const res = await apiFetch("/api/anomaly/categories?name=" + encodeURIComponent(name), {
       method: "POST", body: formData, headers: traceHeaders(),
     });
     const data = await res.json();
@@ -142,8 +143,8 @@ function renderThresholdChart(scores) {
 
 async function openThresholdPanel(name) {
   const panel = document.getElementById("anomaly-threshold-panel");
-  const statusEntry = (await (await fetch("/api/anomaly/categories/" + name + "/status")).json());
-  const res = await fetch("/api/anomaly/categories/" + name + "/scores");
+  const statusEntry = (await (await apiFetch("/api/anomaly/categories/" + name + "/status")).json());
+  const res = await apiFetch("/api/anomaly/categories/" + name + "/scores");
   if (!res.ok) { alert("讀取評分資料失敗"); return; }
   const scores = await res.json();
   currentThresholdScores = scores;
@@ -180,7 +181,7 @@ document.getElementById("anomaly-threshold-save-btn").addEventListener("click", 
   const statusEl = document.getElementById("anomaly-threshold-save-status");
   statusEl.textContent = "儲存中…";
   try {
-    const res = await fetch(`/api/anomaly/categories/${currentThresholdCategory}/threshold`, {
+    const res = await apiFetch(`/api/anomaly/categories/${currentThresholdCategory}/threshold`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threshold }),
     });

@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+## [0.18.0]
+
+### 新增
+- 本機帳號與三種角色（operator／qc／admin）：登入 session（簽章 cookie）、argon2id 密碼雜湊、登入失敗鎖定（預設 5 次鎖 15 分鐘）、自行改密碼、使用者管理頁。
+- 稽核紀錄 `audit_log`：複判、使用者異動、門檻調整、黃金樣本新增與覆寫、自訂類別建立、操作員代簽；管理頁可查詢。
+- `inspections.created_by`：operator 只看得到自己的紀錄。
+- `scripts/create_admin.py`；`watch_folder.py` 新增 `--api-key`／`WATCH_API_KEY`。
+- 設定：`SESSION_SECRET`（必填，至少 32 字元）、`SESSION_HOURS`、`SESSION_COOKIE_SECURE`、`LOGIN_MAX_FAILURES`、`LOGIN_LOCK_MINUTES`。
+
+### 變更
+- **所有端點都需要驗證**（原本辨識端點公開）；主頁面與 API 文件未登入導向登入頁。
+- **API key 只能辨識與唯讀**，不能複判或管理；`?api_key=` 網址參數移除。
+- 複判人取自登入者（請求 body 的 `reviewer` 欄位保留但忽略）；追溯欄位「操作員」預設帶登入者。
+- 寫入請求檢查 Origin 與 Host 一致（擋 CSRF）。
+
+### 移除
+- 前端寫死的 `FRONTEND_API_KEY`；`core/api_auth.py`。
+
 ## [0.17.0]
 
 ### 新增

@@ -5,11 +5,11 @@ API 契約見 [openapi.json](openapi.json)（`GET /openapi.json` 即時匯出，
 
 ## 1. 認證方式
 
-`/api/inspections*` 下的所有端點都需要 `X-API-Key`；本系統其餘 13 個辨識端點（`/api/general/*` 等）不需要，理由見 [CLAUDE.md](../CLAUDE.md)「技術決策與理由（Phase 10）」。
+本系統所有端點都需要驗證：瀏覽器使用者用帳號登入，**系統對系統（ERP、資料夾監控腳本）用 `X-API-Key`**。API key 只能做辨識與**唯讀**（`/api/inspections*` 的清單、單筆、圖片、統計、匯出、`reviews`），**不能複判**，也不能做使用者、門檻、黃金樣本等管理操作（回 403）——複判需要具名的人，稽核才有意義。
 
-- key 存在 `.env` 的 `API_KEYS=erp:<key>,frontend:<key>`，逗號分隔多組 `名稱:key`。
-- 帶法：HTTP header `X-API-Key: <key>`（推薦）；或 URL query `?api_key=<key>`（只給 `<img>`/純連結這種沒辦法帶自訂 header 的情境用，`manufacturing-erp` 走後端輪詢應該一律用 header）。
-- 沒帶、帶錯都回 `401 {"detail": "缺少或無效的 X-API-Key"}`。
+- key 存在 `.env` 的 `API_KEYS=erp:<key>,watcher:<key>`，逗號分隔多組 `名稱:key`；用該 key 建立的檢驗紀錄，`created_by` 會是 `api-key:<名稱>`。
+- 帶法：只接受 HTTP header `X-API-Key: <key>`。**`?api_key=` 網址參數已於 0.18.0 移除**（key 會留在網址與日誌裡）。
+- 沒帶、帶錯都回 `401`；帶了有效 key 但操作不被允許回 `403`。
 - **正式導入前務必把 `.env` 的預設 key（`dev-erp-key-change-me`）換成隨機字串**，`API_KEYS` 不進版控（`.gitignore` 已排除 `.env`）。
 
 ## 2. 增量輪詢流程（`since_id`）

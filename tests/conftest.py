@@ -1,4 +1,5 @@
 import io
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +35,9 @@ def make_video_bytes(n_frames: int, width: int = 100, height: int = 100, fps: fl
 
 
 TEST_API_KEY = "test-key"
+TEST_PASSWORD = "password-1234"
+# 登入 session 需要簽章密鑰，沒有的話 main.py 會拒絕啟動；必須在任何 `import main` 之前設好
+os.environ.setdefault("SESSION_SECRET", "test-session-secret-" + "x" * 32)
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +50,7 @@ def _ignore_real_dotenv(monkeypatch):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def api_client(tmp_path, monkeypatch):
     # 每個測試用獨立的 SQLite 與圖片目錄，不污染 data/inspections.db、data/images/
     monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
     monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
@@ -54,10 +58,49 @@ def client(tmp_path, monkeypatch):
     # Phase 10：/api/inspections* 需要 X-API-Key，預設帶好測試 key，
     # 這樣既有測試（呼叫 /api/inspections*）不用逐一加 header；
     # 專門測「沒帶/帶錯 key」行為的測試改用不帶預設 header 的 client。
-    monkeypatch.setenv("API_KEYS", f"erp:{TEST_API_KEY},frontend:{TEST_API_KEY}")
+    monkeypatch.setenv("API_KEYS", f"erp:{TEST_API_KEY}")
     from main import app
 
     return TestClient(app, headers={"X-API-Key": TEST_API_KEY})
+
+
+@pytest.fixture
+def client(api_client):
+    """預設：帶 API key 的系統呼叫（辨識與唯讀）。需要使用者身分的測試改用 admin_client／qc_client／operator_client。"""
+    return api_client
+
+
+@pytest.fixture
+def make_session_client(api_client):
+    """建立指定角色的使用者並登入，回傳帶 session cookie 的 TestClient（不帶 API key）。
+    依賴 `api_client` 是為了沿用它設好的暫存資料庫與圖片目錄。"""
+    from core import users
+    from main import app
+
+    def _make(role: str = "admin", username: str | None = None, display_name: str | None = None):
+        username = username or f"{role}_test"
+        users.create_user(username, display_name or f"{role}測試", TEST_PASSWORD, role)
+        session = TestClient(app)
+        res = session.post("/api/auth/login", json={"username": username, "password": TEST_PASSWORD})
+        assert res.status_code == 200, res.text
+        return session
+
+    return _make
+
+
+@pytest.fixture
+def admin_client(make_session_client):
+    return make_session_client("admin")
+
+
+@pytest.fixture
+def qc_client(make_session_client):
+    return make_session_client("qc")
+
+
+@pytest.fixture
+def operator_client(make_session_client):
+    return make_session_client("operator")
 
 
 @pytest.fixture

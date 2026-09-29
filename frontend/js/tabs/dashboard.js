@@ -1,18 +1,16 @@
 import { loadCatalog } from "../catalog.js";
+import { apiFetch } from "../api.js";
+import { loadMe } from "../session.js";
 
 // ⑰ 品檢紀錄與看板
 
-// Phase 10：/api/inspections* 現在需要 X-API-Key，這組 key 要跟後端 .env 的 API_KEYS
-// 裡 frontend: 那組一致（單機部署的取捨：兩邊各自一份設定，換 key 要兩邊一起改）。
-const FRONTEND_API_KEY = "dev-frontend-key-change-me";
-
-function apiKeyHeaders(extra) {
-  return Object.assign({ "X-API-Key": FRONTEND_API_KEY }, extra || {});
-}
-
-function withApiKeyParam(params) {
-  params.set("api_key", FRONTEND_API_KEY); // <img src> 與純連結下載無法帶自訂 header，退回 query 參數
-  return params;
+// operator 只看得到自己的紀錄：不顯示統計圖，也不能展開明細或複判（伺服器端也會擋）
+const me = await loadMe();
+const isOperator = me.role === "operator";
+if (isOperator) {
+  document.getElementById("dash-stats-card").style.display = "none";
+  document.getElementById("dash-table-title").textContent = "我的檢驗紀錄";
+  document.getElementById("dash-table-hint").textContent = "只顯示你自己建立的紀錄";
 }
 
 const dashModuleSelect = document.getElementById("dash-filter-module");
@@ -51,7 +49,7 @@ function renderDashChart(id, config) {
 async function fetchStats(groupBy) {
   const params = dashFilterParams();
   params.set("group_by", groupBy);
-  const res = await fetch("/api/inspections/stats?" + params.toString(), { headers: apiKeyHeaders() });
+  const res = await apiFetch("/api/inspections/stats?" + params.toString(), {});
   if (!res.ok) throw new Error((await res.json()).detail || "看板統計失敗");
   return res.json();
 }
@@ -76,6 +74,10 @@ function renderStatRow(overall) {
 }
 
 async function refreshDashboard() {
+  if (isOperator) {
+    await refreshDashTable();
+    return;
+  }
   const statusEl = document.getElementById("dash-status");
   statusEl.textContent = "載入中…";
   statusEl.className = "status";
@@ -144,7 +146,7 @@ function verdictBadgeHtml(verdict) {
 
 async function refreshDashTable() {
   const params = dashFilterParams();
-  const res = await fetch("/api/inspections?" + params.toString(), { headers: apiKeyHeaders() });
+  const res = await apiFetch("/api/inspections?" + params.toString(), {});
   const records = await res.json();
   const tbody = document.getElementById("dash-table-body");
   tbody.innerHTML = "";
@@ -161,9 +163,13 @@ async function refreshDashTable() {
     detailTd.appendChild(buildDetailPanel(r));
     detailRow.appendChild(detailTd);
     detailRow.style.display = "none";
-    tr.addEventListener("click", () => {
-      detailRow.style.display = detailRow.style.display === "none" ? "table-row" : "none";
-    });
+    if (isOperator) {
+      tr.classList.remove("clickable");
+    } else {
+      tr.addEventListener("click", () => {
+        detailRow.style.display = detailRow.style.display === "none" ? "table-row" : "none";
+      });
+    }
     tbody.appendChild(tr);
     tbody.appendChild(detailRow);
   });
@@ -175,20 +181,20 @@ function buildDetailPanel(record) {
 
   if (record.image_path) {
     const img = document.createElement("img");
-    img.src = `/api/inspections/${record.id}/image?` + withApiKeyParam(new URLSearchParams({ kind: "raw" })).toString();
+    img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: "raw" }).toString();
     img.alt = "原圖";
     wrap.appendChild(img);
   }
   if (record.annotated_path) {
     const img = document.createElement("img");
-    img.src = `/api/inspections/${record.id}/image?` + withApiKeyParam(new URLSearchParams({ kind: "annotated" })).toString();
+    img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: "annotated" }).toString();
     img.alt = "標註圖";
     wrap.appendChild(img);
   }
   const extraLabels = { golden: "黃金樣本", reference: "參考圖" };
   Object.keys(record.images || {}).forEach((role) => {
     const img = document.createElement("img");
-    img.src = `/api/inspections/${record.id}/image?` + withApiKeyParam(new URLSearchParams({ kind: role })).toString();
+    img.src = `/api/inspections/${record.id}/image?` + new URLSearchParams({ kind: role }).toString();
     img.alt = extraLabels[role] || role;
     wrap.appendChild(img);
   });
@@ -203,7 +209,6 @@ function buildDetailPanel(record) {
   reviewForm.className = "row";
   reviewForm.innerHTML = `
     <select class="review-verdict"><option value="OK">複判為 OK</option><option value="NG">複判為 NG</option></select>
-    <input type="text" class="review-reviewer" placeholder="複判人">
     <input type="text" class="review-note" placeholder="備註（選填）">
     <button type="button" class="review-submit-btn">送出複判</button>
     <span class="review-msg hint"></span>
@@ -219,15 +224,14 @@ function buildDetailPanel(record) {
   reviewForm.querySelector(".review-submit-btn").addEventListener("click", async (e) => {
     e.stopPropagation();
     const verdict = reviewForm.querySelector(".review-verdict").value;
-    const reviewer = reviewForm.querySelector(".review-reviewer").value.trim();
     const note = reviewForm.querySelector(".review-note").value.trim();
     const msg = reviewForm.querySelector(".review-msg");
     msg.textContent = "送出中…";
     try {
-      const res = await fetch(`/api/inspections/${record.id}/review`, {
+      const res = await apiFetch(`/api/inspections/${record.id}/review`, {
         method: "PATCH",
-        headers: apiKeyHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ review_verdict: verdict, reviewer: reviewer || null, review_note: note || null }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_verdict: verdict, review_note: note || null }), // 複判人由伺服器取自登入者
       });
       if (!res.ok) throw new Error((await res.json()).detail || "複判失敗");
       msg.textContent = "已送出，良率統計更新中…";
@@ -243,7 +247,7 @@ function buildDetailPanel(record) {
 
 document.getElementById("dash-refresh-btn").addEventListener("click", refreshDashboard);
 document.getElementById("dash-export-btn").addEventListener("click", () => {
-  const params = withApiKeyParam(dashFilterParams());
+  const params = dashFilterParams();
   window.open("/api/inspections/export.csv?" + params.toString(), "_blank");
 });
 document.addEventListener("tab-activated", (e) => { if (e.detail === "dashboard") refreshDashboard(); });

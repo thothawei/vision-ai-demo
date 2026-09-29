@@ -13,7 +13,8 @@ def _png(image) -> bytes:
     return buf.getvalue()
 
 
-def test_assembly_saves_raw_and_golden_and_image_api_serves_both(client, monkeypatch):
+def test_assembly_saves_raw_and_golden_and_image_api_serves_both(admin_client, monkeypatch):
+    client = admin_client  # 建立黃金樣本需要 admin
     monkeypatch.setenv("SAVE_IMAGES", "true")
     golden = _png(make_samples.make_assembly_scene())
     client.post("/api/assembly/golden-samples", params={"part_no": "p1"},

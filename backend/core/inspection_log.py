@@ -36,6 +36,31 @@ CREATE TABLE IF NOT EXISTS inspections (
 );
 CREATE INDEX IF NOT EXISTS idx_inspections_module_time ON inspections(module, created_at);
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('operator', 'qc', 'admin')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    before_json TEXT,
+    after_json TEXT,
+    request_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+
 CREATE TABLE IF NOT EXISTS webhook_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inspection_id INTEGER NOT NULL,
@@ -53,7 +78,7 @@ _NEW_COLUMNS = [
     "work_order", "part_no", "lot_no", "station", "operator",
     "image_path", "annotated_path",
     "review_verdict", "reviewer", "reviewed_at", "review_note",
-    "images_json", "request_id",
+    "images_json", "request_id", "created_by",
 ]
 
 _ALL_COLUMNS = [
@@ -100,6 +125,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def connect() -> sqlite3.Connection:
+    return _connect()
+
+
 def _connect() -> sqlite3.Connection:
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,14 +146,15 @@ def log_inspection(
     summary: list | dict,
     trace: dict | None = None,
     request_id: str | None = None,
+    created_by: str | None = None,
 ) -> int:
     trace = trace or {}
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO inspections "
             "(created_at, module, verdict, engine, elapsed_ms, summary_json, "
-            " work_order, part_no, lot_no, station, operator, request_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " work_order, part_no, lot_no, station, operator, request_id, created_by)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now().isoformat(timespec="seconds"),
                 module,
@@ -138,6 +168,7 @@ def log_inspection(
                 trace.get("station"),
                 trace.get("operator"),
                 request_id,
+                created_by,
             ),
         )
         return cur.lastrowid
@@ -192,9 +223,17 @@ def record_result(
     （由 main.py 的 middleware 與 image_io.load_image() 設定），呼叫端不用額外傳參數。"""
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     trace = request_scope.get_trace()
+    scope = request_scope.get_scope()
     inspection_id = log_inspection(
-        module, verdict, engine, elapsed_ms, items, trace, request_scope.get_request_id()
+        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user
     )
+    if scope.operator_override:
+        from core import audit  # 延後匯入：audit 會匯入本檔的連線函式
+
+        audit.record(
+            scope.user or "-", "inspection.operator_override", "inspection", inspection_id,
+            before={"operator": scope.trace_operator_default}, after={"operator": scope.operator_override},
+        )
 
     if _save_images_enabled():
         with _connect() as conn:
@@ -240,6 +279,7 @@ def query_inspections(
     station: str | None = None,
     limit: int = 200,
     since_id: int | None = None,
+    created_by: str | None = None,
 ) -> list[dict]:
     """date_from / date_to 接受 ISO 日期（YYYY-MM-DD）或日期時間；date_to 只給日期時含當天整天。
 
@@ -271,6 +311,9 @@ def query_inspections(
     if station:
         sql += " AND station = ?"
         params.append(station)
+    if created_by:
+        sql += " AND created_by = ?"
+        params.append(created_by)
     if since_id is not None:
         sql += " AND id > ?"
         params.append(since_id)

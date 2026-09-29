@@ -24,6 +24,9 @@ class RequestScope:
     trace: dict = field(default_factory=dict)
     request_id: str | None = None
     images: dict[str, tuple[bytes, str]] = field(default_factory=dict)
+    user: str | None = None  # 操作者身分（user:<帳號> 或 api-key:<名稱>），存進 inspections.created_by
+    operator_override: str | None = None  # 使用者手動把追溯欄位「操作員」改成別人時的值（要記稽核）
+    trace_operator_default: str | None = None  # 登入者顯示名稱（操作員欄位的預設值）
 
 
 _scope_var: ContextVar[RequestScope | None] = ContextVar("request_scope", default=None)

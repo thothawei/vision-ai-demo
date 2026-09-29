@@ -8,7 +8,24 @@
 </head>
 <body>
 
-<h1>製造業 AI 辨識系統</h1>
+<div class="topbar">
+  <h1>製造業 AI 辨識系統</h1>
+  <div class="userbar" id="userbar">
+    <span id="userbar-name"></span>
+    <button type="button" id="userbar-password-btn">修改密碼</button>
+    <button type="button" id="userbar-logout-btn">登出</button>
+  </div>
+</div>
+<div class="card" id="password-card" style="display:none">
+  <h2>修改密碼</h2>
+  <div class="row">
+    <input type="password" id="pw-current" placeholder="目前密碼" autocomplete="current-password">
+    <input type="password" id="pw-new" placeholder="新密碼（至少 10 個字元）" autocomplete="new-password">
+    <button type="button" id="pw-submit-btn">送出</button>
+    <button type="button" id="pw-cancel-btn">取消</button>
+  </div>
+  <div class="status" id="pw-status"></div>
+</div>
 
 <div class="trace-bar" id="trace-bar">
   <label>工單號 <input type="text" id="trace-work-order" placeholder="WO-2026-0001"></label>
@@ -415,7 +432,7 @@
 </div>
 
 <div class="panel" id="panel-dashboard">
-  <div class="card">
+  <div class="card" id="dash-stats-card">
     <h2>品檢看板</h2>
     <p style="color:var(--muted); font-size:13px;">
       AI 判定的良率／人工複判後的最終良率／NG 原因柏拉圖／AI 與人工一致率。篩選條件套用到看板與下方紀錄表格。
@@ -437,13 +454,55 @@
   </div>
 
   <div class="card">
-    <h2>檢驗紀錄</h2>
-    <div class="hint">點一列展開看原圖／標註圖，並可送出人工複判</div>
+    <h2 id="dash-table-title">檢驗紀錄</h2>
+    <div class="hint" id="dash-table-hint">點一列展開看原圖／標註圖，並可送出人工複判（複判人為登入者本人）</div>
     <table class="dash-table" id="dash-table">
       <thead><tr><th>ID</th><th>時間</th><th>模組</th><th>AI 判定</th><th>最終判定</th><th>工單</th><th>料號</th></tr></thead>
       <tbody id="dash-table-body"></tbody>
     </table>
     <div class="status" id="dash-status"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-users">
+  <div class="card">
+    <h2>使用者管理</h2>
+    <p style="color:var(--muted); font-size:13px;">角色：operator＝執行檢驗、看自己的紀錄；qc＝另可複判、看板、匯出；admin＝另可管理使用者、門檻、黃金樣本、自訂類別。所有變更都會寫入稽核紀錄。</p>
+    <table class="dash-table">
+      <thead><tr><th>帳號</th><th>顯示名稱</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+      <tbody id="users-body"></tbody>
+    </table>
+    <div class="status" id="users-status"></div>
+  </div>
+  <div class="card">
+    <h2>新增使用者</h2>
+    <div class="row">
+      <input type="text" id="new-user-username" placeholder="帳號（英數字 . _ -，3–32）">
+      <input type="text" id="new-user-display" placeholder="顯示名稱">
+      <input type="password" id="new-user-password" placeholder="初始密碼（至少 10 個字元）" autocomplete="new-password">
+      <select id="new-user-role"><option value="operator">operator</option><option value="qc">qc</option><option value="admin">admin</option></select>
+      <button type="button" id="new-user-btn">建立</button>
+    </div>
+    <div class="status" id="new-user-status"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-audit">
+  <div class="card">
+    <h2>稽核紀錄</h2>
+    <p style="color:var(--muted); font-size:13px;">誰、何時、對什麼做了什麼，附變更前後的值。只增不改。</p>
+    <div class="dash-filters">
+      <label>動作 <select id="audit-filter-action"><option value="">全部</option></select></label>
+      <label>操作者 <input type="text" id="audit-filter-actor" placeholder="user:帳號"></label>
+      <label>從 <input type="date" id="audit-filter-from"></label>
+      <label>到 <input type="date" id="audit-filter-to"></label>
+      <button type="button" id="audit-refresh-btn">查詢</button>
+    </div>
+    <table class="dash-table">
+      <thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>對象</th><th>變更前 → 後</th></tr></thead>
+      <tbody id="audit-body"></tbody>
+    </table>
+    <div class="status" id="audit-status"></div>
   </div>
 </div>
 

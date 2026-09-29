@@ -137,7 +137,8 @@ def test_worker_updates_status_on_success_and_failure(anomaly_paths, monkeypatch
     assert "擬合失敗測試" in boom_status["error"]
 
 
-def test_router_create_category_and_list(client, anomaly_paths):
+def test_router_create_category_and_list(admin_client, anomaly_paths):
+    client = admin_client  # 建立類別需要 admin
     res = client.post(
         "/api/anomaly/categories", params={"name": "router_test_cat"},
         files={"good_zip": ("good.zip", _make_zip(20), "application/zip")},

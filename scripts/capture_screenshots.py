@@ -1,9 +1,10 @@
 """Phase 8 收尾：用 Playwright 自動跑過每個分頁，實際上傳測試圖、點擊、等結果，截圖存到 docs/screenshots/。
 
 這是一次性文件用腳本（不進 requirements.txt，只在 venv 額外裝 playwright）：
-    python scripts/capture_screenshots.py
+    CAPTURE_USERNAME=... CAPTURE_PASSWORD=... [BASE_URL=http://127.0.0.1:8001] python scripts/capture_screenshots.py
 """
 
+import os
 import time
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from playwright.sync_api import sync_playwright
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = PROJECT_ROOT / "tests" / "samples"
 OUT_DIR = PROJECT_ROOT / "docs" / "screenshots"
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 
 # (tab_index_1based, 截圖檔名, 檔案input選擇器, 上傳的圖, 按鈕文字, 等待秒數, 上傳前的額外設定)
 STEPS = [
@@ -57,7 +58,15 @@ def main():
         console_errors = []
         page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: console_errors.append(str(e)))
-        page.goto(BASE_URL, wait_until="networkidle")
+        # 需要登入：帳密由環境變數提供（建議對暫存資料庫的伺服器執行，不要把截圖用帳號建在正式資料庫）
+        username, password = os.environ.get("CAPTURE_USERNAME"), os.environ.get("CAPTURE_PASSWORD")
+        if not username or not password:
+            raise SystemExit("請設定環境變數 CAPTURE_USERNAME 與 CAPTURE_PASSWORD（admin 或 qc 帳號）")
+        page.goto(BASE_URL + "/login.html", wait_until="networkidle")
+        page.fill("#login-username", username)
+        page.fill("#login-password", password)
+        page.click("#login-btn")
+        page.wait_for_url(BASE_URL + "/", timeout=10000)
         page.wait_for_selector(".side-nav .tab-btn", timeout=10000)
         page.wait_for_timeout(500)
 

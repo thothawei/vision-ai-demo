@@ -43,6 +43,10 @@
 - **測試不可讀到真實 `.env`**：設定會讀專案根目錄 `.env`（含真實 Gemini key），`tests/conftest.py` 的 autouse fixture 已把 `env_file` 設為 None；新增絕對不能拿真 key 的測試也要依賴這個隔離。
 - **日誌不記 API key 與圖片內容**：用 `logging.getLogger("vision.xxx")`，每行帶 `request_id`；模型載入用 `core.logging_setup.log_model_load`。uvicorn 自己的 access log 會印完整網址（含 `?api_key=`），那是已知限制。
 - **前端是原生 ES modules（不用建置工具）**：`frontend/js/common.js`（共用）、`rect-canvas.js`、`tabs/<分頁>.js`（各分頁綁定）、`nav.js`（依 `/api/modules` 建左側導覽）。分頁的表單 HTML 仍寫在 `index.html` 的 `id="panel-<tab>"`；註冊表有、HTML 沒有的分頁會自動產生說明用的預設面板。
+- **所有端點都要驗證**：路由層 `Depends(auth.require_login)`（登入使用者或 API key），需要更高權限的端點在函式參數加 `Depends(require_role("qc"|"admin", allow_api_key=...))`（見 `core/auth.py`）。API key 預設只能辨識與唯讀；複判與管理一律需要具名使用者。新增端點要決定它的最低角色，不要只靠 router 層級的 `require_login`。
+- **session 只存 user_id，每個請求重讀使用者**（停用／改角色立即生效）；`SESSION_SECRET` 未設或短於 32 字元 main.py 會拒絕啟動，測試在 `tests/conftest.py` 開頭用 `os.environ.setdefault` 設好（必須早於任何 `import main`）。測試用 `client`（API key）、`admin_client`／`qc_client`／`operator_client`（登入 session）；整個檔案都需要 admin 時，在檔內覆寫 `client` fixture 為 `admin_client`（見 `test_assembly.py`）。
+- **稽核**：會改變設定或他人資料的操作，都在 router 層呼叫 `audit.record(principal.actor, action, target_type, target_id, before, after)`；稽核內容不可含密碼或雜湊。`reviewer`、`created_by` 一律取自登入者，不信任請求 body。
+- **寫入請求的 Origin 檢查**（`main.py` 的 `csrf_origin_middleware`）：瀏覽器帶的 Origin 必須與 Host 相同，測試客戶端沒有 Origin 所以不受影響；反向代理不可改寫 Host。
 - **Playwright 點 canvas 用 `locator.click(position=...)`**，不要用絕對座標的 `page.mouse.click`（超出 viewport 不會自動捲動）。
 - **Mermaid 節點文字含 `{}` 要用引號並改圓括號**；改架構圖後手動重新渲染 `docs/architecture.png`。
 - **本機 Ollama 模型延遲 8–20 秒**；CI／單元測試一律用假 LLM，真打標 `live`。
@@ -62,6 +66,9 @@ vision-ai-demo/
 │   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
 │   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
 │   │   ├── request_scope.py     # Phase 17：請求範圍資料（追溯資訊、request_id、依 role 分開的圖片）
+│   │   ├── auth.py              # Phase 18：Principal、require_login／require_role（session 或 API key）
+│   │   ├── users.py             # Phase 18：本機帳號、argon2id、登入失敗鎖定
+│   │   ├── audit.py             # Phase 18：稽核紀錄
 │   │   ├── api_auth.py          # Phase 10：/api/inspections* 的 X-API-Key 驗證
 │   │   ├── webhook.py           # Phase 10：NG 非同步通知 + 失敗重試佇列
 │   │   ├── batch_dispatch.py    # Phase 11：批次上傳執行核心（動作與參數模型來自 registry）
@@ -92,7 +99,8 @@ vision-ai-demo/
 │   │   └── shipping/             # Phase 14：M12 出貨標籤 vs 工單比對
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 版面與各分頁表單（16 個功能分頁＋看板；導覽由 /api/modules 產生）
+│   ├── index.html               # 版面與各分頁表單（16 個功能分頁＋看板＋使用者／稽核；導覽由 /api/modules 依角色產生）
+│   ├── login.html               # 登入頁（公開，不含任何密鑰）
 │   ├── css/app.css
 │   ├── js/                      # ES modules：main.js、nav.js、catalog.js、common.js、rect-canvas.js、tabs/*.js
 │   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
@@ -133,6 +141,8 @@ pytest -m live -s                       # 真打本機模型，需 ollama serve 
 python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 ```
 
+首次啟動前要在 `.env` 設 `SESSION_SECRET`（≥32 字元，否則拒絕啟動），並用 `python scripts/create_admin.py --username admin --display-name 系統管理員` 建立第一個管理員。
+
 環境需求與完整安裝步驟見 `README.md`「安裝」；`.env` 設定見 `docs/admin-guide.md`。
 
 ## 待辦（Phase 進度）
@@ -140,5 +150,5 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 0–15：辨識功能、看板、ERP 介面、產線輸入、自有資料導入、M10–M12（細節見 `docs/dev/progress.md`）。
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
-- [ ] Phase 18：使用者、角色、稽核。 [ ] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
+- [x] Phase 18：使用者、角色、稽核。 [ ] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
 - [ ] Phase 21：模型與資料治理。 [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

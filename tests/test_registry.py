@@ -140,9 +140,10 @@ def _queue(fake_llm_queue, doc_type, extract):
     responses.append((extract, "fake:extract"))
 
 
-def test_previously_missing_modules_now_appear_in_pareto(client, fake_llm_queue, nameplate_png, work_order_png,
+def test_previously_missing_modules_now_appear_in_pareto(admin_client, fake_llm_queue, nameplate_png, work_order_png,
                                                         screws_png, measure_scene_png_marker,
                                                         gs1_expired_png_fields):
+    client = admin_client  # 建立黃金樣本需要 admin；admin 也能做辨識與看統計
     # codes：效期已過期
     expired_png, _ = gs1_expired_png_fields
     assert client.post("/api/codes/decode", files={"file": ("c.png", expired_png, "image/png")}).json()["verdict"] == "NG"

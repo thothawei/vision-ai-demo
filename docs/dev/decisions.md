@@ -195,3 +195,16 @@ flowchart LR
 - **設定**：pydantic-settings 2.15.0。原本 `load_dotenv` 只在啟動時把 `.env` 灌進 `os.environ`，所以舊的「即時」其實是「改真實環境變數才即時、改 `.env` 仍要重啟」；新做法每次 `get_settings()` 重讀 `.env`，才真的即時。真實環境變數優先於 `.env`。**測試必須隔離真實 `.env`**：改成讀檔後，`monkeypatch.delenv("GEMINI_API_KEY")` 蓋不住 `.env` 裡的真 key，`test_gemini_without_key` 一度因此嘗試以真 key 走出去（`RuntimeError` 失敗才發現），已用 conftest 的 autouse fixture 把 `env_file` 設 None。
 - **日誌**：key=value（人工好 grep）。`request_id` 由最外層 middleware 產生（可沿用呼叫端帶的合法值），401 也帶；不記 API key 與圖片內容（測試以「只看本專案 logger」斷言，因為 httpx 用戶端與 PIL 的除錯日誌不歸我們管；uvicorn access log 會印 `?api_key=` 屬已知限制）。
 - **前端**：原生 ES modules，用腳本依行範圍機械切分原 `index.html` 的 JS，再檢查跨檔引用。導覽由 `/api/modules` 產生；註冊表有、HTML 沒有的分頁自動產生說明用預設面板。管理類頁面（看板）不是辨識動作，先固定列在「管理」。
+
+## 技術決策與理由（Phase 18，使用者、角色、稽核）
+
+- **規劃書的前提有誤**：Starlette 的 `SessionMiddleware` 第 8 行 `import itsdangerous`，而它不是 FastAPI／Starlette 的相依，venv 裡原本沒有，不裝服務會直接啟動失敗。所以本 Phase 新增兩個套件：`argon2-cffi`（連帶 `argon2-cffi-bindings`）與 `itsdangerous`，皆免費（MIT／BSD-3-Clause）。
+- **驗證用 FastAPI dependency 取代 middleware**：`core/auth.py` 的 `require_login`／`require_role(min_role, allow_api_key)`。辨識端點在 `include_router(..., dependencies=[require_login])` 一次套用，需要更高權限的端點在函式參數各自加 `require_role`。dependency 把身分寫進 `request_scope`（`user`、追溯欄位「操作員」預設值與代簽標記），`record_result()` 再據以寫 `created_by` 與稽核，不必改各模組 service 的簽名。
+- **API key 只能辨識與唯讀**（使用者決定）：複判需要具名的人，稽核才有意義；ERP 只需要輪詢與讀取。`watch_folder.py` 新增 `--api-key`／`WATCH_API_KEY`，沒設定就拒絕啟動。`?api_key=` 網址參數移除，瀏覽器下載 CSV 與看圖走登入 cookie。key 比對用 `hmac.compare_digest` 且逐一比完不提早結束。
+- **session 只存 `user_id`，每個請求重讀使用者**：停用帳號、改角色立即生效（測試用「升 qc 後不重新登入即可看統計」「停用後既有 session 立即 401」驗證）。量測：session 請求平均 5.75ms（P95 7.56ms），API key 4.85ms（P95 5.85ms），差約 0.9ms；登入含 argon2 驗證約 52ms。
+- **CSRF**：cookie `SameSite=Lax` 加上寫入請求檢查 `Origin` 與 `Host` 一致（沒帶 Origin 的程式呼叫與帶 `X-API-Key` 的系統呼叫不受影響）。不做 token，因為前端是同源 fetch。副作用：反向代理不可改寫 Host。
+- **登入細節**：失敗訊息不區分「帳號不存在／密碼錯／已停用／鎖定中」；帳號不存在時也做一次假 argon2 驗證，避免用回應時間探測帳號。鎖定中即使密碼正確也拒絕且不延長鎖定；成功登入歸零計數並換一份新 session。帳號不分大小寫（`COLLATE NOCASE`）。系統必須保留至少一位啟用中的 admin（停用或降級最後一位會被擋），否則使用者管理會被鎖死。
+- **頁面保護**：`/`、`/index.html`、`/docs`、`/redoc` 未登入導向 `/login.html`，`/openapi.json` 回 401；登入頁、css、js、vendor 公開（前端原始碼已不含任何密鑰，有測試掃描 `FRONTEND_API_KEY`、`api_key`、`X-API-Key`）。
+- **稽核**：`audit_log` 只增不改；`actor` 為 `user:<帳號>`、`api-key:<名稱>` 或 `script:create_admin`；稽核內容明確不含密碼與雜湊（測試斷言）。操作員代簽在 `record_result()` 取得 inspection id 後才寫（辨識失敗就不寫）。規劃書列的「色差標準」目前不持久化，沒有可稽核的對象。
+- **operator 只看自己的紀錄**：新增 `inspections.created_by`；舊紀錄為 NULL，operator 看不到。operator 的看板頁只顯示紀錄表（後端另擋統計、明細、圖片、匯出）。
+- **測試改動說明**：授權邊界依設計改變，以下測試改用對應角色的登入 client，判斷邏輯不變——複判（`test_inspections`、`test_erp_integration`）、建立黃金樣本（`test_assembly` 整檔、`test_registry`、`test_request_scope`）、建立自訂類別（`test_anomaly_categories`）。`test_recognition_endpoints_do_not_need_api_key` 改成相反的斷言（沒帶身分 401）。

@@ -133,25 +133,26 @@ def test_save_images_stores_annotated_when_module_provides_one(client, fake_pcb_
     assert annotated_res.headers["content-type"] == "image/png"
 
 
-def test_review_endpoint_updates_and_rejects_invalid_verdict(client, fake_llm, warning_sign_png):
+def test_review_endpoint_updates_and_rejects_invalid_verdict(client, qc_client, fake_llm, warning_sign_png):
     res = client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")})
     inspection_id = res.json()["inspection_id"]
 
-    patched = client.patch(
+    # body 裡的 reviewer 會被忽略，複判人一律是登入者（qc_test）
+    patched = qc_client.patch(
         f"/api/inspections/{inspection_id}/review",
         json={"review_verdict": "NG", "reviewer": "李品檢", "review_note": "實際有瑕疵"},
     )
     assert patched.status_code == 200
     body = patched.json()
     assert body["review_verdict"] == "NG"
-    assert body["reviewer"] == "李品檢"
+    assert body["reviewer"] == "qc_test"
     assert body["review_note"] == "實際有瑕疵"
     assert body["reviewed_at"] is not None
 
-    invalid = client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "MAYBE"})
+    invalid = qc_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "MAYBE"})
     assert invalid.status_code == 422
 
-    not_found = client.patch("/api/inspections/999999/review", json={"review_verdict": "OK"})
+    not_found = qc_client.patch("/api/inspections/999999/review", json={"review_verdict": "OK"})
     assert not_found.status_code == 404
 
 

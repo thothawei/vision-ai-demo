@@ -4,7 +4,8 @@
     python scripts/watch_folder.py --action general --in ./inbox \
         --station AOI-01 --work-order WO-2026-0001
 
-辨識端點不用 X-API-Key（Phase 10 只保護 /api/inspections*），所以這支腳本不用帶 key。
+辨識端點需要驗證：用 `--api-key`（或環境變數 `WATCH_API_KEY`）帶系統對系統的 API key，
+對應伺服器 `.env` 的 `API_KEYS`（格式 名稱:key）。這把 key 只能辨識與唯讀，不能複判或做管理。
 
 核心邏輯（`process_one`）刻意跟 CLI 的 watchdog 迴圈分開，吃一個 httpx.Client 相容物件
 （本機正式執行是 `httpx.Client(base_url=...)`，測試用 FastAPI 的 TestClient——兩者介面
@@ -12,6 +13,7 @@
 """
 
 import argparse
+import os
 import shutil
 import sys
 import time
@@ -23,7 +25,7 @@ import httpx
 
 SUPPORTED_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
-# 跟 backend/core/batch_dispatch.py 的 ACTIONS 用同一組代號，兩邊要保持一致。
+# 跟 backend/core/registry.py 的批次動作用同一組代號，兩邊要保持一致。
 ACTION_URLS = {
     "general": "/api/general/describe",
     "docs": "/api/docs/extract",
@@ -146,6 +148,10 @@ def build_request_context(args) -> tuple[dict, dict, dict]:
         if value:
             headers[header_name] = quote(value)
 
+    api_key = getattr(args, "api_key", None)
+    if api_key:
+        headers["X-API-Key"] = api_key
+
     return params, data, headers
 
 
@@ -162,6 +168,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action", required=True, choices=sorted(ACTION_URLS), help="要呼叫的辨識動作")
     parser.add_argument("--in", dest="in_dir", required=True, help="監看的資料夾")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--api-key", dest="api_key", default=os.environ.get("WATCH_API_KEY"),
+                        help="X-API-Key（預設讀環境變數 WATCH_API_KEY）")
     parser.add_argument("--station")
     parser.add_argument("--work-order", dest="work_order")
     parser.add_argument("--part-no", dest="part_no")
@@ -187,6 +195,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
+    if not args.api_key:
+        sys.exit("缺少 API key：請用 --api-key 或設定環境變數 WATCH_API_KEY（值為 .env 的 API_KEYS 裡某組 key）")
     in_dir = Path(args.in_dir)
     in_dir.mkdir(parents=True, exist_ok=True)
     done_dir = in_dir / "done"

@@ -219,3 +219,22 @@
 - **前端**：導覽 17 個項目（16 功能＋看板）逐一點過，每次只有對應的 panel active；`scripts/capture_screenshots.py` 跑完 17 個流程（含真打 Ollama 的 5 個），瀏覽器 console／頁面錯誤 0 筆；`#gauge` 網址直連與 `hashchange` 生效（第一版漏了 hashchange，Playwright 測出後補上）；攔截 `/api/modules` 加一個沒有專用畫面的假動作，導覽出現並產生預設面板；390px 寬度 `scrollWidth == clientWidth`（無橫向捲動）。
 - **間歇性的測試程序結束崩潰（未查出根因）**：全測試通過之後的程序結束階段，偶爾出現 `libc++abi: terminating due to uncaught exception of type std::__1::system_error: recursive_mutex lock failed`（pytest 退出前已印出 `173 passed`，測試結果不受影響）。新測試集約 10 次執行中出現 2 次；之後連續 3 次完整測試與 3 次「只跑舊測試」皆 0 次；基準（Phase 16 的 142 項）只測過 2 次，沒出現，樣本太少，**不能斷言是既有問題或本 Phase 引入**。疑似第三方（torch／onnxruntime）在程序結束時的清理競爭，尚未驗證。
 - **已寫入真實資料庫的紀錄**：`capture_screenshots.py` 沿用既有慣例對真實 `data/inspections.db` 寫入 17 筆辨識紀錄；柏拉圖與雙圖驗證改用暫存資料庫。
+
+
+### Phase 18：功能驗證
+
+- **單元測試**：`pytest` 202 項全過（173 既有 + 28 新增的 `test_auth.py` + 1 項 `test_settings.py` 調整為包含新增的需重啟設定；約 35 秒）。既有測試中，複判、建立黃金樣本、建立自訂類別改用對應角色的登入 client（原因見 decisions.md），`test_recognition_endpoints_do_not_need_api_key` 改成相反的斷言。
+- **權限矩陣**：`test_auth.py` 對 operator／qc／API key／未登入各測一遍（辨識、複判、統計、匯出、明細、圖片、reviews、使用者、稽核、門檻、黃金樣本、自訂類別），403／401 邊界與矩陣一致。
+- **真實伺服器＋暫存資料庫（Playwright，三個角色各登入一次）**：
+  - 未登入開 `/` 導向 `/login.html`；錯誤密碼顯示統一訊息。
+  - admin 導覽 19 項（含使用者、稽核），qc 與 operator 各 17 項；operator 的看板頁隱藏統計卡、標題為「我的檢驗紀錄」、表格列不可展開，直接打 `/api/inspections/stats`、`/api/users` 皆 403。
+  - 各角色做一次追溯碼辨識，`created_by` 依序為 `user:admin`、`user:qcuser`、`user:opuser`，追溯欄位「操作員」留空時帶顯示名稱。
+  - qc 在看板複判：資料庫 `reviewer=qcuser`（前端已無「複判人」輸入框），稽核有一筆 `inspection.review`；admin 建立使用者後稽核多一筆 `user.create`。
+  - operator 登出後回登入頁，`/` 不再放行。
+  - 瀏覽器 console／頁面錯誤 0 筆。`capture_screenshots.py` 改為登入後執行（帳密由環境變數提供），17 個流程全數完成，console 0 筆。
+- **ERP 與資料夾監控回歸（curl，真實伺服器）**：`X-API-Key` 輪詢 `since_id` 200；`?api_key=` 401；API key 複判 403；未帶身分辨識 401。`watch_folder.py` 沒帶 key 直接退出並說明，帶 `WATCH_API_KEY` 成功辨識並搬到 `done/`，紀錄 `created_by=api-key:watcher`。
+- **密碼與 session**：資料庫中的密碼雜湊前綴皆為 `$argon2id$`；session cookie 帶 `HttpOnly` 與 `SameSite=Lax`；`SESSION_SECRET` 未設定、短於 32 字元時 `import main` 以非 0 結束並顯示產生指令（子程序測試）。
+- **延遲量測**（暫存伺服器，200 次 `GET /api/modules`）：session 平均 5.75ms／P95 7.56ms，API key 平均 4.85ms／P95 5.85ms，差約 0.9ms；登入（含 argon2 驗證）平均 52ms。
+- **前端密鑰掃描**：測試掃描 `frontend/`（排除 vendor）不含 `FRONTEND_API_KEY`、`dev-frontend-key`、`dev-erp-key`、`X-API-Key`、`api_key`。
+- **未驗證**：`create_admin.py` 的互動式密碼輸入（`getpass`）未在終端實際操作，只測了它呼叫的 `create_admin()` 函式；HTTPS 下 `SESSION_COOKIE_SECURE=true` 的行為未實測；反向代理改寫 Host 的情境未測。
+- **已寫入真實資料庫的紀錄**：無。本 Phase 的瀏覽器驗證與截圖全部對暫存資料庫的伺服器執行；真實 `data/inspections.db` 在下次啟動時才會自動補上 `users`、`audit_log` 表與 `created_by` 欄位（用舊 schema 資料庫的遷移測試驗證過）。

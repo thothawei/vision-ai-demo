@@ -1,9 +1,14 @@
 import { loadCatalog } from "./catalog.js";
+import { loadMe } from "./session.js";
 
-// 管理類頁面不是辨識動作，不在註冊表內，先固定列出（後續版本會擴充）
-const ADMIN_TABS = [{ tab: "dashboard", label: "品檢紀錄與看板" }];
+// 管理類頁面不是辨識動作，不在註冊表內；依角色顯示（伺服器端另有權限檢查，這裡只是不顯示按鈕）
+function adminTabs(role) {
+  const tabs = [{ tab: "dashboard", label: role === "operator" ? "我的檢驗紀錄" : "品檢紀錄與看板" }];
+  if (role === "admin") tabs.push({ tab: "users", label: "使用者" }, { tab: "audit", label: "稽核紀錄" });
+  return tabs;
+}
 
-function tabsByCategory(catalog) {
+function tabsByCategory(catalog, role) {
   const groups = new Map(catalog.categories.map((c) => [c, new Map()]));
   catalog.actions.forEach((a) => {
     const tabs = groups.get(a.category);
@@ -17,7 +22,7 @@ function tabsByCategory(catalog) {
   groups.forEach((tabs, category) => {
     if (tabs.size) result.push([category, [...tabs.values()].map((t) => ({ tab: t.tab, label: t.labels.join("／") }))]);
   });
-  result.push(["管理", ADMIN_TABS]);
+  result.push(["管理", adminTabs(role)]);
   return result;
 }
 
@@ -43,7 +48,8 @@ export async function buildNav() {
   const nav = document.getElementById("side-nav");
   let groups;
   try {
-    groups = tabsByCategory(await loadCatalog());
+    const [catalog, me] = await Promise.all([loadCatalog(), loadMe()]);
+    groups = tabsByCategory(catalog, me.role);
   } catch (err) {
     nav.textContent = "無法載入功能清單：" + err.message;
     return;

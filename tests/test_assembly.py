@@ -3,7 +3,14 @@
 import io
 import json
 
+import pytest
 from samples import make_samples
+
+
+@pytest.fixture
+def client(admin_client):
+    """建立黃金樣本需要 admin，整個檔案都用 admin 登入的 client。"""
+    return admin_client
 
 
 def _png_bytes(image) -> bytes:

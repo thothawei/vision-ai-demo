@@ -1,5 +1,6 @@
 import { setupPreview, traceHeaders, callApi } from "../common.js";
 import { createRectCanvasController } from "../rect-canvas.js";
+import { apiFetch } from "../api.js";
 
 // ⑭ 組裝防呆比對（M10）
 const assemblyGoldenFile = document.getElementById("assembly-golden-file");
@@ -18,7 +19,7 @@ document.getElementById("assembly-roi-undo-btn").addEventListener("click", () =>
 document.getElementById("assembly-roi-clear-btn").addEventListener("click", () => assemblyGoldenCtl.clear());
 
 async function refreshAssemblyPartTable() {
-  const res = await fetch("/api/assembly/golden-samples");
+  const res = await apiFetch("/api/assembly/golden-samples");
   const parts = await res.json();
   const tbody = document.getElementById("assembly-part-tbody");
   tbody.innerHTML = "";
@@ -53,7 +54,7 @@ document.getElementById("assembly-save-golden-btn").addEventListener("click", as
   statusEl.textContent = "儲存中…";
   statusEl.className = "status";
   try {
-    const res = await fetch("/api/assembly/golden-samples?part_no=" + encodeURIComponent(partNo), {
+    const res = await apiFetch("/api/assembly/golden-samples?part_no=" + encodeURIComponent(partNo), {
       method: "POST", body: formData, headers: traceHeaders(),
     });
     const data = await res.json();

@@ -238,7 +238,7 @@ uvicorn main:app --reload
 
 ## ERP 串接（`/api/inspections*`）
 
-`/api/inspections*` 需要 `X-API-Key`（`.env` 的 `API_KEYS`，格式 `名稱:key,名稱:key`），13 個辨識端點不用。首次啟動請把 `.env.example` 裡的預設 key（`dev-erp-key-change-me`）換成隨機字串，並同步更新 `frontend/index.html` 的 `FRONTEND_API_KEY` 常數（兩邊要一致，見已知限制）。
+所有端點都需要驗證：瀏覽器用帳號登入（角色 operator／qc／admin），ERP 與資料夾監控用 `X-API-Key`（`.env` 的 `API_KEYS`，格式 `名稱:key,名稱:key`，只能辨識與唯讀）。首次啟動前必須在 `.env` 設定 `SESSION_SECRET`（至少 32 字元，沒設定服務拒絕啟動），並用 `python scripts/create_admin.py --username admin --display-name 系統管理員` 建立第一個管理員；預設 API key 請換成隨機字串。
 
 完整認證方式、`since_id` 增量輪詢流程（含時序圖）、欄位對照表、C# `HttpClient` 範例，見 [docs/erp-integration.md](docs/erp-integration.md)；即時 API 契約見 `GET /openapi.json`（快照存在 [docs/openapi.json](docs/openapi.json)）。
 
@@ -310,7 +310,7 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **追溯資訊是自由文字，沒有輸入驗證**：工單號/料號等欄位不檢查格式、不比對任何工單主檔（還沒接 ERP），同一工單打錯字會被當成不同工單，篩選查不到。
 - **品檢看板的 NG 原因柏拉圖是白名單制**：只有 defect/ppe/anomaly/safety/medical_packaging 五個模組定義了「怎麼抽出缺陷類別」，之後新增模組要記得補上，不然不會出現在柏拉圖。
 - **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在啟動時讀死進中介層，不是每個請求動態重讀。
-- **API Key 可以用 `?api_key=` query 參數帶**（給 `<img>`／CSV 下載連結用，瀏覽器沒辦法幫這兩種情境帶自訂 header），代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log，單機無公開網路曝露情境下可接受。
+- **API key 只接受 `X-API-Key` header**（`?api_key=` 已移除）；瀏覽器下載 CSV 與看圖走登入 cookie。uvicorn 的 access log 仍會印完整網址。
 - **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 送出失敗會重試最多 5 次後放棄，ERP 端仍需要自己跑 `since_id` 輪詢當保底。
 - **`watch_folder.py` 是單執行緒、逐檔處理**：檔案量大或模型推論慢時會排隊，不是平行處理；長駐監看用 `watchdog`，處理中的行程被中斷（例如 Ctrl+C）時該筆檔案不會自動搬移，需要重新丟回 inbox。
 - **批次上傳整批共用同一組額外參數**：例如批次跑 M3 異常檢測，整批圖片必須是同一個 `category`；批次跑危險區域入侵，整批共用同一個 `zone`，沒有辦法每張各自設定。

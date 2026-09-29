@@ -1,4 +1,5 @@
 // 共用工具：預覽、結果渲染、追溯資訊 header、API 呼叫（單張／批次）、拍照
+import { apiFetch } from "./api.js";
 export function setupPreview(fileInput, previewImg) {
   fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
@@ -78,7 +79,7 @@ export async function callApi(url, formData, statusEl, resultEl, button) {
   resultEl.innerHTML = "";
   button.disabled = true;
   try {
-    const res = await fetch(url, { method: "POST", body: formData, headers: traceHeaders() });
+    const res = await apiFetch(url, { method: "POST", body: formData, headers: traceHeaders() });
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.detail || "辨識失敗");
@@ -132,7 +133,7 @@ export async function callBatchApi(action, files, extraParams, extraFormFields, 
     Object.entries(extraParams).forEach(([k, v]) => { if (v != null && v !== "") params.set(k, v); });
   }
   try {
-    const res = await fetch(`/api/batch/${action}?` + params.toString(), {
+    const res = await apiFetch(`/api/batch/${action}?` + params.toString(), {
       method: "POST", body: formData, headers: traceHeaders(),
     });
     const data = await res.json();

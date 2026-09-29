@@ -1,6 +1,6 @@
 # 管理者手冊
 
-適用版本 0.17.0。
+適用版本 0.18.0。
 
 ## 安裝
 
@@ -13,6 +13,22 @@ source venv/bin/activate
 ollama serve &
 cd backend && uvicorn main:app
 ```
+
+## 帳號與首次啟動
+
+1. 在 `.env` 設定 `SESSION_SECRET`（至少 32 字元，沒設定或太短服務**拒絕啟動**）：
+   ```bash
+   python -c "import secrets;print(secrets.token_urlsafe(48))"
+   ```
+2. 建立第一個管理員（密碼互動輸入，程式內沒有預設帳密）：
+   ```bash
+   python scripts/create_admin.py --username admin --display-name 系統管理員
+   ```
+3. 之後由 admin 在「管理 → 使用者」建立其他帳號。密碼至少 10 個字元，以 argon2id 雜湊儲存。
+4. HTTPS 部署時把 `SESSION_COOKIE_SECURE` 設為 true，並讓反向代理保留原始 `Host` header。
+5. 忘記所有 admin 密碼時：對資料庫直接執行 `scripts/create_admin.py` 建立新的 admin，再由它重設其他人。
+
+系統對系統的呼叫（ERP、`watch_folder.py`）用 `.env` 的 `API_KEYS`；資料夾監控帶 `--api-key` 或環境變數 `WATCH_API_KEY`。API key 只能辨識與唯讀。
 
 ## `.env` 設定參考
 
@@ -37,6 +53,11 @@ cd backend && uvicorn main:app
 | `MAX_VIDEO_MB` | `200` | 影片大小上限（MB） | 即時 |
 | `ERP_WEBHOOK_URL` | 無 | NG 時 POST 通知的網址；空白＝不啟用 | 即時 |
 | `LOG_LEVEL` | `INFO` | 日誌層級（DEBUG／INFO／WARNING／ERROR） | **需重啟** |
+| `SESSION_SECRET` | 無 | 登入 session 的簽章密鑰（至少 32 字元，未設定則拒絕啟動）；產生：python -c "import secrets;print(secrets.token_urlsafe(48))" | **需重啟** |
+| `SESSION_HOURS` | `12` | 登入有效時數 | **需重啟** |
+| `SESSION_COOKIE_SECURE` | `False` | cookie 是否只在 HTTPS 傳送（HTTPS 部署時設 true） | **需重啟** |
+| `LOGIN_MAX_FAILURES` | `5` | 同一帳號連續登入失敗幾次後鎖定 | 即時 |
+| `LOGIN_LOCK_MINUTES` | `15` | 登入失敗鎖定分鐘數 | 即時 |
 <!-- settings-table:end -->
 
 `TRUST_REMOTE_CODE` 由程式在載入本機訓練的異常檢測權重時自行設定，不屬於使用者設定，請勿手動設定。
@@ -58,7 +79,7 @@ cd backend && uvicorn main:app
 ## 整合與維運
 
 - ERP 串接（輪詢、webhook、欄位對照、C# 範例）：[erp-integration.md](erp-integration.md)。
-- 資料夾監控：`python scripts/watch_folder.py --action <動作> --in ./inbox`。
+- 資料夾監控：`WATCH_API_KEY=<key> python scripts/watch_folder.py --action <動作> --in ./inbox`（key 為 `.env` 的 `API_KEYS` 其中一組的 key）。
 - 複判資料回流：`python scripts/export_reviewed.py`。
 - 備份與還原：目前請自行備份 `data/`（SQLite 與圖片），還原前先停止服務；自動備份／還原腳本規劃於後續版本。
 - 授權與第三方元件：[licenses.md](licenses.md)；本產品為 AGPL-3.0-or-later。

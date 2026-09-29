@@ -14,6 +14,9 @@ import "./tabs/assembly.js";
 import "./tabs/colordiff.js";
 import "./tabs/shipping.js";
 import "./tabs/dashboard.js";
+import "./tabs/users.js";
+import "./tabs/audit.js";
+import "./userbar.js";
 import { buildNav } from "./nav.js";
 
 buildNav();

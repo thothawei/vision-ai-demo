@@ -7,20 +7,36 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
-from core import api_auth, registry, request_scope
+from core import auth, registry, request_scope
 from core.logging_setup import setup_logging
 from core.schemas import ModuleError
 from core.settings import startup_settings
 
 setup_logging(startup_settings().log_level)
 logger = logging.getLogger("vision.http")
+
+MIN_SESSION_SECRET_LENGTH = 32
+
+
+def _session_secret() -> str:
+    secret = startup_settings().session_secret
+    if not secret or len(secret) < MIN_SESSION_SECRET_LENGTH:
+        raise RuntimeError(
+            f"SESSION_SECRET 未設定或短於 {MIN_SESSION_SECRET_LENGTH} 字元，拒絕啟動。"
+            '請在 .env 設定，例如：python -c "import secrets;print(secrets.token_urlsafe(48))"'
+        )
+    return secret
+
+
+SESSION_SECRET = _session_secret()
 
 
 @asynccontextmanager
@@ -43,14 +59,39 @@ app.add_middleware(
 )
 
 
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_PAGE_PATHS = {"/", "/index.html"}
+_PRIVATE_DOC_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+
 @app.middleware("http")
-async def api_key_middleware(request: Request, call_next):
-    """只保護 /api/inspections*（ERP 輪詢面），辨識端點不用 key——見 core/api_auth.py 說明。"""
-    if api_auth.is_protected_path(request.url.path):
-        key = api_auth.extract_key(request)
-        if not api_auth.is_valid_key(key):
-            return JSONResponse(status_code=401, content={"detail": "缺少或無效的 X-API-Key"})
+async def csrf_origin_middleware(request: Request, call_next):
+    """瀏覽器發出的寫入請求必須與本站同源（Origin 與 Host 一致）；搭配 SameSite=Lax cookie 擋掉 CSRF。
+    沒帶 Origin 的請求（curl、程式）與帶 X-API-Key 的系統呼叫不受影響。"""
+    origin = request.headers.get("origin")
+    if request.method in _UNSAFE_METHODS and origin and not request.headers.get("x-api-key"):
+        if urlparse(origin).netloc != request.headers.get("host"):
+            return JSONResponse(status_code=403, content={"detail": "不允許跨網站的寫入請求"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def page_guard_middleware(request: Request, call_next):
+    """主頁面與 API 文件需要登入：瀏覽器導向登入頁，文件的 JSON 回 401。登入頁與靜態檔公開（不含任何密鑰）。"""
+    path = request.url.path
+    if path in _PAGE_PATHS or path in _PRIVATE_DOC_PATHS:
+        if auth.principal_from_request(request) is None:
+            if path in _PAGE_PATHS or path in {"/docs", "/redoc"}:
+                return RedirectResponse("/login.html", status_code=302)
+            return JSONResponse(status_code=401, content={"detail": "請先登入"})
+    return await call_next(request)
+
+
+app.add_middleware(
+    SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="vision_session",
+    max_age=startup_settings().session_hours * 3600, same_site="lax",
+    https_only=startup_settings().session_cookie_secure,
+)
 
 
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -92,13 +133,16 @@ def handle_module_error(_: Request, exc: ModuleError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
+# 辨識端點：任何已登入使用者或有效的 API key；需要更高權限的端點在各自的函式上另加 require_role
 for _router in registry.routers():
-    app.include_router(_router)
-for _path in ("modules.inspections.router", "modules.batch.router"):
+    app.include_router(_router, dependencies=[Depends(auth.require_login)])
+app.include_router(importlib.import_module("modules.batch.router").router, dependencies=[Depends(auth.require_login)])
+# 以下 router 自行在端點或 router 層級宣告權限（登入端點本身不需要驗證）
+for _path in ("modules.auth.router", "modules.users.router", "modules.audit.router", "modules.inspections.router"):
     app.include_router(importlib.import_module(_path).router)
 
 
-@app.get("/api/modules", tags=["系統"])
+@app.get("/api/modules", tags=["系統"], dependencies=[Depends(auth.require_login)])
 def list_modules():
     """辨識動作註冊表（不含程式物件），前端導覽與名稱由此產生。"""
     return registry.describe()
