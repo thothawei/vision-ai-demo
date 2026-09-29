@@ -61,6 +61,68 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 
+CREATE TABLE IF NOT EXISTS parts (
+    part_no TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    spec TEXT NOT NULL DEFAULT '',
+    customer TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS work_orders (
+    work_order_no TEXT PRIMARY KEY,
+    part_no TEXT NOT NULL REFERENCES parts(part_no),
+    quantity INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'done', 'cancelled')),
+    start_date TEXT,
+    end_date TEXT,
+    lot_no TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_no TEXT NOT NULL REFERENCES parts(part_no),
+    version INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (part_no, version)
+);
+
+CREATE TABLE IF NOT EXISTS recipe_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id INTEGER NOT NULL REFERENCES recipes(id),
+    position INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    image_slot TEXT NOT NULL DEFAULT 'main',
+    label TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS inspection_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    recipe_id INTEGER NOT NULL REFERENCES recipes(id),
+    part_no TEXT NOT NULL,
+    work_order TEXT,
+    lot_no TEXT,
+    station TEXT,
+    operator TEXT,
+    created_by TEXT,
+    request_id TEXT,
+    adhoc INTEGER,
+    status TEXT NOT NULL DEFAULT 'running',
+    verdict TEXT NOT NULL DEFAULT 'INFO',
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    steps_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_runs_created ON inspection_runs(created_at);
+
 CREATE TABLE IF NOT EXISTS webhook_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inspection_id INTEGER NOT NULL,
@@ -78,8 +140,10 @@ _NEW_COLUMNS = [
     "work_order", "part_no", "lot_no", "station", "operator",
     "image_path", "annotated_path",
     "review_verdict", "reviewer", "reviewed_at", "review_note",
-    "images_json", "request_id", "created_by",
+    "images_json", "request_id", "created_by", "run_id", "adhoc",
 ]
+
+_COLUMN_TYPES = {"run_id": "INTEGER", "adhoc": "INTEGER"}  # 其餘補進舊 db 的欄位都是 TEXT
 
 _ALL_COLUMNS = [
     "id", "created_at", "module", "verdict", "engine", "elapsed_ms", "summary_json",
@@ -119,7 +183,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(inspections)").fetchall()}
     for col in _NEW_COLUMNS:
         if col not in existing:
-            conn.execute(f"ALTER TABLE inspections ADD COLUMN {col} TEXT")
+            conn.execute(f"ALTER TABLE inspections ADD COLUMN {col} {_COLUMN_TYPES.get(col, 'TEXT')}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_work_order ON inspections(work_order)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_inspections_part_no_time ON inspections(part_no, created_at)")
     conn.commit()
@@ -138,6 +202,14 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _is_adhoc(conn: sqlite3.Connection, work_order: str | None) -> int:
+    """臨時檢驗＝沒有工單，或工單不在主檔。"""
+    if not work_order:
+        return 1
+    known = conn.execute("SELECT 1 FROM work_orders WHERE work_order_no = ?", (work_order,)).fetchone()
+    return 0 if known else 1
+
+
 def log_inspection(
     module: str,
     verdict: str,
@@ -147,14 +219,15 @@ def log_inspection(
     trace: dict | None = None,
     request_id: str | None = None,
     created_by: str | None = None,
+    run_id: int | None = None,
 ) -> int:
     trace = trace or {}
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO inspections "
             "(created_at, module, verdict, engine, elapsed_ms, summary_json, "
-            " work_order, part_no, lot_no, station, operator, request_id, created_by)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " work_order, part_no, lot_no, station, operator, request_id, created_by, run_id, adhoc)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now().isoformat(timespec="seconds"),
                 module,
@@ -169,6 +242,8 @@ def log_inspection(
                 trace.get("operator"),
                 request_id,
                 created_by,
+                run_id,
+                _is_adhoc(conn, trace.get("work_order")),
             ),
         )
         return cur.lastrowid
@@ -225,7 +300,7 @@ def record_result(
     trace = request_scope.get_trace()
     scope = request_scope.get_scope()
     inspection_id = log_inspection(
-        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user
+        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user, scope.run_id
     )
     if scope.operator_override:
         from core import audit  # 延後匯入：audit 會匯入本檔的連線函式

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from core import defect_extractors as dx
 from core.schemas import InspectionResult, ModuleError
@@ -60,6 +60,31 @@ class GaugeParams(_Params):
     center_y: float | None = None
 
 
+class AssemblyParams(_Params):
+    golden: str | None = None  # 黃金樣本的料號；沒填時用配方的料號
+
+
+class ColorParams(_Params):
+    """色差標準：標準色（ref_lab 或 ref_rect 二選一）＋量測區＋門檻（ΔE00，超過判 NG）。"""
+
+    ref_lab: list[float] | None = None
+    ref_rect: list[float] | None = None
+    measure_rect: list[float]
+    threshold: float = 3.0
+
+    @model_validator(mode="after")
+    def _check(self):
+        if (self.ref_lab is None) == (self.ref_rect is None):
+            raise ValueError("ref_lab 與 ref_rect 要二選一")
+        if self.ref_lab is not None and len(self.ref_lab) != 3:
+            raise ValueError("ref_lab 要是 [L, a, b] 三個數字")
+        for name in ("ref_rect", "measure_rect"):
+            rect = getattr(self, name)
+            if rect is not None and (len(rect) != 4 or any(not 0 <= v <= 1 for v in rect)):
+                raise ValueError(f"{name} 要是 [x1, y1, x2, y2] 四個 0~1 的正規化座標")
+        return self
+
+
 class ShippingParams(_Params):
     expected_part_no: str | None = None
     expected_lot_no: str | None = None
@@ -79,15 +104,18 @@ class ActionSpec:
     defect_extractor: Callable[[list], list[str]] | None = None  # 柏拉圖用；掛在 module 層級
     requires: list[str] = field(default_factory=list)  # 給健康檢查用：weights:<路徑>、llm、dir:<路徑>
     router: str | None = None  # 該動作端點所在的 router 模組（main.py 依此掛載）
+    batch_enabled: bool = True  # False：有 handler（可用於配方）但不開放批次 API
 
     @property
     def batchable(self) -> bool:
-        return self.handler is not None
+        return self.handler is not None and self.batch_enabled
 
 
 def _build_specs() -> list[ActionSpec]:
     # 延後匯入：各模組 service 會匯入 inspection_log，而 inspection_log 會回頭查本註冊表
     from modules.anomaly.service import inspect_part
+    from modules.assembly.service import inspect_assembly
+    from modules.colordiff.service import check_color_difference
     from modules.codes.service import decode_codes
     from modules.defect.service import detect_pcb_defects
     from modules.docs.service import extract_document
@@ -103,6 +131,11 @@ def _build_specs() -> list[ActionSpec]:
             raise ModuleError("anomaly 動作需要 category 參數", 400)
         return inspect_part(image_bytes, p.category)
 
+    def assembly_handler(image_bytes, p):
+        if not p.golden:
+            raise ModuleError("assembly 動作需要 golden（黃金樣本料號）參數", 400)
+        return inspect_assembly(p.golden, image_bytes)
+
     return [
         ActionSpec("anomaly", "anomaly", "外觀瑕疵異常檢測", "外觀檢測", "anomaly", "inspection",
                    anomaly, AnomalyParams, dx.defect_anomaly, ["dir:models/anomaly"], "modules.anomaly.router"),
@@ -110,9 +143,11 @@ def _build_specs() -> list[ActionSpec]:
                    lambda b, p: detect_pcb_defects(b), None, dx.defect_pcb,
                    ["weights:models/defect/pcb_yolo11n/weights/best.pt"], "modules.defect.router"),
         ActionSpec("assembly", "assembly", "組裝防呆比對", "外觀檢測", "assembly", "inspection",
-                   None, None, dx.defect_assembly, [], "modules.assembly.router"),
+                   assembly_handler, AssemblyParams, dx.defect_assembly, [], "modules.assembly.router",
+                   batch_enabled=False),
         ActionSpec("colordiff", "colordiff", "烤漆/陽極色差", "外觀檢測", "colordiff", "inspection",
-                   None, None, dx.defect_colordiff, [], "modules.colordiff.router"),
+                   lambda b, p: check_color_difference(b, p.ref_rect, p.ref_lab, p.measure_rect, p.threshold),
+                   ColorParams, dx.defect_colordiff, [], "modules.colordiff.router", batch_enabled=False),
         ActionSpec("count", "measure", "計數", "量測與讀值", "measure", "inspection",
                    lambda b, p: count_parts(b, p.expected_count, p.min_area_ratio),
                    CountParams, dx.defect_measure, [], "modules.measure.router"),
@@ -218,6 +253,7 @@ def describe() -> dict:
             {
                 "action": s.action, "module": s.module, "label": s.label, "category": s.category,
                 "tab": s.tab, "verdict_kind": s.verdict_kind, "batchable": s.batchable,
+                "recipe_capable": s.handler is not None,
                 "requires": s.requires,
                 "params_schema": s.params.model_json_schema() if s.params else None,
             }

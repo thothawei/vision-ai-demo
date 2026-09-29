@@ -4,6 +4,7 @@ import { loadMe } from "./session.js";
 // 管理類頁面不是辨識動作，不在註冊表內；依角色顯示（伺服器端另有權限檢查，這裡只是不顯示按鈕）
 function adminTabs(role) {
   const tabs = [{ tab: "dashboard", label: role === "operator" ? "我的檢驗紀錄" : "品檢紀錄與看板" }];
+  if (role !== "operator") tabs.push({ tab: "master", label: "主檔與配方" });
   if (role === "admin") tabs.push({ tab: "users", label: "使用者" }, { tab: "audit", label: "稽核紀錄" });
   return tabs;
 }
@@ -22,6 +23,8 @@ function tabsByCategory(catalog, role) {
   groups.forEach((tabs, category) => {
     if (tabs.size) result.push([category, [...tabs.values()].map((t) => ({ tab: t.tab, label: t.labels.join("／") }))]);
   });
+  // 依配方檢驗不是單一辨識動作，獨立成一組並放在最前面（所有角色都能用）
+  result.unshift(["配方檢驗", [{ tab: "recipe", label: "依配方檢驗" }]]);
   result.push(["管理", adminTabs(role)]);
   return result;
 }

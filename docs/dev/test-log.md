@@ -238,3 +238,18 @@
 - **前端密鑰掃描**：測試掃描 `frontend/`（排除 vendor）不含 `FRONTEND_API_KEY`、`dev-frontend-key`、`dev-erp-key`、`X-API-Key`、`api_key`。
 - **未驗證**：`create_admin.py` 的互動式密碼輸入（`getpass`）未在終端實際操作，只測了它呼叫的 `create_admin()` 函式；HTTPS 下 `SESSION_COOKIE_SECURE=true` 的行為未實測；反向代理改寫 Host 的情境未測。
 - **已寫入真實資料庫的紀錄**：無。本 Phase 的瀏覽器驗證與截圖全部對暫存資料庫的伺服器執行；真實 `data/inspections.db` 在下次啟動時才會自動補上 `users`、`audit_log` 表與 `created_by` 欄位（用舊 schema 資料庫的遷移測試驗證過）。
+
+
+### Phase 19：功能驗證
+
+- **單元測試**：`pytest` 225 項全過（202 既有 + 23 新增：`test_master.py` 7、`test_recipes.py` 16；約 38 秒）。
+- **配方執行**：三步驟配方（追溯碼＋異常檢測＋尺寸量測，兩個圖片槽）一次檢驗產生 1 筆 run、3 筆 inspections（皆帶 `run_id`、工單、料號、由工單帶入的批號）；合併判定三種情境都有測試：全 OK→OK、追溯碼過期→NG（其他步驟照常執行）、量測圖沒有 ArUco 標記（步驟出錯）→INFO、NG 與出錯並存→NG；`combine()` 另以純函式測 7 種組合（含 info 類動作不計、info 類出錯仍算出錯）。
+- **版本不可變**：新增 v2（量測目標改 80mm）後，v1 仍是原參數、v1 舊 run 仍指向 v1、v2 執行得 NG；重新啟用 v1 後 `GET /api/recipes/active` 回 v1。
+- **驗證**：13 種非法配方（空步驟、料號不在主檔、未知動作、多餘參數、參數型別錯、缺 category、類別不存在、黃金樣本不存在、非法圖片槽名稱、色差缺標準色、Lab 與矩形並存、Lab 長度不對、座標超出 0~1）皆 422。
+- **assembly／colordiff 進配方**：黃金樣本預設用配方料號；缺件→NG、正常→OK；色差標準隨版本保存並出現在稽核的 `after.steps[].params`。`test_batch_api_still_rejects_assembly_and_colordiff` 仍通過。
+- **run 視角統計**：單步視角 6 筆（2 個 run × 3 步）、run 視角 2 筆；複判 NG run 的追溯碼那步後，最終判定 NG→OK（AI 判定不變、AI 良率 0.5、最終良率 1.0、一致率 0.0）；`scope` 或 `group_by` 非法回 400；沒帶 `scope` 時單步統計與 Phase 18 相同。
+- **ERP bulk-upsert**：重推不重複建立；3 列中 2 列失敗時其餘列照常成功（`errors` 帶 index／key／原因）；名為 `watcher` 的 key、qc、operator 皆 403，未登入 401，admin 與 `erp` key 可以；未知欄位 422；稽核一筆含新增／更新／錯誤筆數。
+- **臨時檢驗標記**：無工單→1、主檔工單→0、不在主檔的工單→1（辨識與配方兩條路徑都測）。
+- **真實伺服器＋暫存資料庫（Playwright、真實 HTTP 的 ERP 推送）**：ERP 推 1 料號與 3 張工單（1 張料號不存在→errors 列出），`watcher` key 推送得 403；追溯列工單選單只列進行中工單，選工單後料號與批號自動帶入且工單欄位唯讀，手動輸入不在主檔的工單號顯示「臨時檢驗（此工單不在主檔）」；主檔頁用 UI 新增工單、用動態表單建立 codes＋measure（含參數）配方，儲存為 v1（啟用中）；漏填 category 的 anomaly 步驟顯示伺服器的 422 訊息；依配方檢驗頁載入配方、依圖片槽上傳兩張圖，合併判定 OK，換成沒有標記的圖後合併判定 INFO 並列出原因；看板切到「整次配方檢驗」，總數由 3（單筆）變 2（run）、圖表標籤為料號；qc 看得到主檔頁但管理表單隱藏；operator 沒有主檔頁，選工單後能完成配方檢驗（run 合併判定 OK）。瀏覽器 console 唯一的錯誤是上述刻意送出的 422。
+- **未驗證**：配方步驟含 AI 步驟（LLM 類）的整體耗時未量測；`capture_screenshots.py` 尚未加入配方與主檔頁（新頁面的截圖只在暫存驗證中產生，未進 `docs/screenshots/`）；ERP 單次推送接近 2000 列上限的效能未測。
+- **已寫入真實資料庫的紀錄**：無（驗證全用暫存資料庫；真實資料庫會在下次啟動時自動補上新表與欄位）。

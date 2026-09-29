@@ -47,6 +47,9 @@
 - **session 只存 user_id，每個請求重讀使用者**（停用／改角色立即生效）；`SESSION_SECRET` 未設或短於 32 字元 main.py 會拒絕啟動，測試在 `tests/conftest.py` 開頭用 `os.environ.setdefault` 設好（必須早於任何 `import main`）。測試用 `client`（API key）、`admin_client`／`qc_client`／`operator_client`（登入 session）；整個檔案都需要 admin 時，在檔內覆寫 `client` fixture 為 `admin_client`（見 `test_assembly.py`）。
 - **稽核**：會改變設定或他人資料的操作，都在 router 層呼叫 `audit.record(principal.actor, action, target_type, target_id, before, after)`；稽核內容不可含密碼或雜湊。`reviewer`、`created_by` 一律取自登入者，不信任請求 body。
 - **寫入請求的 Origin 檢查**（`main.py` 的 `csrf_origin_middleware`）：瀏覽器帶的 Origin 必須與 Host 相同，測試客戶端沒有 Origin 所以不受影響；反向代理不可改寫 Host。
+- **配方檢驗**（`core/recipes.py`）：配方版本不可變（改參數＝新版本），步驟參數用註冊表的 Pydantic 模型驗證；`ActionSpec.handler` 不為 None 的動作都可入配方，`batch_enabled=False` 只是不開放批次 API（assembly、colordiff）。每一步各自 `record_result`，靠 `request_scope.run_id` 關聯 run，每步前 `reset_images()`。合併判定在 `recipes.combine()`：inspection 類動作 NG→NG、出錯或 INFO→INFO，info 類動作不計。run 視角統計的最終判定由各步驟的複判動態合併（`get_run_stats`），不要把最終判定存死在 run 上。
+- **臨時檢驗標記**在 `inspection_log.log_inspection` 寫入（`adhoc`：沒有工單或工單不在主檔），不要另外在各模組算。`inspections` 補進舊 db 的欄位型別由 `_COLUMN_TYPES` 決定（預設 TEXT；`run_id`、`adhoc` 是 INTEGER）。
+- **主檔寫入權**：`require_role("admin", allow_api_key=True, api_key_names=("erp",))` 只讓名為 erp 的 API key 推送；其他 key 仍是唯讀。
 - **Playwright 點 canvas 用 `locator.click(position=...)`**，不要用絕對座標的 `page.mouse.click`（超出 viewport 不會自動捲動）。
 - **Mermaid 節點文字含 `{}` 要用引號並改圓括號**；改架構圖後手動重新渲染 `docs/architecture.png`。
 - **本機 Ollama 模型延遲 8–20 秒**；CI／單元測試一律用假 LLM，真打標 `live`。
@@ -66,6 +69,8 @@ vision-ai-demo/
 │   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
 │   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
 │   │   ├── request_scope.py     # Phase 17：請求範圍資料（追溯資訊、request_id、依 role 分開的圖片）
+│   │   ├── master.py            # Phase 19：料號與工單（含 bulk-upsert）
+│   │   ├── recipes.py           # Phase 19：配方版本、依配方執行、合併判定、run 統計
 │   │   ├── auth.py              # Phase 18：Principal、require_login／require_role（session 或 API key）
 │   │   ├── users.py             # Phase 18：本機帳號、argon2id、登入失敗鎖定
 │   │   ├── audit.py             # Phase 18：稽核紀錄
@@ -150,5 +155,5 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 0–15：辨識功能、看板、ERP 介面、產線輸入、自有資料導入、M10–M12（細節見 `docs/dev/progress.md`）。
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
-- [x] Phase 18：使用者、角色、稽核。 [ ] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
+- [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
 - [ ] Phase 21：模型與資料治理。 [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

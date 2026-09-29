@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from core import audit
+from core import audit, recipes
 from core.auth import Principal, require_login, require_role
 from core.inspection_log import (
     get_image_file_path,
@@ -79,9 +79,15 @@ def stats(
     date_from: str | None = None,
     date_to: str | None = None,
     module: str | None = None,
+    scope: str = "step",
     _: Principal = Depends(_read),
 ):
+    """scope=step（預設）：以單筆辨識為單位；scope=run：以配方檢驗為單位（group_by 改用 part／day／defect）。"""
     try:
+        if scope == "run":
+            return recipes.get_run_stats(group_by if group_by != "module" else "part", date_from, date_to)
+        if scope != "step":
+            raise ValueError(f"scope 只能是 step 或 run，目前是「{scope}」")
         return get_stats(group_by, date_from, date_to, module)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

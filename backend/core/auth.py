@@ -83,14 +83,17 @@ def require_login(request: Request) -> Principal:
     return principal
 
 
-def require_role(min_role: str, *, allow_api_key: bool = False):
-    """使用者角色需達 min_role；`allow_api_key=True` 時，有效 API key 也放行（唯讀端點用）。"""
+def require_role(min_role: str, *, allow_api_key: bool = False, api_key_names: tuple[str, ...] | None = None):
+    """使用者角色需達 min_role；`allow_api_key=True` 時，有效 API key 也放行（唯讀端點用）。
+    `api_key_names` 進一步限定只有這些名稱的 key 可用（例如只有 `erp` 可推送主檔）。"""
 
     def dependency(request: Request) -> Principal:
         principal = require_login(request)
         if principal.kind == "api-key":
             if not allow_api_key:
                 raise HTTPException(status_code=403, detail="這個操作需要使用者登入，API key 不可使用")
+            if api_key_names is not None and principal.name not in api_key_names:
+                raise HTTPException(status_code=403, detail=f"這把 API key（{principal.name}）沒有這個操作的權限")
             return principal
         if ROLE_RANK[principal.role] < ROLE_RANK[min_role]:
             raise HTTPException(status_code=403, detail=f"權限不足，需要 {min_role} 以上角色")

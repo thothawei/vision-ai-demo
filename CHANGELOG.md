@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [0.19.0]
+
+### 新增
+- 主檔：料號與工單（`parts`、`work_orders`），ERP 可用 `POST /api/master/{parts,work-orders}:bulk-upsert` 推送（只有名為 `erp` 的 API key 或 admin；每列各自成功或失敗、可重複推送）。
+- 檢驗配方：一個料號多個版本（版本不可變、同時只有一個啟用、可回滾）；步驟＝動作＋參數＋圖片槽，參數以註冊表的 Pydantic 模型驗證，並檢查引用對象存在。
+- 依配方檢驗 `POST /api/inspect/recipe`：多步驟、多圖片槽，合併判定（NG／INFO／OK）；`inspection_runs` 與 `inspections.run_id`；`GET /api/runs`（含 `since_id`）。
+- `assembly`、`colordiff` 有了參數模型與 handler（可用於配方，仍不開放批次 API）；色差標準（標準 Lab／標準色區、量測區、門檻）隨配方版本保存並記入稽核。
+- 追溯資訊列的工單選單（進行中工單，自動帶入料號與批號）；`inspections.adhoc` 標記臨時檢驗。
+- 看板可切換「單筆辨識／整次配方檢驗」統計（`stats?scope=run`，最終判定由各步驟的複判動態合併）。
+- 前端：依配方檢驗頁、主檔與配方管理頁（步驟參數表單由 `params_schema` 產生）。
+- 稽核新增：`part.*`、`work_order.update`、`parts／work_orders.bulk_upsert`、`recipe.create／activate／deactivate`。
+
 ## [0.18.0]
 
 ### 新增

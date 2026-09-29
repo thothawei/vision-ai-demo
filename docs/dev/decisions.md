@@ -208,3 +208,15 @@ flowchart LR
 - **稽核**：`audit_log` 只增不改；`actor` 為 `user:<帳號>`、`api-key:<名稱>` 或 `script:create_admin`；稽核內容明確不含密碼與雜湊（測試斷言）。操作員代簽在 `record_result()` 取得 inspection id 後才寫（辨識失敗就不寫）。規劃書列的「色差標準」目前不持久化，沒有可稽核的對象。
 - **operator 只看自己的紀錄**：新增 `inspections.created_by`；舊紀錄為 NULL，operator 看不到。operator 的看板頁只顯示紀錄表（後端另擋統計、明細、圖片、匯出）。
 - **測試改動說明**：授權邊界依設計改變，以下測試改用對應角色的登入 client，判斷邏輯不變——複判（`test_inspections`、`test_erp_integration`）、建立黃金樣本（`test_assembly` 整檔、`test_registry`、`test_request_scope`）、建立自訂類別（`test_anomaly_categories`）。`test_recognition_endpoints_do_not_need_api_key` 改成相反的斷言（沒帶身分 401）。
+
+## 技術決策與理由（Phase 19，主檔與檢驗配方）
+
+- **`colordiff` 的規劃書參數不夠用**：`colordiff{L,a,b,max_de}` 缺量測區，`check_color_difference()` 沒有 `measure_rect` 會回 400。步驟參數改為 `ref_lab`／`ref_rect`（二選一）、`measure_rect`、`threshold`，並用 model validator 檢查長度與 0~1 範圍。這組參數就是「色差標準」被持久化與稽核的位置。
+- **`ActionSpec.batchable` 拆成 `handler` 與 `batch_enabled`**：assembly、colordiff 補上 handler 才能進配方，但保留 Phase 13 的「不開放批次」決定，所以新增 `batch_enabled`（`batchable = handler is not None and batch_enabled`）；`describe()` 另給 `recipe_capable`，前端配方編輯器只列有 handler 的動作。
+- **配方版本不可變**：`recipes` 一列一個版本、`recipe_steps` 依版本存步驟；改參數＝新增版本（預設立即啟用，可取消勾選），同料號只有一個啟用版本，可重新啟用舊版回滾；舊 run 的 `recipe_id` 永遠指向當時版本。儲存時除了 Pydantic 驗證，還檢查引用對象存在（異常檢測類別、黃金樣本），避免存得進去卻跑不動。
+- **合併判定**（使用者確認）：inspection 類動作 NG→NG；否則有步驟出錯或 INFO→INFO 並列原因；info 類動作（現場照片辨識、指針錶…）不計，但它出錯仍算出錯。每步各自 `record_result`（原圖、標註圖、NG webhook 沿用），用 `request_scope.run_id` 關聯，每步前 `reset_images()` 並放入該步圖片槽的圖。
+- **run 視角統計的最終判定不存死**：複判是逐步驟做的，所以 run 的最終判定由各步驟的最終判定（複判優先）在查詢時動態合併；`inspection_runs.steps_json` 存每步的 `inspection_id`、`verdict_kind`、`status`，避免從 module 反推動作（nameplate module 同時有 inspection 類與 info 類動作）。測試以「把 NG run 的追溯碼那一步複判成 OK，run 的最終判定變 OK、AI 判定不變」驗證。
+- **臨時檢驗**：`adhoc`＝沒有工單或工單不在主檔，在 `log_inspection` 內用同一個連線判斷；舊紀錄為 NULL，不視為臨時。追溯欄位仍允許手動輸入（ERP 與 `watch_folder.py` 帶自由文字的 `X-Work-Order` 不會被擋，只會被標記）。
+- **ERP 主檔推送**（使用者決定）：只有名為 `erp` 的 API key 或 admin 可寫（`require_role(..., api_key_names=("erp",))`）；每列各自成功或失敗、重推不會重複建立；請求模型 `extra="forbid"`，欄位拼錯整批 422（避免靜默丟欄位）。額外提供 `parts:bulk-upsert`（規劃書只列工單），因為工單的料號必須存在。工單加了選填的 `lot_no`，選工單時自動帶入批號。稽核每次推送只寫一筆（筆數＋最多 200 個 id），不逐列寫。
+- **`inspections` 補欄位型別**：Phase 9 起 `_migrate()` 補進舊 db 的欄位一律 `TEXT`；`run_id`、`adhoc` 需要 INTEGER，新增 `_COLUMN_TYPES`（測試 `adhoc` 回傳 `'1'` 字串才發現）。
+- **前端**：工單選單只是追溯列上的 `<select>`，選了就設定原本的文字欄位（所以既有的 header 邏輯與 localStorage 不用改），臨時檢驗時欄位可編輯。配方編輯器的參數表單由 `/api/modules` 的 `params_schema` 產生（數字、文字、勾選；座標與 Lab 陣列用 JSON 文字框）。

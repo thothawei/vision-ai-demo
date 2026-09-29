@@ -46,9 +46,14 @@ function renderDashChart(id, config) {
   dashCharts[id] = new Chart(document.getElementById(id), config);
 }
 
+const scopeSelect = document.getElementById("dash-scope");
+const isRunScope = () => scopeSelect.value === "run";
+
 async function fetchStats(groupBy) {
   const params = dashFilterParams();
-  params.set("group_by", groupBy);
+  // 「整次配方檢驗」視角：以一次配方檢驗為單位統計（分組改用料號；模組篩選不適用）
+  params.set("scope", isRunScope() ? "run" : "step");
+  params.set("group_by", groupBy === "module" && isRunScope() ? "part" : groupBy);
   const res = await apiFetch("/api/inspections/stats?" + params.toString(), {});
   if (!res.ok) throw new Error((await res.json()).detail || "看板統計失敗");
   return res.json();
@@ -122,14 +127,14 @@ async function refreshDashboard() {
     renderDashChart("dash-chart-module", {
       type: "bar",
       data: {
-        labels: byModule.groups.map((g) => MODULE_LABELS[g.module] || g.module),
+        labels: byModule.groups.map((g) => g.part_no || MODULE_LABELS[g.module] || g.module),
         datasets: [
           { label: "OK", data: byModule.groups.map((g) => g.OK), backgroundColor: "#34c759" },
           { label: "NG", data: byModule.groups.map((g) => g.NG), backgroundColor: "#ff3b30" },
           { label: "INFO", data: byModule.groups.map((g) => g.INFO), backgroundColor: "#0071e3" },
         ],
       },
-      options: { responsive: true, plugins: { title: { display: true, text: "各模組件數" } }, scales: { x: { stacked: true }, y: { stacked: true } } },
+      options: { responsive: true, plugins: { title: { display: true, text: isRunScope() ? "各料號檢驗次數（整次配方）" : "各模組件數" } }, scales: { x: { stacked: true }, y: { stacked: true } } },
     });
 
     await refreshDashTable();
@@ -156,7 +161,7 @@ async function refreshDashTable() {
     tr.className = "clickable";
     tr.innerHTML = `<td>${r.id}</td><td>${r.created_at}</td><td>${MODULE_LABELS[r.module] || r.module}</td>
       <td>${verdictBadgeHtml(r.verdict)}</td><td>${verdictBadgeHtml(finalVerdict)}</td>
-      <td>${r.work_order || ""}</td><td>${r.part_no || ""}</td>`;
+      <td>${r.work_order || ""}${r.adhoc === 1 ? ' <span class="hint">（臨時）</span>' : ""}</td><td>${r.part_no || ""}</td>`;
     const detailRow = document.createElement("tr");
     const detailTd = document.createElement("td");
     detailTd.colSpan = 7;
@@ -246,6 +251,7 @@ function buildDetailPanel(record) {
 }
 
 document.getElementById("dash-refresh-btn").addEventListener("click", refreshDashboard);
+scopeSelect.addEventListener("change", refreshDashboard);
 document.getElementById("dash-export-btn").addEventListener("click", () => {
   const params = dashFilterParams();
   window.open("/api/inspections/export.csv?" + params.toString(), "_blank");

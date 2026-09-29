@@ -28,11 +28,13 @@
 </div>
 
 <div class="trace-bar" id="trace-bar">
+  <label>工單 <select id="trace-work-order-select"><option value="">臨時檢驗（無工單）</option></select></label>
   <label>工單號 <input type="text" id="trace-work-order" placeholder="WO-2026-0001"></label>
   <label>料號 <input type="text" id="trace-part-no" placeholder="SC-M6-20"></label>
   <label>批號 <input type="text" id="trace-lot-no" placeholder="LOT001"></label>
   <label>站別 <input type="text" id="trace-station" placeholder="AOI-01"></label>
   <label>操作員 <input type="text" id="trace-operator" placeholder="王小明"></label>
+  <span class="hint" id="trace-adhoc-badge"></span>
 </div>
 
 <div class="layout">
@@ -438,6 +440,7 @@
       AI 判定的良率／人工複判後的最終良率／NG 原因柏拉圖／AI 與人工一致率。篩選條件套用到看板與下方紀錄表格。
     </p>
     <div class="dash-filters">
+      <label>統計單位 <select id="dash-scope"><option value="step">單筆辨識</option><option value="run">整次配方檢驗</option></select></label>
       <label>模組 <select id="dash-filter-module"><option value="">全部</option></select></label>
       <label>判定 <select id="dash-filter-verdict"><option value="">全部</option><option value="OK">OK</option><option value="NG">NG</option><option value="INFO">INFO</option></select></label>
       <label>工單 <input type="text" id="dash-filter-work-order"></label>
@@ -503,6 +506,83 @@
       <tbody id="audit-body"></tbody>
     </table>
     <div class="status" id="audit-status"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-recipe">
+  <div class="card">
+    <h2>依配方檢驗</h2>
+    <p style="color:var(--muted); font-size:13px;">依料號目前啟用的檢驗配方，一次完成多項檢驗（例如追溯碼＋外觀＋尺寸），並給出合併判定：任一項 NG 即 NG；有項目無法判定且沒有 NG 則為 INFO。料號取自上方追溯資訊列（選工單會自動帶入）。</p>
+    <div class="row">
+      <button type="button" id="recipe-load-btn">載入配方</button>
+      <span class="hint" id="recipe-info"></span>
+    </div>
+    <div id="recipe-slots"></div>
+    <div class="row"><button type="button" id="recipe-run-btn" disabled>開始檢驗</button></div>
+    <div class="status" id="recipe-status"></div>
+    <div class="result" id="recipe-result"></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-master">
+  <div class="card">
+    <h2>料號</h2>
+    <table class="dash-table">
+      <thead><tr><th>料號</th><th>品名</th><th>規格</th><th>客戶</th><th>啟用</th></tr></thead>
+      <tbody id="master-parts-body"></tbody>
+    </table>
+    <div class="row admin-only">
+      <input type="text" id="part-no" placeholder="料號">
+      <input type="text" id="part-name" placeholder="品名">
+      <input type="text" id="part-spec" placeholder="規格">
+      <input type="text" id="part-customer" placeholder="客戶">
+      <label><input type="checkbox" id="part-active" checked> 啟用</label>
+      <button type="button" id="part-save-btn">新增／更新料號</button>
+    </div>
+    <div class="status" id="part-status"></div>
+  </div>
+
+  <div class="card">
+    <h2>工單</h2>
+    <p style="color:var(--muted); font-size:13px;">ERP 可用 <code>POST /api/master/work-orders:bulk-upsert</code>（API key 名稱 <code>erp</code>）推送；這裡也可手動維護。</p>
+    <table class="dash-table">
+      <thead><tr><th>工單號</th><th>料號</th><th>數量</th><th>狀態</th><th>開工</th><th>完工</th><th>批號</th></tr></thead>
+      <tbody id="master-wo-body"></tbody>
+    </table>
+    <div class="row admin-only">
+      <input type="text" id="wo-no" placeholder="工單號">
+      <select id="wo-part"></select>
+      <input type="number" id="wo-qty" placeholder="數量" min="0" style="width:90px">
+      <select id="wo-status"><option value="planned">planned</option><option value="in_progress">in_progress</option><option value="done">done</option><option value="cancelled">cancelled</option></select>
+      <input type="date" id="wo-start"><input type="date" id="wo-end">
+      <input type="text" id="wo-lot" placeholder="批號（選填）">
+      <button type="button" id="wo-save-btn">新增／更新工單</button>
+    </div>
+    <div class="status" id="wo-status-msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>檢驗配方</h2>
+    <p style="color:var(--muted); font-size:13px;">版本不可修改：要改參數就新增版本（可立即啟用）；每個料號同時只有一個啟用版本，舊版可重新啟用（回滾），舊的檢驗紀錄永遠指向當時的版本。</p>
+    <div class="row">
+      <label>料號 <select id="recipe-part-select"></select></label>
+    </div>
+    <table class="dash-table">
+      <thead><tr><th>版本</th><th>狀態</th><th>步驟</th><th>備註</th><th>建立者</th><th>時間</th><th>操作</th></tr></thead>
+      <tbody id="recipe-versions-body"></tbody>
+    </table>
+    <pre id="recipe-detail" class="hint" style="white-space:pre-wrap; display:none"></pre>
+    <div class="admin-only">
+      <h3>新增版本</h3>
+      <div id="recipe-builder-steps"></div>
+      <div class="row">
+        <button type="button" id="recipe-add-step-btn">＋ 加入步驟</button>
+        <input type="text" id="recipe-note" placeholder="版本備註（選填）">
+        <label><input type="checkbox" id="recipe-activate" checked> 儲存後啟用</label>
+        <button type="button" id="recipe-save-btn">儲存為新版本</button>
+      </div>
+      <div class="status" id="recipe-save-status"></div>
+    </div>
   </div>
 </div>
 

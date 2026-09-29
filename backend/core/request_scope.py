@@ -25,6 +25,7 @@ class RequestScope:
     request_id: str | None = None
     images: dict[str, tuple[bytes, str]] = field(default_factory=dict)
     user: str | None = None  # 操作者身分（user:<帳號> 或 api-key:<名稱>），存進 inspections.created_by
+    run_id: int | None = None  # 依配方檢驗時，本次 run 的 id（各步驟的 inspections 會寫入）
     operator_override: str | None = None  # 使用者手動把追溯欄位「操作員」改成別人時的值（要記稽核）
     trace_operator_default: str | None = None  # 登入者顯示名稱（操作員欄位的預設值）
 

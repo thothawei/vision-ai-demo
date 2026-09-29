@@ -52,6 +52,29 @@ sequenceDiagram
 | `GET /api/inspections/{id}` | 取單筆完整紀錄 | — |
 | `GET /api/inspections/{id}/image?kind=raw\|annotated` | 取原圖／標註圖 | — |
 | `GET /api/inspections/export.csv` | 一次性批次匯出 CSV | — |
+| `GET /api/runs?since_id=<n>&limit=<m>` | 增量拉取「整次配方檢驗」（合併判定與各步驟的 `inspection_id`） | id **升冪** |
+| `GET /api/runs/{id}` | 取單次配方檢驗 | — |
+| `POST /api/master/parts:bulk-upsert` | ERP 推送料號 | — |
+| `POST /api/master/work-orders:bulk-upsert` | ERP 推送工單（料號要先在主檔） | — |
+
+### 推送主檔（bulk-upsert）
+
+只有名為 `erp` 的 API key（或 admin 登入）可以寫入主檔；其他 key（例如 `watcher`）回 403。請求範例：
+
+```json
+POST /api/master/work-orders:bulk-upsert
+{"work_orders": [
+  {"work_order_no": "WO-2026-0001", "part_no": "SC-M6-20", "quantity": 500,
+   "status": "in_progress", "start_date": "2026-09-29", "end_date": null, "lot_no": "LOT-A1"}
+]}
+```
+
+- `status`：`planned`／`in_progress`／`done`／`cancelled`；日期 `YYYY-MM-DD`；`lot_no` 選填（有的話前端選工單會自動帶入批號）。
+- 依主鍵（工單號、料號）upsert，**重複推送不會重複建立**。
+- **每一列各自成功或失敗**：回應 `{"created": [...], "updated": [...], "errors": [{"index", "key", "error"}]}`，某列有誤（例如料號不在主檔）不影響其他列；欄位名稱拼錯（未知欄位）整批 422。單次最多 2000 列。
+- 每次推送寫一筆稽核（新增／更新筆數與工單號清單，最多列 200 個）。
+
+檢驗紀錄新增欄位（皆為選填、只增不改）：`run_id`（屬於哪次配方檢驗）、`adhoc`（1＝臨時檢驗：沒有工單或工單不在主檔）、`created_by`、`request_id`、`images`。
 
 ## 3. 欄位對照表
 
