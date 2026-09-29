@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.20.0]
+
+### 新增
+- `measurements` 表：辨識時自動把尺寸（長度、寬度、單孔孔徑）、色差 ΔE00、指針錶與七段顯示器讀值正規化寫入，含規格上下限（尺寸＝目標 ± 公差；色差只有上限）。尺寸量測結果新增 `公差mm`。
+- SPC：X̄-R（子群 2–10）與 I-MR 管制圖、Cp／Cpk（組內變異；子群少於 25 組標示僅供參考；單邊規格只給 Cpk）、Western Electric 規則 1–4（規則 4 連續點數預設 8，可調）；`GET /api/spc`、`GET /api/spc/characteristics`（qc 以上或 API key 唯讀）；「管理 → SPC 管制圖」頁。
+- 品質日報／週報：`GET /api/reports/summary`（JSON／Excel／可列印 HTML）；看板上的報表按鈕；`scripts/daily_report.py`（可排程，不需要伺服器）。
+- `scripts/backfill_measurements.py`：補歷史量測值（需明確執行，可 `--dry-run`）。
+- 新增相依：openpyxl 3.1.5（MIT）。
+
 ## [0.19.0]
 
 ### 新增

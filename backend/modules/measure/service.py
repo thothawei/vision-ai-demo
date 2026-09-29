@@ -142,6 +142,8 @@ def measure_part(
             out_of_tolerance.append("寬度")
     if out_of_tolerance:
         item["超差項目"] = out_of_tolerance
+    if target_length_mm is not None or target_width_mm is not None:
+        item["公差mm"] = tolerance_mm  # 存下來，量測值的規格上下限（目標 ± 公差）才算得出來
 
     annotated = warped.copy()
     box = cv2.boxPoints(rect).astype(np.int32)

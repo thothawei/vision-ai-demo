@@ -139,7 +139,7 @@ for _router in registry.routers():
 app.include_router(importlib.import_module("modules.batch.router").router, dependencies=[Depends(auth.require_login)])
 # 以下 router 自行在端點或 router 層級宣告權限（登入端點本身不需要驗證）
 for _path in ("modules.auth.router", "modules.users.router", "modules.audit.router", "modules.inspections.router",
-              "modules.master.router", "modules.recipes.router"):
+              "modules.master.router", "modules.recipes.router", "modules.spc.router", "modules.reports.router"):
     app.include_router(importlib.import_module(_path).router)
 
 

@@ -450,6 +450,14 @@
       <button id="dash-refresh-btn" type="button">套用篩選</button>
       <button id="dash-export-btn" type="button">匯出 CSV</button>
     </div>
+    <div class="dash-filters">
+      <label>報表基準日 <input type="date" id="dash-report-date"></label>
+      <button type="button" data-report="day" data-format="html">日報（可列印）</button>
+      <button type="button" data-report="day" data-format="xlsx">日報 Excel</button>
+      <button type="button" data-report="week" data-format="html">週報（可列印）</button>
+      <button type="button" data-report="week" data-format="xlsx">週報 Excel</button>
+      <span class="hint">「可列印」頁面用瀏覽器列印成 PDF；週報＝包含基準日的那一週（週一到週日）</span>
+    </div>
     <div class="dash-stat-row" id="dash-stat-row"></div>
     <div class="chart-wrap"><canvas id="dash-chart-day"></canvas></div>
     <div class="chart-wrap"><canvas id="dash-chart-defect"></canvas></div>
@@ -583,6 +591,31 @@
       </div>
       <div class="status" id="recipe-save-status"></div>
     </div>
+  </div>
+</div>
+
+<div class="panel" id="panel-spc">
+  <div class="card">
+    <h2>SPC 管制圖</h2>
+    <p style="color:var(--muted); font-size:13px;">量測值（尺寸、色差 ΔE、指針錶與七段顯示器讀值）的 X̄-R 或 I-MR 管制圖、製程能力 Cp／Cpk，以及 Western Electric 規則 1–4 觸發點（紅點）。子群依時間順序每 n 筆一組。</p>
+    <div class="dash-filters">
+      <label>特性 <select id="spc-characteristic"></select></label>
+      <label>圖種 <select id="spc-chart"><option value="xbar_r">X̄-R</option><option value="imr">I-MR</option></select></label>
+      <label>子群大小 <input type="number" id="spc-subgroup" value="5" min="2" max="10" style="width:64px"></label>
+      <label>規則 4 連續點數 <input type="number" id="spc-run" value="8" min="5" max="12" style="width:64px"></label>
+      <label>站別 <input type="text" id="spc-station" style="width:90px"></label>
+      <label>從 <input type="date" id="spc-from"></label>
+      <label>到 <input type="date" id="spc-to"></label>
+      <button type="button" id="spc-refresh-btn">查詢</button>
+    </div>
+    <div class="status" id="spc-status"></div>
+    <div class="dash-stat-row" id="spc-stats"></div>
+    <div class="chart-wrap"><canvas id="spc-chart-x"></canvas></div>
+    <div class="chart-wrap"><canvas id="spc-chart-r"></canvas></div>
+    <table class="dash-table">
+      <thead><tr><th>圖</th><th>規則</th><th>第幾點</th><th>值</th><th>位置</th></tr></thead>
+      <tbody id="spc-violations"></tbody>
+    </table>
   </div>
 </div>
 

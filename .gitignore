@@ -19,3 +19,4 @@ tests/live_samples/*.jpg
 # Phase 10：docs/erp-integration.md 的 C# 範例編譯驗證用專案，建置產物不進版控
 docs/erp-integration-sample/bin/
 docs/erp-integration-sample/obj/
+reports/

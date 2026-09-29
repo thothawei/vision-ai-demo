@@ -15,6 +15,7 @@
 | python-multipart | 0.0.32 | Apache-2.0 | 是 | 免費（開源） | pure | 上傳檔案解析 | https://pypi.org/project/python-multipart/ |
 | python-dotenv | 1.2.3 | BSD-3-Clause | 是 | 免費（開源） | pure | pydantic-settings 讀 `.env` 的相依（程式不再直接使用） | https://pypi.org/project/python-dotenv/ |
 | argon2-cffi | 25.1.0（PyPI JSON API 查證，2026-09-29） | MIT | 是 | 免費（開源） | 有 wheel（依賴 argon2-cffi-bindings 26.1.0，MIT，有 arm64 wheel） | 密碼雜湊 argon2id（Phase 18） | https://pypi.org/project/argon2-cffi/ |
+| openpyxl | 3.1.5（PyPI JSON API 查證，2026-09-29） | MIT | 是 | 免費（開源） | pure（相依 et-xmlfile 2.0.0，MIT） | 品質日報／週報 Excel 輸出（Phase 20） | https://pypi.org/project/openpyxl/ |
 | itsdangerous | 2.2.0（PyPI JSON API 查證，2026-09-29） | BSD-3-Clause（PyPI 授權欄空白，依 Pallets 官方 LICENSE.txt 判定） | 是 | 免費（開源） | pure | Starlette 簽章 cookie session 的必要相依（Phase 18） | https://pypi.org/project/itsdangerous/ |
 | pydantic-settings | 2.15.0（PyPI JSON API 查證，2026-09-29） | MIT | 是 | 免費（開源） | pure | 集中讀取 `.env` 與環境變數（Phase 17） | https://pypi.org/project/pydantic-settings/ |
 | pillow | 12.3.0 | MIT-CMU | 是 | 免費（開源） | 有 wheel | 讀圖、EXIF 轉正 | https://pypi.org/project/pillow/ |

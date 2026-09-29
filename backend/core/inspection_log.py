@@ -123,6 +123,25 @@ CREATE TABLE IF NOT EXISTS inspection_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_created ON inspection_runs(created_at);
 
+CREATE TABLE IF NOT EXISTS measurements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inspection_id INTEGER NOT NULL REFERENCES inspections(id),
+    run_id INTEGER,
+    created_at TEXT NOT NULL,
+    module TEXT NOT NULL,
+    part_no TEXT,
+    work_order TEXT,
+    lot_no TEXT,
+    station TEXT,
+    characteristic TEXT NOT NULL,
+    value REAL NOT NULL,
+    lsl REAL,
+    usl REAL,
+    target REAL,
+    unit TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_measurements_part_char ON measurements(part_no, characteristic, created_at);
+
 CREATE TABLE IF NOT EXISTS webhook_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     inspection_id INTEGER NOT NULL,
@@ -202,6 +221,23 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def insert_measurements(conn: sqlite3.Connection, inspection_id: int, created_at: str, module: str,
+                        summary, trace: dict, run_id: int | None) -> int:
+    """把可做 SPC 的數值特性寫進 measurements（規則見 core/measurement_extractors.py）；回傳寫入筆數。"""
+    from core.measurement_extractors import extract_measurements
+
+    rows = extract_measurements(module, summary)
+    for m in rows:
+        conn.execute(
+            "INSERT INTO measurements (inspection_id, run_id, created_at, module, part_no, work_order, lot_no, station,"
+            " characteristic, value, lsl, usl, target, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (inspection_id, run_id, created_at, module, trace.get("part_no"), trace.get("work_order"),
+             trace.get("lot_no"), trace.get("station"), m["characteristic"], m["value"], m["lsl"], m["usl"],
+             m["target"], m["unit"]),
+        )
+    return len(rows)
+
+
 def _is_adhoc(conn: sqlite3.Connection, work_order: str | None) -> int:
     """臨時檢驗＝沒有工單，或工單不在主檔。"""
     if not work_order:
@@ -222,6 +258,7 @@ def log_inspection(
     run_id: int | None = None,
 ) -> int:
     trace = trace or {}
+    created_at = datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO inspections "
@@ -229,7 +266,7 @@ def log_inspection(
             " work_order, part_no, lot_no, station, operator, request_id, created_by, run_id, adhoc)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                datetime.now().isoformat(timespec="seconds"),
+                created_at,
                 module,
                 verdict,
                 engine,
@@ -246,6 +283,7 @@ def log_inspection(
                 _is_adhoc(conn, trace.get("work_order")),
             ),
         )
+        insert_measurements(conn, cur.lastrowid, created_at, module, summary, trace, run_id)
         return cur.lastrowid
 
 

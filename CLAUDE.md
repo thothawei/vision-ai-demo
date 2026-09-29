@@ -48,6 +48,9 @@
 - **稽核**：會改變設定或他人資料的操作，都在 router 層呼叫 `audit.record(principal.actor, action, target_type, target_id, before, after)`；稽核內容不可含密碼或雜湊。`reviewer`、`created_by` 一律取自登入者，不信任請求 body。
 - **寫入請求的 Origin 檢查**（`main.py` 的 `csrf_origin_middleware`）：瀏覽器帶的 Origin 必須與 Host 相同，測試客戶端沒有 Origin 所以不受影響；反向代理不可改寫 Host。
 - **配方檢驗**（`core/recipes.py`）：配方版本不可變（改參數＝新版本），步驟參數用註冊表的 Pydantic 模型驗證；`ActionSpec.handler` 不為 None 的動作都可入配方，`batch_enabled=False` 只是不開放批次 API（assembly、colordiff）。每一步各自 `record_result`，靠 `request_scope.run_id` 關聯 run，每步前 `reset_images()`。合併判定在 `recipes.combine()`：inspection 類動作 NG→NG、出錯或 INFO→INFO，info 類動作不計。run 視角統計的最終判定由各步驟的複判動態合併（`get_run_stats`），不要把最終判定存死在 run 上。
+- **量測值抽取在 `core/measurement_extractors.py`**（依 module 的字典，與缺陷抽取規則同型），由 `log_inspection` 在同一個連線寫入 `measurements`；新增可做 SPC 的特性就在那裡加，不要在各模組 service 裡寫。規格上下限只在結果有存目標與公差時才有（舊紀錄沒有公差 → 無規格）；多孔的孔徑刻意不收。
+- **SPC 的數學都在 `core/spc.py`（純 numpy、標準係數表）**，資料存取在 `core/spc_service.py`，測試用手算數值（A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。Western Electric 規則 4 預設 8 點（原始定義；規劃書寫 7 已與使用者確認改 8），`run_length` 可調。
+- **報表**在 `core/reports.py`（JSON／Excel／HTML 共用 `build_report`）；`scripts/daily_report.py` 直接呼叫它，輸出到 `reports/`（gitignore）。輸出到 HTML 的內容一律 `html.escape`（有測試）。
 - **臨時檢驗標記**在 `inspection_log.log_inspection` 寫入（`adhoc`：沒有工單或工單不在主檔），不要另外在各模組算。`inspections` 補進舊 db 的欄位型別由 `_COLUMN_TYPES` 決定（預設 TEXT；`run_id`、`adhoc` 是 INTEGER）。
 - **主檔寫入權**：`require_role("admin", allow_api_key=True, api_key_names=("erp",))` 只讓名為 erp 的 API key 推送；其他 key 仍是唯讀。
 - **Playwright 點 canvas 用 `locator.click(position=...)`**，不要用絕對座標的 `page.mouse.click`（超出 viewport 不會自動捲動）。
@@ -71,6 +74,9 @@ vision-ai-demo/
 │   │   ├── request_scope.py     # Phase 17：請求範圍資料（追溯資訊、request_id、依 role 分開的圖片）
 │   │   ├── master.py            # Phase 19：料號與工單（含 bulk-upsert）
 │   │   ├── recipes.py           # Phase 19：配方版本、依配方執行、合併判定、run 統計
+│   │   ├── spc.py / spc_service.py  # Phase 20：管制圖、Cp／Cpk、Western Electric；量測值存取
+│   │   ├── reports.py           # Phase 20：日報／週報（JSON、Excel、HTML）
+│   │   ├── measurement_extractors.py # Phase 20：量測值正規化規則
 │   │   ├── auth.py              # Phase 18：Principal、require_login／require_role（session 或 API key）
 │   │   ├── users.py             # Phase 18：本機帳號、argon2id、登入失敗鎖定
 │   │   ├── audit.py             # Phase 18：稽核紀錄
@@ -155,5 +161,5 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 0–15：辨識功能、看板、ERP 介面、產線輸入、自有資料導入、M10–M12（細節見 `docs/dev/progress.md`）。
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
-- [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
+- [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [x] Phase 20：SPC 與報表。
 - [ ] Phase 21：模型與資料治理。 [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

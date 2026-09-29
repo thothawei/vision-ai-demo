@@ -1,6 +1,6 @@
 # 管理者手冊
 
-適用版本 0.19.0。
+適用版本 0.20.0。
 
 ## 安裝
 
@@ -83,6 +83,47 @@ cd backend && uvicorn main:app
 - 日誌為 key=value 格式（`ts= level= logger= request_id= msg=`），輸出到標準輸出；層級由 `LOG_LEVEL` 設定（需重啟）。
 - 每個請求有 `request_id`（回應 header `X-Request-ID`，可由呼叫端帶入）；檢驗紀錄的 `request_id` 欄位與 CSV 最後一欄可對回日誌。
 - 記錄項目：請求（方法、路徑、狀態、耗時）、辨識完成（模組、判定、耗時）、模型載入耗時、LLM 呼叫耗時與失敗。不記錄 API key 與圖片內容。
+
+## 品質報表與排程
+
+`scripts/daily_report.py` 直接讀資料庫產生日報／週報（Excel 與可列印 HTML），不需要伺服器在執行；輸出預設放 `reports/`（已加入 `.gitignore`）：
+
+```bash
+python scripts/daily_report.py                                # 昨天的日報
+python scripts/daily_report.py --period week --date 2026-09-29 --out /path/to/dir
+```
+
+本專案不內建排程器，請用作業系統的排程：
+
+- **macOS `launchd`**：建立 `~/Library/LaunchAgents/com.example.vision-daily-report.plist`（路徑請改成實際位置），再 `launchctl load` 它：
+
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0"><dict>
+    <key>Label</key><string>com.example.vision-daily-report</string>
+    <key>ProgramArguments</key><array>
+      <string>/path/to/vision-ai-demo/venv/bin/python</string>
+      <string>/path/to/vision-ai-demo/scripts/daily_report.py</string>
+    </array>
+    <key>WorkingDirectory</key><string>/path/to/vision-ai-demo</string>
+    <key>StartCalendarInterval</key><dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+  </dict></plist>
+  ```
+- **Windows 工作排程器**：動作選「啟動程式」，程式 `venv\Scripts\python.exe`，引數 `scripts\daily_report.py`，起始位置設為專案根目錄，觸發程序設為每天固定時間。（尚未在 Windows 實測。）
+
+排程用的帳號必須讀得到專案的 `.env`（資料庫路徑等設定）。
+
+## 歷史量測值回填
+
+Phase 20 之前的檢驗紀錄沒有 `measurements`（SPC 的資料表）。要補進歷史量測值，請明確執行（會寫入資料庫，所以不會自動跑）：
+
+```bash
+python scripts/backfill_measurements.py --dry-run   # 先看會補幾筆
+python scripts/backfill_measurements.py
+```
+
+可重複執行。歷史的尺寸量測當時沒存公差，補進來的長度與寬度沒有規格上下限（只能畫管制圖）；色差有存門檻，所以有上限。
 
 ## 整合與維運
 

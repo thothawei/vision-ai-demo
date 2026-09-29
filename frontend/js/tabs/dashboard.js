@@ -252,6 +252,17 @@ function buildDetailPanel(record) {
 
 document.getElementById("dash-refresh-btn").addEventListener("click", refreshDashboard);
 scopeSelect.addEventListener("change", refreshDashboard);
+
+// 日報／週報：新分頁開啟（可列印 HTML）或下載 Excel；登入 cookie 會一併帶上
+const reportDate = document.getElementById("dash-report-date");
+reportDate.value = new Date().toISOString().slice(0, 10);
+document.querySelectorAll("[data-report]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const params = new URLSearchParams({ period: btn.dataset.report, format: btn.dataset.format });
+    if (reportDate.value) params.set("date", reportDate.value);
+    window.open("/api/reports/summary?" + params.toString(), "_blank");
+  });
+});
 document.getElementById("dash-export-btn").addEventListener("click", () => {
   const params = dashFilterParams();
   window.open("/api/inspections/export.csv?" + params.toString(), "_blank");

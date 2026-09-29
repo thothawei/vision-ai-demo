@@ -220,3 +220,13 @@ flowchart LR
 - **ERP 主檔推送**（使用者決定）：只有名為 `erp` 的 API key 或 admin 可寫（`require_role(..., api_key_names=("erp",))`）；每列各自成功或失敗、重推不會重複建立；請求模型 `extra="forbid"`，欄位拼錯整批 422（避免靜默丟欄位）。額外提供 `parts:bulk-upsert`（規劃書只列工單），因為工單的料號必須存在。工單加了選填的 `lot_no`，選工單時自動帶入批號。稽核每次推送只寫一筆（筆數＋最多 200 個 id），不逐列寫。
 - **`inspections` 補欄位型別**：Phase 9 起 `_migrate()` 補進舊 db 的欄位一律 `TEXT`；`run_id`、`adhoc` 需要 INTEGER，新增 `_COLUMN_TYPES`（測試 `adhoc` 回傳 `'1'` 字串才發現）。
 - **前端**：工單選單只是追溯列上的 `<select>`，選了就設定原本的文字欄位（所以既有的 header 邏輯與 localStorage 不用改），臨時檢驗時欄位可編輯。配方編輯器的參數表單由 `/api/modules` 的 `params_schema` 產生（數字、文字、勾選；座標與 Lab 陣列用 JSON 文字框）。
+
+## 技術決策與理由（Phase 20，SPC 與品質報表）
+
+- **規則 4 用 8 點而非規劃書的 7 點**（使用者確認）：Western Electric 原始定義是連續 8 點在中心線同一側（Nelson 是 9）。連續點數做成參數 `run_length`（預設 8，API 範圍 5–12，畫面可調），想用 7 就設 7；驗收改成「8 點觸發、7 點不觸發」，測試同時驗證預設 8 與 `run_length=7`。實作時先寫的測試資料有瑕疵（前一段的最後一點恰好在中心線同側，把 7 點併成 8 點），查明是資料而非實作問題後修正測試。
+- **量測值正規化在寫入時完成**：`log_inspection` 在同一個交易裡依 module 抽取（`measurement_extractors.py`）寫入 `measurements`，含料號、工單、批號、站別與規格。孔徑只在「恰好偵測到一個孔」時收錄，因為多孔的順序取自輪廓階層、不穩定，逐孔 SPC 會混在一起。`measure` 結果新增 `公差mm`，否則規格上下限（目標 ± 公差）算不出來；歷史紀錄沒有公差，回填後只有量測值、沒有規格。
+- **一邊規格、無規格的處理**：色差只有上限（＝該次檢驗的門檻）→ 只給 Cpk（Cpu），不給 Cp；指針錶、七段讀值與沒填目標值的尺寸沒有規格 → 只畫圖。Cp／Cpk 用組內變異（X̄-R 的 R̄/d2，I-MR 的 MR̄/1.128），子群（或觀測值）少於 25 標示僅供參考。同一特性在期間內規格變動時，採用最近的規格並在畫面與 API（`spec.changed`）提示。
+- **SPC 數學獨立成純函式**（`core/spc.py`），用手算範例驗證：三個子群平均 11／12／10、全距皆 4 → X̄̄=11、R̄=4，UCL=11+0.577×4=13.308、R 圖 UCL=2.114×4=8.456、σ=4/2.326、規格 5–16 時 Cp=1.06608／Cpk=0.96917；I-MR 範例 MR̄=12/7、UCL=11.625+2.660×MR̄=16.185。規則 2、3 只在「目前這一點本身也超出該界線」時才標記，避免同一群點重複標記；R／MR 圖只套規則 1，並以實際的 UCL／LCL 判斷（n≥7 時 LCL>0，不能用對稱的 3σ）。
+- **回填不自動執行**：`scripts/backfill_measurements.py` 需要明確執行（會寫入資料庫，遵守「寫入資料庫要先問」），有 `--dry-run`，可重複執行（已有 measurements 的紀錄跳過）。
+- **報表**：`build_report` 一份資料，JSON／Excel（openpyxl，6 個工作表）／HTML 共用；可列印頁面靠瀏覽器「列印成 PDF」，不引入 PDF 套件；HTML 內容一律 `html.escape`。週報＝包含基準日的那一週（週一到週日）。各站別良率用最終判定（含複判）。報表的 Cpk 摘要每個（料號，特性）用期間內全部資料算（≥10 筆用 X̄-R n=5，否則 I-MR）。`scripts/daily_report.py` 直接呼叫 `build_report`，不需要伺服器，輸出到 `reports/`（gitignore）；排程只提供 launchd 範例與 Windows 工作排程器說明，不內建排程器。
+- **權限**：SPC 與報表 qc 以上或 API key 唯讀（與 stats、匯出一致）；operator 403。
