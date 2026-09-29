@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.17.0]
+
+### 新增
+- 辨識動作註冊表 `core/registry.py`：批次 API、`GET /api/modules`、NG 柏拉圖、前端導覽都由它衍生。
+- 請求範圍資料 `core/request_scope.py`：一次請求可存多張圖（raw／golden／reference），組裝防呆同時存待測照與黃金樣本；`GET /api/inspections/{id}/image?kind=golden`。
+- 集中設定 `core/settings.py`（pydantic-settings），設定表由 `scripts/gen_settings_doc.py` 自動產生。
+- key=value 日誌、`X-Request-ID`、`inspections.request_id` 欄位（CSV 最後一欄）、模型載入與 LLM 耗時日誌。
+- 前端拆成 ES modules，左側分類導覽（依 `/api/modules`），網址 `#分頁` 可直連。
+
+### 修正
+- NG 原因柏拉圖補上 `assembly`、`colordiff`、`codes`、`measure`、`docs`、`nameplate`（含七段顯示器）六個原本漏掉的功能。
+
+### 變更
+- 批次 API 對未知參數回 422（原本靜默忽略）；參數用各動作的 Pydantic 模型驗證。
+- 設定改為每次讀取 `.env`（「即時」類不必重啟）；`CORS_ORIGINS`、`LOG_LEVEL` 仍需重啟。
+- 量測結果新增 `超差項目` 欄位。
+
 ## [0.16.0]
 
 ### 新增

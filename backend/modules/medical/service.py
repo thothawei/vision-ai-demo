@@ -22,6 +22,7 @@ from PIL import Image
 from core import llm
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 from modules.codes.service import describe_barcode
 
@@ -136,10 +137,11 @@ def _get_model() -> _SmallCNN:
             raise ModuleError(
                 f"找不到教學展示模型權重 {WEIGHTS_PATH}，請先執行 `python scripts/train_medmnist.py`", 503,
             )
-        model = _SmallCNN()
-        model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
-        model.eval()
-        _model = model
+        with log_model_load("pneumonia-cnn"):
+            model = _SmallCNN()
+            model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
+            model.eval()
+            _model = model
     return _model
 
 

@@ -36,6 +36,15 @@ def make_video_bytes(n_frames: int, width: int = 100, height: int = 100, fps: fl
 TEST_API_KEY = "test-key"
 
 
+@pytest.fixture(autouse=True)
+def _ignore_real_dotenv(monkeypatch):
+    """設定會讀專案根目錄的 .env（含真實的 Gemini key 等）；測試一律只看環境變數，
+    不然 `monkeypatch.delenv` 蓋不住 .env 裡的值，測試可能拿真 key 打外部服務。"""
+    from core.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     # 每個測試用獨立的 SQLite 與圖片目錄，不污染 data/inspections.db、data/images/

@@ -11,6 +11,7 @@ from core.inspection_log import (
     to_csv,
     update_review,
 )
+from core.request_scope import IMAGE_ROLES
 
 router = APIRouter(prefix="/api/inspections", tags=["檢驗紀錄"])
 
@@ -102,8 +103,8 @@ def get_one(inspection_id: int):
 
 @router.get("/{inspection_id}/image")
 def get_image(inspection_id: int, kind: str = "raw"):
-    if kind not in ("raw", "annotated"):
-        raise HTTPException(status_code=400, detail="kind 只能是 raw 或 annotated")
+    if kind not in ("annotated", *IMAGE_ROLES):
+        raise HTTPException(status_code=400, detail=f"kind 只能是 annotated 或 {'、'.join(IMAGE_ROLES)}")
     path = get_image_file_path(inspection_id, kind)
     if path is None:
         raise HTTPException(status_code=404, detail=f"找不到 id={inspection_id} 的 {kind} 圖片")

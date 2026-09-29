@@ -5,15 +5,15 @@
 單機部署、沒有公開網路曝露的情境下的取捨，見 docs/dev/decisions.md「技術決策與理由（Phase 10）」。
 """
 
-import os
-
 from starlette.requests import Request
+
+from core.settings import get_settings
 
 PROTECTED_PREFIX = "/api/inspections"
 
 
 def _valid_keys() -> set[str]:
-    raw = os.environ.get("API_KEYS", "")
+    raw = get_settings().api_keys
     keys = set()
     for pair in raw.split(","):
         pair = pair.strip()

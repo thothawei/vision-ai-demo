@@ -32,13 +32,17 @@
 - **anomalib 自訂類別要關內建正規化**：`Patchcore(post_processor=PostProcessor(enable_normalization=False, enable_thresholding=False))`，否則分數被裁成 0/1、門檻退化成 1.0。
 - **anomalib `TorchInferencer` 需 `TRUST_REMOTE_CODE=1`**：只用於載入自己訓練的權重。
 - **`CORS_ORIGINS` 啟動時讀死進中介層**，改 `.env` 要重啟；`API_KEYS`／`MAX_UPLOAD_MB` 每次請求重讀。測試改 `CORS_ORIGINS` 無效（`app` 是全 session 單例）。
-- **FastAPI 對未宣告的 query 參數靜默忽略**：`core/batch_dispatch.py` 與 `modules/batch/router.py` 是兩份分開的參數列表，加新動作參數要兩邊都改（M12 漏改過）。
-- **`extract_defect_labels()` 是白名單制**：新辨識模組要在 `core/inspection_log.py` 用 `@_extractor("模組名")` 補抽取函式，否則判 NG 也不進 NG 柏拉圖。目前 `assembly`／`colordiff`／`codes`／`measure` 尚未補（Phase 17 處理）。
-- **`RAW_IMAGE_CTX` 一個請求只記最後一張圖**（`load_image()` 每次覆寫）；雙圖模組（M10）不可依賴它存圖（Phase 17 處理）。
+- **新增辨識動作只改 `core/registry.py` 一處**：`ActionSpec`（動作、module、分頁、分類、參數模型、缺陷抽取規則）；批次 API、`GET /api/modules`、柏拉圖、前端導覽都由它衍生。參數模型繼承 `_Params`（`extra="forbid"`），批次 API 對未知參數回 422（FastAPI 對未宣告的參數會靜默忽略，M12 曾因此漏傳）。`tests/test_registry.py` 會擋下「會判 NG 卻沒有 defect_extractor」的動作。
+- **缺陷抽取規則寫在 `core/defect_extractors.py`**，在查詢時才對 `summary_json` 執行，所以規則補上後歷史紀錄也會反映；但 summary 沒存的資訊補不回來（例如尺寸超差是 Phase 17 起才寫入 `超差項目`，之前的量測 NG 紀錄不會進柏拉圖）。
+- **請求範圍資料在 `core/request_scope.py`**（追溯資訊、request_id、依 role 分開的圖片：raw／golden／reference）。`load_image(bytes, role="raw")`；同 role 重複載入以最後一次為準，批次每張前會 `reset_images()`。雙圖模組要自己 `request_scope.add_image()`（M10 的黃金樣本從磁碟讀，見 `assembly/service.py`）。
 - **`load_image()` 的 except 是刻意放寬成 `Exception`**：ultralytics monkeypatch `PIL.Image.open` 後，壞檔會丟 `ModuleNotFoundError`，窄 except 攔不到會變 500。
 - **測試必須隔離全域檔案路徑**：`INSPECTION_DB`、`INSPECTION_IMAGES_DIR`、`GOLDEN_SAMPLES_DIR` 等由 `tests/conftest.py` 的 `client` fixture 隔離；新增任何寫檔的 module-level 路徑都要可用 env 覆寫並補隔離。
 - **背景擬合測試不要真起 `_worker_loop` 執行緒**：呼叫 `_process_one(name)`，否則殘留 daemon thread 會搶跑後面測試的真擬合。
 - **單元測試不觸發 `import ultralytics`，掩蓋了 PIL patch 類問題**：涉及圖片讀取的改動要用真實伺服器至少測一次壞檔。
+- **設定一律走 `core/settings.py`（pydantic-settings）**，禁止在 backend 直接 `os.environ.get`（`tests/test_settings.py` 會檢查）。「即時」設定用 `get_settings()`（每次重讀環境變數與 `.env`），「需重啟」用 `startup_settings()`；新增設定後執行 `python scripts/gen_settings_doc.py` 更新管理者手冊的表。
+- **測試不可讀到真實 `.env`**：設定會讀專案根目錄 `.env`（含真實 Gemini key），`tests/conftest.py` 的 autouse fixture 已把 `env_file` 設為 None；新增絕對不能拿真 key 的測試也要依賴這個隔離。
+- **日誌不記 API key 與圖片內容**：用 `logging.getLogger("vision.xxx")`，每行帶 `request_id`；模型載入用 `core.logging_setup.log_model_load`。uvicorn 自己的 access log 會印完整網址（含 `?api_key=`），那是已知限制。
+- **前端是原生 ES modules（不用建置工具）**：`frontend/js/common.js`（共用）、`rect-canvas.js`、`tabs/<分頁>.js`（各分頁綁定）、`nav.js`（依 `/api/modules` 建左側導覽）。分頁的表單 HTML 仍寫在 `index.html` 的 `id="panel-<tab>"`；註冊表有、HTML 沒有的分頁會自動產生說明用的預設面板。
 - **Playwright 點 canvas 用 `locator.click(position=...)`**，不要用絕對座標的 `page.mouse.click`（超出 viewport 不會自動捲動）。
 - **Mermaid 節點文字含 `{}` 要用引號並改圓括號**；改架構圖後手動重新渲染 `docs/architecture.png`。
 - **本機 Ollama 模型延遲 8–20 秒**；CI／單元測試一律用假 LLM，真打標 `live`。
@@ -57,10 +61,14 @@ vision-ai-demo/
 │   │   ├── tesseract_ocr.py     # Tesseract（M4 比較選項 mode=tesseract）
 │   │   ├── seven_segment.py     # M7 七段顯示器分段判讀（純 OpenCV）
 │   │   ├── gauge.py             # M7 指針錶角度偵測與讀值換算（純 OpenCV）
-│   │   ├── context.py           # Phase 9：追溯資訊／原圖 bytes 的 contextvar
+│   │   ├── request_scope.py     # Phase 17：請求範圍資料（追溯資訊、request_id、依 role 分開的圖片）
 │   │   ├── api_auth.py          # Phase 10：/api/inspections* 的 X-API-Key 驗證
 │   │   ├── webhook.py           # Phase 10：NG 非同步通知 + 失敗重試佇列
-│   │   ├── batch_dispatch.py    # Phase 11：批次上傳的「動作」對照表
+│   │   ├── batch_dispatch.py    # Phase 11：批次上傳執行核心（動作與參數模型來自 registry）
+│   │   ├── registry.py          # Phase 17：辨識動作註冊表（單一真實來源）
+│   │   ├── defect_extractors.py # Phase 17：NG 柏拉圖的缺陷標籤抽取規則
+│   │   ├── settings.py          # Phase 17：pydantic-settings 集中設定（即時／需重啟）
+│   │   ├── logging_setup.py     # Phase 17：key=value 日誌、request_id、模型載入計時
 │   │   ├── anomaly_training.py  # Phase 12：M3 自訂類別 zip 上傳/背景排隊擬合/門檻 registry
 │   │   └── inspection_log.py   # SQLite 檢驗紀錄（Phase 9 起含追溯欄位、存圖、複判、看板統計、webhook_queue）
 │   ├── schemas/
@@ -84,7 +92,9 @@ vision-ai-demo/
 │   │   └── shipping/             # Phase 14：M12 出貨標籤 vs 工單比對
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 分頁式單頁（16 個分頁，15 個辨識分頁多選批次上傳+拍照，M5/M10/M11 有 canvas 畫框，⑯ 品檢看板用 Chart.js）
+│   ├── index.html               # 版面與各分頁表單（16 個功能分頁＋看板；導覽由 /api/modules 產生）
+│   ├── css/app.css
+│   ├── js/                      # ES modules：main.js、nav.js、catalog.js、common.js、rect-canvas.js、tabs/*.js
 │   └── vendor/chart.min.js      # Chart.js 4.5.1（MIT），離線優先不用 CDN
 ├── scripts/
 │   ├── make_aruco.py           # 產生 M2 量測用的可列印 ArUco 標記 PDF
@@ -128,7 +138,7 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 ## 待辦（Phase 進度）
 
 - [x] Phase 0–15：辨識功能、看板、ERP 介面、產線輸入、自有資料導入、M10–M12（細節見 `docs/dev/progress.md`）。
-- [x] Phase 16：產品定位、授權、文件重整（本次）。
-- [ ] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
+- [x] Phase 16：產品定位、授權、文件重整。
+- [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
 - [ ] Phase 18：使用者、角色、稽核。 [ ] Phase 19：主檔與檢驗配方。 [ ] Phase 20：SPC 與報表。
 - [ ] Phase 21：模型與資料治理。 [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

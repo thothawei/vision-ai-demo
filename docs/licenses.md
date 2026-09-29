@@ -13,7 +13,8 @@
 | fastapi | 0.141.1 | MIT | 是 | 免費（開源） | pure | API 伺服器 | https://pypi.org/project/fastapi/ |
 | uvicorn[standard] | 0.54.0（2026-09-29 查證） | BSD-3-Clause | 是 | 免費（開源） | pure | ASGI 伺服器 | https://pypi.org/project/uvicorn/ |
 | python-multipart | 0.0.32 | Apache-2.0 | 是 | 免費（開源） | pure | 上傳檔案解析 | https://pypi.org/project/python-multipart/ |
-| python-dotenv | 1.2.3 | BSD-3-Clause | 是 | 免費（開源） | pure | 讀 `.env` | https://pypi.org/project/python-dotenv/ |
+| python-dotenv | 1.2.3 | BSD-3-Clause | 是 | 免費（開源） | pure | pydantic-settings 讀 `.env` 的相依（程式不再直接使用） | https://pypi.org/project/python-dotenv/ |
+| pydantic-settings | 2.15.0（PyPI JSON API 查證，2026-09-29） | MIT | 是 | 免費（開源） | pure | 集中讀取 `.env` 與環境變數（Phase 17） | https://pypi.org/project/pydantic-settings/ |
 | pillow | 12.3.0 | MIT-CMU | 是 | 免費（開源） | 有 wheel | 讀圖、EXIF 轉正 | https://pypi.org/project/pillow/ |
 | pydantic | 2.13.5 | MIT | 是 | 免費（開源） | pure | 共用回應格式、M4 文件 schema | https://pypi.org/project/pydantic/ |
 | numpy | 2.5.3（需 py≥3.12）；py3.11 可用最高 2.4.6 | BSD-3-Clause 等 | 是 | 免費（開源） | 2.4.6 有 wheel | 數值運算 | https://pypi.org/project/numpy/ |

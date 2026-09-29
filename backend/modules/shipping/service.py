@@ -14,7 +14,7 @@ import time
 import zxingcpp
 from pydantic import ValidationError
 
-from core import context, llm
+from core import llm, request_scope
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
@@ -72,7 +72,7 @@ def check_shipping_label(
     bgr = to_bgr(image)
 
     # 預期值優先順序：明確帶的參數 > Phase 9 追溯資訊（trace header）
-    trace = context.get_trace()
+    trace = request_scope.get_trace()
     expected_part_no = expected_part_no or trace.get("part_no")
     expected_lot_no = expected_lot_no or trace.get("lot_no")
 

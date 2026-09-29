@@ -36,8 +36,16 @@ STEPS = [
 ]
 
 
+# 步驟編號 → 前端分頁 id（左側導覽由 /api/modules 產生，按鈕帶 data-tab）
+TAB_IDS = {
+    1: "general", 2: "docs", 3: "anomaly", 4: "codes", 5: "measure", 6: "safety", 7: "ppe", 8: "defect",
+    9: "nameplate", 10: "sevenseg", 11: "gauge", 12: "packaging", 13: "pneumonia", 14: "assembly",
+    15: "colordiff", 16: "shipping", 17: "dashboard",
+}
+
+
 def click_tab(page, n: int):
-    page.locator(".tab-btn").nth(n - 1).click()
+    page.locator(f'.side-nav .tab-btn[data-tab="{TAB_IDS[n]}"]').click()
     page.wait_for_timeout(300)
 
 
@@ -46,7 +54,11 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
+        console_errors = []
+        page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        page.on("pageerror", lambda e: console_errors.append(str(e)))
         page.goto(BASE_URL, wait_until="networkidle")
+        page.wait_for_selector(".side-nav .tab-btn", timeout=10000)
         page.wait_for_timeout(500)
 
         for tab_index, filename, file_selector, image_name, btn_selector, wait_s, special in STEPS:
@@ -94,6 +106,9 @@ def main():
             print(f"[{tab_index}] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
         browser.close()
+        print(f"瀏覽器 console／頁面錯誤：{len(console_errors)} 筆")
+        for err in console_errors:
+            print("  -", err)
 
 
 def capture_safety(page):

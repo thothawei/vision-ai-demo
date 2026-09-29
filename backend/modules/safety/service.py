@@ -11,7 +11,6 @@ Phase 11：單張圖片與短影片共用「純偵測（吃 BGR ndarray）」的
 """
 
 import json
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -21,7 +20,9 @@ import numpy as np
 
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
+from core.settings import get_settings
 
 MODULE = "safety"
 PPE_MODULE = "ppe"
@@ -52,7 +53,8 @@ def _get_model():
             )
         from ultralytics import YOLO
 
-        _model = YOLO(str(WEIGHTS_PATH))
+        with log_model_load("person-yolo11n"):
+            _model = YOLO(str(WEIGHTS_PATH))
     return _model
 
 
@@ -83,7 +85,7 @@ def detect_intrusion(image_bytes: bytes, zone_json: str | None) -> InspectionRes
 
 
 def _max_video_mb() -> int:
-    return int(os.environ.get("MAX_VIDEO_MB", "200"))
+    return get_settings().max_video_mb
 
 
 def _sample_video_frames(video_bytes: bytes, sample_interval_s: float, max_duration_s: float):
@@ -185,7 +187,8 @@ def _get_ppe_model():
             )
         from ultralytics import YOLO
 
-        _ppe_model = YOLO(str(PPE_WEIGHTS_PATH))
+        with log_model_load("ppe-yolo11n"):
+            _ppe_model = YOLO(str(PPE_WEIGHTS_PATH))
     return _ppe_model
 
 

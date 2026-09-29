@@ -1,44 +1,46 @@
-from fastapi import APIRouter, File, Form, UploadFile
+"""POST /api/batch/{action} 批次上傳；動作與參數驗證來自 core/registry.py（未知參數回 422）。"""
 
+from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+from starlette.datastructures import UploadFile
+
+from core import registry
 from core.batch_dispatch import run_batch
+from core.schemas import ModuleError
 
-router = APIRouter(prefix="/api/batch", tags=["Phase 11 批次上傳"])
+router = APIRouter(prefix="/api/batch", tags=["批次上傳"])
 
 
 @router.post("/{action}")
-def batch(
-    action: str,
-    files: list[UploadFile] = File(...),
-    mode: str | None = None,
-    category: str | None = None,
-    expected_count: int | None = None,
-    min_area_ratio: float | None = None,
-    marker_size_mm: float | None = None,
-    target_length_mm: float | None = None,
-    target_width_mm: float | None = None,
-    tolerance_mm: float | None = None,
-    min_value: float | None = None,
-    max_value: float | None = None,
-    min_angle: float | None = None,
-    max_angle: float | None = None,
-    center_x: float | None = None,
-    center_y: float | None = None,
-    zone: str | None = Form(None),
-    expected_part_no: str | None = None,
-    expected_lot_no: str | None = None,
-    expected_quantity: int | None = None,
-):
+async def batch(action: str, request: Request):
     """整批共用同一組額外參數（例如同一台攝影機拍的危險區域照片共用同一個 zone），
-    不是每張各自設定。單張失敗不會讓整批中斷，見 core/batch_dispatch.run_batch()。"""
-    params = {
-        "mode": mode, "category": category, "expected_count": expected_count,
-        "min_area_ratio": min_area_ratio, "marker_size_mm": marker_size_mm,
-        "target_length_mm": target_length_mm, "target_width_mm": target_width_mm,
-        "tolerance_mm": tolerance_mm, "min_value": min_value, "max_value": max_value,
-        "min_angle": min_angle, "max_angle": max_angle, "center_x": center_x,
-        "center_y": center_y, "zone": zone,
-        "expected_part_no": expected_part_no, "expected_lot_no": expected_lot_no,
-        "expected_quantity": expected_quantity,
-    }
-    items = [(f.filename or "unnamed", f.file.read()) for f in files]
-    return run_batch(action, items, params)
+    參數可放 query 或 form 欄位；空字串視為沒給。單張失敗不會讓整批中斷。"""
+    spec = registry.get_action(action)
+    if spec is None or not spec.batchable:
+        raise ModuleError(f"action 只能是 {registry.batch_action_names()} 其中之一，目前是「{action}」", 400)
+
+    form = await request.form()
+    uploads = [f for f in form.getlist("files") if isinstance(f, UploadFile)]
+    if not uploads:
+        return JSONResponse(status_code=422, content={"detail": "缺少 files 欄位（至少一個檔案）"})
+
+    raw = dict(request.query_params)
+    for key, value in form.multi_items():
+        if key != "files" and isinstance(value, str):
+            raw[key] = value
+    raw = {k: v for k, v in raw.items() if v != ""}
+
+    if spec.params is None:
+        if raw:
+            return JSONResponse(status_code=422, content={"detail": f"{action} 不接受額外參數：{sorted(raw)}"})
+        params = None
+    else:
+        try:
+            params = spec.params.model_validate(raw)
+        except ValidationError as e:
+            return JSONResponse(status_code=422, content={"detail": e.errors(include_url=False, include_context=False)})
+
+    items = [(f.filename or "unnamed", await f.read()) for f in uploads]
+    return await run_in_threadpool(run_batch, action, items, params)

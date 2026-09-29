@@ -14,6 +14,7 @@ import numpy as np
 
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 
 MODULE = "defect"
@@ -46,7 +47,8 @@ def _get_model():
             )
         from ultralytics import YOLO
 
-        _model = YOLO(str(WEIGHTS_PATH))
+        with log_model_load("defect-yolo11n"):
+            _model = YOLO(str(WEIGHTS_PATH))
     return _model
 
 

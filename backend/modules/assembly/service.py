@@ -8,8 +8,8 @@ SSIM 比對每個 ROI（有沒有零件、零件方向對不對），任一 ROI 
 不是資料庫表——跟 M3 自訂類別的 registry 風格一致，這個規模用不到資料庫。
 """
 
+import io
 import json
-import os
 import time
 from pathlib import Path
 
@@ -18,9 +18,11 @@ import numpy as np
 from PIL import Image
 from skimage.metrics import structural_similarity
 
+from core import request_scope
 from core.image_io import bgr_to_data_url, load_image, to_bgr, to_data_url
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
+from core.settings import get_settings
 
 MODULE = "assembly"
 
@@ -30,7 +32,7 @@ _DEFAULT_GOLDEN_DIR = Path(__file__).resolve().parents[3] / "data" / "golden_sam
 def _golden_dir() -> Path:
     """每次呼叫都重讀 env（跟 INSPECTION_DB/INSPECTION_IMAGES_DIR 同一個模式），
     測試才能用 monkeypatch.setenv 隔離，不會寫進專案真實的 data/golden_samples/。"""
-    return Path(os.environ.get("GOLDEN_SAMPLES_DIR", _DEFAULT_GOLDEN_DIR))
+    return get_settings().golden_samples_dir or _DEFAULT_GOLDEN_DIR
 
 MIN_GOOD_MATCHES = 8    # 至少要有這麼多好的特徵配對才嘗試算 homography
 MIN_INLIER_RATIO = 0.5  # RANSAC inlier 比例低於這個就當對齊失敗，不硬判 OK/NG
@@ -142,7 +144,9 @@ def inspect_assembly(part_no: str, image_bytes: bytes) -> InspectionResult:
         raise ModuleError(f"找不到料號「{part_no}」的黃金樣本設定，請先建立", 404)
 
     rois = json.loads(rois_path.read_text())["rois"]
-    golden_image = Image.open(part_dir / "golden.png").convert("RGB")
+    golden_bytes = (part_dir / "golden.png").read_bytes()
+    request_scope.add_image("golden", golden_bytes, "png")
+    golden_image = Image.open(io.BytesIO(golden_bytes)).convert("RGB")
     golden_bgr = to_bgr(golden_image)
 
     target_image = load_image(image_bytes)

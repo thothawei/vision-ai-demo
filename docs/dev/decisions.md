@@ -183,3 +183,15 @@ flowchart LR
 - **用真實手機視窗（375×812）在 GitHub 上實際檢查過架構圖的行動裝置顯示效果，抓到真實的可用性落差**：Mermaid 圖表在窄螢幕下會被壓縮到節點文字難以辨識，且 GitHub 內建的縮放/平移工具列在小螢幕會佔用更大比例的版面。這不是語法錯誤（前一項的 `mmdc` 驗證已經確認語法正確），是純粹的行動裝置可用性問題，使用者確認後補了因應方案，不是我自己判斷「應該沒差」就跳過。
 - **`docs/architecture.png`：用同一份 `.mmd` 原始碼透過 `mermaid-cli` 額外渲染一張靜態高解析度 PNG（`-s 3 -b white`，2352x1272），放在 Mermaid 區塊正下方當作手機備用連結**：手機上點連結會用系統原生圖片檢視器開啟，可以正常雙指縮放看清楚每個節點的文字，不受 GitHub 的 JS 互動元件限制。**這張 PNG 是從 README 的 Mermaid 原始碼手動渲染出來的靜態快照，不是自動同步**——之後如果修改 README 裡的架構圖（新增節點、改文字），要記得重新跑一次 `npx -y @mermaid-js/mermaid-cli -i <抽出的.mmd> -o docs/architecture.png -s 3 -b white` 更新這張圖，不然兩者會逐漸不一致；這個手動同步的維護成本目前沒有做自動化（例如 CI 腳本或 pre-commit hook），因為架構圖預期改動頻率低，手動維護是這個規模下合理的取捨。
 
+
+
+## 技術決策與理由（Phase 17，產品化重整）
+
+- **B1 比規劃書寫的大**：除了 assembly／colordiff／codes／measure，`docs`（LLM 輸出驗證失敗判 NG）、`nameplate` 銘牌（缺欄位判 NG）、七段顯示器（有 `?` 字元判 NG）也會判 NG 卻沒有柏拉圖規則，共補 6 個模組。柏拉圖在查詢時才從 `summary_json` 抽標籤，所以規則補上後歷史紀錄一併反映；但尺寸超差需要 `超差項目`（Phase 17 起才寫入 summary），舊的量測 NG 紀錄補不回來。規劃書寫的「孔徑超差」不做：程式只有長度與寬度有目標值與公差。
+- **`ActionSpec` 與規劃書的差異**：動作、module、前端分頁不是一對一（15 個批次動作、14 個 module、16 個分頁；assembly／colordiff 不在批次內），所以多加 `tab`、`router` 欄位（`batchable` 由有無 handler 推得），`defect_extractor` 掛在 module 層級（`extractor_for_module`）。完整性測試對每個「會判 NG 的動作」檢查其 module 有抽取規則，並用 `dataclasses.replace` 拿掉一個規則證明檢查不是空轉。
+- **各模組 router 保留**：16 個端點的表單欄位各自不同（`zone` 用 Form、其餘 query），統一路由會破壞相容；註冊表只當單一真實來源，main.py 依 `spec.router` 迴圈掛載。
+- **批次 API 參數驗證**：動作參數模型繼承 `extra="forbid"`，未知參數 422（M12 曾因 FastAPI 靜默忽略未宣告參數而漏傳）；空字串視為沒給（前端表單常送空值）。`anomaly` 的 `category` 維持選填，缺少時只讓該張失敗，維持既有行為。批次端點改 `async` 讀 `request.form()`，阻塞的辨識用 `run_in_threadpool`；scope 物件是可變的，跨 threadpool 共用（Phase 9 已實測）。
+- **RequestScope**：仍放 ContextVar；同 role 重複載入以最後一次為準，批次每張前明確 `reset_images()`（否則上一張的 golden 會殘留）。新增 `inspections.images_json`（其他 role 的路徑）與 `request_id` 欄位，沿用 `PRAGMA table_info` 補欄位；舊的 `image_path`／`annotated_path` 與 `?kind=raw|annotated` 行為不變。
+- **設定**：pydantic-settings 2.15.0。原本 `load_dotenv` 只在啟動時把 `.env` 灌進 `os.environ`，所以舊的「即時」其實是「改真實環境變數才即時、改 `.env` 仍要重啟」；新做法每次 `get_settings()` 重讀 `.env`，才真的即時。真實環境變數優先於 `.env`。**測試必須隔離真實 `.env`**：改成讀檔後，`monkeypatch.delenv("GEMINI_API_KEY")` 蓋不住 `.env` 裡的真 key，`test_gemini_without_key` 一度因此嘗試以真 key 走出去（`RuntimeError` 失敗才發現），已用 conftest 的 autouse fixture 把 `env_file` 設 None。
+- **日誌**：key=value（人工好 grep）。`request_id` 由最外層 middleware 產生（可沿用呼叫端帶的合法值），401 也帶；不記 API key 與圖片內容（測試以「只看本專案 logger」斷言，因為 httpx 用戶端與 PIL 的除錯日誌不歸我們管；uvicorn access log 會印 `?api_key=` 屬已知限制）。
+- **前端**：原生 ES modules，用腳本依行範圍機械切分原 `index.html` 的 JS，再檢查跨檔引用。導覽由 `/api/modules` 產生；註冊表有、HTML 沒有的分頁自動產生說明用預設面板。管理類頁面（看板）不是辨識動作，先固定列在「管理」。

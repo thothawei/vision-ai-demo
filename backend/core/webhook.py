@@ -7,13 +7,13 @@ daemon thread 立即送出、不等待結果；送出失敗（例外或非 2xx�
 
 import json
 import logging
-import os
 import threading
 import time
 
 import httpx
 
 from core.inspection_log import enqueue_webhook, list_pending_webhooks, mark_webhook_attempt
+from core.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ SEND_TIMEOUT_SECONDS = 5
 
 
 def _webhook_url() -> str | None:
-    return os.environ.get("ERP_WEBHOOK_URL") or None
+    return get_settings().erp_webhook_url
 
 
 def _build_payload(inspection_id: int, module: str, verdict: str, trace: dict) -> dict:

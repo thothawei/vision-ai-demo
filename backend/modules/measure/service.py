@@ -125,16 +125,23 @@ def measure_part(
         "孔徑mm": [round(d, 2) for d in holes_mm],
     }
     verdict = "INFO"
+    out_of_tolerance = []
     if target_length_mm is not None:
         item["目標長度mm"] = target_length_mm
         item["長度誤差mm"] = round(length_mm - target_length_mm, 2)
         length_ok = abs(length_mm - target_length_mm) <= tolerance_mm
         verdict = "OK" if length_ok else "NG"
+        if not length_ok:
+            out_of_tolerance.append("長度")
     if target_width_mm is not None:
         item["目標寬度mm"] = target_width_mm
         item["寬度誤差mm"] = round(width_mm - target_width_mm, 2)
         width_ok = abs(width_mm - target_width_mm) <= tolerance_mm
         verdict = "OK" if verdict != "NG" and width_ok else "NG"
+        if not width_ok:
+            out_of_tolerance.append("寬度")
+    if out_of_tolerance:
+        item["超差項目"] = out_of_tolerance
 
     annotated = warped.copy()
     box = cv2.boxPoints(rect).astype(np.int32)

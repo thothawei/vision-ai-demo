@@ -208,3 +208,14 @@
 - **開發中用 Playwright 測批次上傳時抓到真實 bug，並用 curl 重現＋驗證修復**：第一次用批次上傳（`⑯ 出貨標籤比對` 分頁多選檔案）測試時，畫面顯示「INFO 2」而非預期的 OK/NG，跟單張上傳（同一組參數）結果不一致。用 curl 直接打 `POST /api/batch/shipping?expected_part_no=SC-M6-20&...` 重現，回應裡 `"預期料號": null`——確認手動輸入的預期值完全沒有傳到 service。追到 `backend/modules/batch/router.py` 的 `batch()` 函式簽名是 Phase 11 建立時針對當時 14 個動作寫死的固定參數列表，新增 M12 這三個參數時只在 `core/batch_dispatch.py` 的 `_shipping()` 裡讀 `params.get(...)`，卻忘記同步在 `batch/router.py` 的函式簽名裡宣告——FastAPI 對函式簽名沒宣告的 query 參數是直接忽略，不會報錯也不會警告，這正是這個 bug 沒有在寫程式當下被發現的原因。修法：把 `expected_part_no`/`expected_lot_no`/`expected_quantity` 加進 `batch()` 的簽名與 `params` dict；補上 `tests/test_batch.py::test_batch_shipping_passes_expected_values_as_query_params` 回歸測試釘住。修完後重跑同一個 curl 重現指令，回應正確顯示 `"預期料號": "SC-M6-20"`、`"料號一致": true`；重新用 Playwright 走一次批次上傳，畫面正確顯示「OK 1」。
 - **截圖驗證**：`scripts/capture_screenshots.py` 新增 `capture_shipping()`，真跑一次產生 `16_shipping.png`（人工用 Read 工具核對：清楚顯示上傳的出貨標籤圖、填入的預期值、AI 判定 NG 與「問題：料號」的明細，這是刻意用不符的預期值 `SC-M8-30` 示範 NG 情境）；因為 M12 插在既有分頁後面（⑯），品檢看板從 `16_dashboard.png` 改名 `17_dashboard.png`，`capture_dashboard()` 同步更新，17 張截圖全部重新產生。
 - **既有測試無回歸**：`pytest`，142 項全過（132 項既有 + 10 項新增：`test_shipping.py` 9 項、`test_batch.py` 批次參數回歸測試 1 項，約 21.7 秒）。
+
+
+### Phase 17：功能驗證
+
+- **單元測試**：`pytest` 173 項全過（142 既有 + 31 新增：`test_registry.py` 15、`test_request_scope.py` 6、`test_settings.py` 10；約 25 秒）。
+- **註冊表完整性**：`test_every_inspection_module_has_defect_extractor` 通過；`test_completeness_check_fails_when_an_extractor_is_removed` 把 assembly 的 extractor 拿掉後，檢查函式回報 `['assembly']`，還原後回到空清單。
+- **柏拉圖補漏（真實伺服器＋暫存資料庫，Playwright）**：對 codes（過期）、count（預期 99）、measure（目標長度 80mm）、colordiff（紅 vs 藍）、assembly（ROI 3 缺件）各造 NG，看板柏拉圖標籤為 `組裝異常：ROI 3`、`色差超標`、`尺寸超差：長度`、`數量不符`、`追溯碼已過期`。docs／nameplate 的 NG 由單元測試（假 LLM）驗證標籤；七段顯示器的 `?` 判讀失敗只有單元測試（extractor 直接餵 summary），未在瀏覽器造出真實 NG。
+- **雙圖存檔**：組裝防呆的紀錄展開後詳情有 3 張圖（原圖、標註圖、黃金樣本，naturalWidth 皆 900）；單元測試比對 `kind=raw` 回傳的 bytes 等於待測照、`kind=golden` 等於黃金樣本。
+- **前端**：導覽 17 個項目（16 功能＋看板）逐一點過，每次只有對應的 panel active；`scripts/capture_screenshots.py` 跑完 17 個流程（含真打 Ollama 的 5 個），瀏覽器 console／頁面錯誤 0 筆；`#gauge` 網址直連與 `hashchange` 生效（第一版漏了 hashchange，Playwright 測出後補上）；攔截 `/api/modules` 加一個沒有專用畫面的假動作，導覽出現並產生預設面板；390px 寬度 `scrollWidth == clientWidth`（無橫向捲動）。
+- **間歇性的測試程序結束崩潰（未查出根因）**：全測試通過之後的程序結束階段，偶爾出現 `libc++abi: terminating due to uncaught exception of type std::__1::system_error: recursive_mutex lock failed`（pytest 退出前已印出 `173 passed`，測試結果不受影響）。新測試集約 10 次執行中出現 2 次；之後連續 3 次完整測試與 3 次「只跑舊測試」皆 0 次；基準（Phase 16 的 142 項）只測過 2 次，沒出現，樣本太少，**不能斷言是既有問題或本 Phase 引入**。疑似第三方（torch／onnxruntime）在程序結束時的清理競爭，尚未驗證。
+- **已寫入真實資料庫的紀錄**：`capture_screenshots.py` 沿用既有慣例對真實 `data/inspections.db` 寫入 17 筆辨識紀錄；柏拉圖與雙圖驗證改用暫存資料庫。

@@ -4,21 +4,22 @@
 """
 
 import json
-import os
+import logging
+import time
 
 from PIL import Image
 
 from core.image_io import resize_max, to_jpeg_bytes
 from core.schemas import ModuleError
+from core.settings import get_settings
 
-DEFAULT_OLLAMA_MODEL = "qwen3.5:9b"
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+logger = logging.getLogger("vision.llm")
 # 送進 LLM 前的最長邊；太大只會拖慢本機推論，對辨識幫助有限
 MAX_IMAGE_SIDE = 1600
 
 
 def current_engine() -> str:
-    engine = os.environ.get("LLM_ENGINE", "ollama").strip().lower()
+    engine = get_settings().llm_engine.strip().lower()
     if engine not in ("ollama", "gemini"):
         raise ModuleError(f"LLM_ENGINE 只能是 ollama 或 gemini，目前是「{engine}」")
     return engine
@@ -28,10 +29,16 @@ def generate_json(prompt: str, image: Image.Image | None = None) -> tuple[dict, 
     """送出 prompt（可附一張圖），回傳 (解析後的 JSON dict, 引擎名稱)。"""
     image_bytes = to_jpeg_bytes(resize_max(image, MAX_IMAGE_SIDE)) if image else None
 
-    if current_engine() == "gemini":
-        text, engine_name = _call_gemini(prompt, image_bytes)
-    else:
-        text, engine_name = _call_ollama(prompt, image_bytes)
+    started = time.perf_counter()
+    try:
+        if current_engine() == "gemini":
+            text, engine_name = _call_gemini(prompt, image_bytes)
+        else:
+            text, engine_name = _call_ollama(prompt, image_bytes)
+    except ModuleError as e:
+        logger.warning("LLM 呼叫失敗 engine=%s detail=%s", current_engine(), e.message)
+        raise
+    logger.info("LLM 呼叫完成 engine=%s elapsed_ms=%s", engine_name, int((time.perf_counter() - started) * 1000))
 
     return parse_json_text(text), engine_name
 
@@ -57,12 +64,13 @@ def parse_json_text(text: str) -> dict:
 def _call_ollama(prompt: str, image_bytes: bytes | None) -> tuple[str, str]:
     import ollama
 
-    model = os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+    settings = get_settings()
+    model = settings.ollama_model
     message = {"role": "user", "content": prompt}
     if image_bytes:
         message["images"] = [image_bytes]
 
-    client = ollama.Client(timeout=float(os.environ.get("OLLAMA_TIMEOUT", "300")))
+    client = ollama.Client(timeout=settings.ollama_timeout)
     try:
         response = client.chat(
             model=model,
@@ -70,7 +78,7 @@ def _call_ollama(prompt: str, image_bytes: bytes | None) -> tuple[str, str]:
             format="json",
             think=False,
             options={"temperature": 0},
-            keep_alive=os.environ.get("OLLAMA_KEEP_ALIVE", "5m"),
+            keep_alive=settings.ollama_keep_alive,
         )
     except ConnectionError:
         raise ModuleError("無法連到 Ollama，請確認已執行 `ollama serve`（或開啟 Ollama App）", 503)
@@ -87,11 +95,12 @@ def _call_gemini(prompt: str, image_bytes: bytes | None) -> tuple[str, str]:
     from google.genai import types
     from google.genai.errors import APIError
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    settings = get_settings()
+    api_key = settings.gemini_api_key
     if not api_key:
         raise ModuleError("LLM_ENGINE=gemini 但缺少 GEMINI_API_KEY，請在 .env 設定")
 
-    model = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    model = settings.gemini_model
     contents: list = [prompt]
     if image_bytes:
         contents.insert(0, types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))

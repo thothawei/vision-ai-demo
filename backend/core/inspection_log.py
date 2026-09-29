@@ -9,14 +9,17 @@ Phase 9 起新增追溯欄位（工單/料號/批號/站別/操作員）、原�
 import csv
 import io
 import json
-import os
+import logging
 import sqlite3
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core import context
+from core import request_scope
 from core.schemas import InspectionResult
+from core.settings import get_settings
+
+logger = logging.getLogger("vision.inspection")
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "inspections.db"
 DEFAULT_IMAGES_DIR = Path(__file__).resolve().parents[2] / "data" / "images"
@@ -50,6 +53,7 @@ _NEW_COLUMNS = [
     "work_order", "part_no", "lot_no", "station", "operator",
     "image_path", "annotated_path",
     "review_verdict", "reviewer", "reviewed_at", "review_note",
+    "images_json", "request_id",
 ]
 
 _ALL_COLUMNS = [
@@ -57,82 +61,14 @@ _ALL_COLUMNS = [
     *_NEW_COLUMNS,
 ]
 
-# extract_defect_labels 用：每個模組怎麼從 summary（record_result 存進去的 items）
-# 抽出「缺陷類別」清單，用來畫 NG 原因柏拉圖。沒有缺陷類別概念的模組不用列在這裡，
-# 一律回傳 []（例如 M9 開放式辨識、M1 追溯碼、M4 文件、M7 銘牌/七段/指針錶、M8-2 分類展示）。
-_DEFECT_LABEL_EXTRACTORS = {}
-
-
-def _extractor(module):
-    def register(fn):
-        _DEFECT_LABEL_EXTRACTORS[module] = fn
-        return fn
-    return register
-
-
-@_extractor("defect")
-def _extract_defect_labels_pcb(summary):
-    labels = []
-    for item in summary:
-        for d in item.get("明細", []):
-            if "瑕疵類型" in d:
-                labels.append(d["瑕疵類型"])
-    return labels
-
-
-@_extractor("ppe")
-def _extract_defect_labels_ppe(summary):
-    labels = []
-    for item in summary:
-        for d in item.get("明細", []):
-            if d.get("類型") == "未戴安全帽":
-                labels.append("未戴安全帽")
-    return labels
-
-
-@_extractor("anomaly")
-def _extract_defect_labels_anomaly(summary):
-    labels = []
-    for item in summary:
-        if item.get("判定") == "異常":
-            labels.append(f"外觀異常（{item.get('類別', '未知類別')}）")
-    return labels
-
-
-@_extractor("safety")
-def _extract_defect_labels_safety(summary):
-    labels = []
-    for item in summary:
-        for p in item.get("明細", []):
-            if p.get("是否入侵"):
-                labels.append("危險區域入侵")
-    return labels
-
-
-@_extractor("medical_packaging")
-def _extract_defect_labels_packaging(summary):
-    labels = []
-    for item in summary:
-        for problem in item.get("問題") or []:
-            labels.append(f"包裝不一致：{problem}")
-    return labels
-
-
-@_extractor("shipping")
-def _extract_defect_labels_shipping(summary):
-    labels = []
-    for item in summary:
-        for problem in item.get("問題") or []:
-            labels.append(f"出貨標籤不符：{problem}")
-    return labels
-
-
 def extract_defect_labels(module: str, summary: list | dict) -> list[str]:
     """從 record_result 存進 summary_json 的 items 抽出缺陷類別清單。
     沒有對應規則的模組（或 summary 格式不是預期的 list）一律回傳 []，不猜測。"""
     if not isinstance(summary, list):
         return []
-    fn = _DEFECT_LABEL_EXTRACTORS.get(module)
+    from core.registry import extractor_for_module  # 延後匯入：registry 會匯入各模組 service，而 service 匯入本檔
+
+    fn = extractor_for_module(module)
     if fn is None:
         return []
     try:
@@ -142,15 +78,15 @@ def extract_defect_labels(module: str, summary: list | dict) -> list[str]:
 
 
 def _db_path() -> Path:
-    return Path(os.environ.get("INSPECTION_DB", DEFAULT_DB_PATH))
+    return get_settings().inspection_db or DEFAULT_DB_PATH
 
 
 def _images_dir() -> Path:
-    return Path(os.environ.get("INSPECTION_IMAGES_DIR", DEFAULT_IMAGES_DIR))
+    return get_settings().inspection_images_dir or DEFAULT_IMAGES_DIR
 
 
 def _save_images_enabled() -> bool:
-    return os.environ.get("SAVE_IMAGES", "true").lower() not in ("false", "0", "no")
+    return get_settings().save_images
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -180,14 +116,15 @@ def log_inspection(
     elapsed_ms: int,
     summary: list | dict,
     trace: dict | None = None,
+    request_id: str | None = None,
 ) -> int:
     trace = trace or {}
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO inspections "
             "(created_at, module, verdict, engine, elapsed_ms, summary_json, "
-            " work_order, part_no, lot_no, station, operator)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " work_order, part_no, lot_no, station, operator, request_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now().isoformat(timespec="seconds"),
                 module,
@@ -200,6 +137,7 @@ def log_inspection(
                 trace.get("lot_no"),
                 trace.get("station"),
                 trace.get("operator"),
+                request_id,
             ),
         )
         return cur.lastrowid
@@ -211,27 +149,34 @@ def _decode_data_url(data_url: str) -> bytes:
     return base64.b64decode(b64data)
 
 
-def _save_images(inspection_id: int, created_at: str, raw: tuple[bytes, str] | None, annotated_image: str | None) -> tuple[str | None, str | None]:
-    """存原圖與標註圖到 data/images/YYYY-MM-DD/，回傳 (image_path, annotated_path)（相對於 repo 根目錄）。"""
-    day = created_at[:10]
-    day_dir = _images_dir() / day
+def _save_images(
+    inspection_id: int, created_at: str, images: dict[str, tuple[bytes, str]], annotated_image: str | None
+) -> tuple[str | None, str | None, dict[str, str]]:
+    """存本次請求的所有圖片到 data/images/YYYY-MM-DD/<id>_<role>.<ext>。
+    回傳 (image_path＝raw, annotated_path, 其他 role 的路徑)，路徑相對於 repo 根目錄。"""
+    day_dir = _images_dir() / created_at[:10]
     day_dir.mkdir(parents=True, exist_ok=True)
+    base = _images_dir().parents[0]
 
     image_path = None
     annotated_path = None
+    extra: dict[str, str] = {}
 
-    if raw is not None:
-        raw_bytes, ext = raw
-        raw_file = day_dir / f"{inspection_id}_raw.{ext}"
-        raw_file.write_bytes(raw_bytes)
-        image_path = str(raw_file.relative_to(_images_dir().parents[0]))
+    for role, (data, ext) in images.items():
+        file = day_dir / f"{inspection_id}_{role}.{ext}"
+        file.write_bytes(data)
+        rel = str(file.relative_to(base))
+        if role == "raw":
+            image_path = rel
+        else:
+            extra[role] = rel
 
     if annotated_image:
         annotated_file = day_dir / f"{inspection_id}_annotated.png"
         annotated_file.write_bytes(_decode_data_url(annotated_image))
-        annotated_path = str(annotated_file.relative_to(_images_dir().parents[0]))
+        annotated_path = str(annotated_file.relative_to(base))
 
-    return image_path, annotated_path
+    return image_path, annotated_path, extra
 
 
 def record_result(
@@ -243,24 +188,30 @@ def record_result(
     annotated_image: str | None = None,
 ) -> InspectionResult:
     """模組辨識完成後呼叫：算耗時、寫一筆紀錄（含追溯資訊、原圖/標註圖）、組成共用回應格式。
-    started 為 time.perf_counter()。追溯資訊與原圖 bytes 從 contextvar 取得
+    started 為 time.perf_counter()。追溯資訊、request_id 與本次請求的所有圖片從 request_scope 取得
     （由 main.py 的 middleware 與 image_io.load_image() 設定），呼叫端不用額外傳參數。"""
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    trace = context.get_trace()
-    inspection_id = log_inspection(module, verdict, engine, elapsed_ms, items, trace)
+    trace = request_scope.get_trace()
+    inspection_id = log_inspection(
+        module, verdict, engine, elapsed_ms, items, trace, request_scope.get_request_id()
+    )
 
     if _save_images_enabled():
         with _connect() as conn:
             row = conn.execute("SELECT created_at FROM inspections WHERE id = ?", (inspection_id,)).fetchone()
         created_at = row["created_at"]
-        raw = context.get_raw_image()
-        image_path, annotated_path = _save_images(inspection_id, created_at, raw, annotated_image)
-        if image_path or annotated_path:
+        image_path, annotated_path, extra = _save_images(
+            inspection_id, created_at, request_scope.get_images(), annotated_image
+        )
+        if image_path or annotated_path or extra:
             with _connect() as conn:
                 conn.execute(
-                    "UPDATE inspections SET image_path = ?, annotated_path = ? WHERE id = ?",
-                    (image_path, annotated_path, inspection_id),
+                    "UPDATE inspections SET image_path = ?, annotated_path = ?, images_json = ? WHERE id = ?",
+                    (image_path, annotated_path, json.dumps(extra) if extra else None, inspection_id),
                 )
+
+    logger.info("辨識完成 module=%s verdict=%s engine=%s elapsed_ms=%s inspection_id=%s",
+                module, verdict, engine, elapsed_ms, inspection_id)
 
     if verdict == "NG":
         from core import webhook  # 延後匯入避免循環匯入（webhook.py 會匯入本檔的佇列函式）
@@ -352,11 +303,16 @@ def get_inspection(inspection_id: int) -> dict | None:
 
 
 def get_image_file_path(inspection_id: int, kind: str) -> Path | None:
-    """kind 為 raw 或 annotated。找不到紀錄或該張圖沒存就回傳 None。"""
+    """kind 為 raw、annotated 或其他 role（golden、reference）。找不到紀錄或該張圖沒存就回傳 None。"""
     record = get_inspection(inspection_id)
     if record is None:
         return None
-    rel_path = record["image_path"] if kind == "raw" else record["annotated_path"]
+    if kind == "raw":
+        rel_path = record["image_path"]
+    elif kind == "annotated":
+        rel_path = record["annotated_path"]
+    else:
+        rel_path = record["images"].get(kind)
     if not rel_path:
         return None
     full_path = _images_dir().parent / rel_path
@@ -388,7 +344,7 @@ def to_csv(records: list[dict]) -> str:
         "id", "created_at", "module", "verdict", "engine", "elapsed_ms",
         "work_order", "part_no", "lot_no", "station", "operator",
         "review_verdict", "reviewer", "reviewed_at", "review_note",
-        "summary_json",
+        "summary_json", "request_id",
     ]
     writer.writerow(header)
     for r in records:
@@ -397,6 +353,7 @@ def to_csv(records: list[dict]) -> str:
             r.get("work_order"), r.get("part_no"), r.get("lot_no"), r.get("station"), r.get("operator"),
             r.get("review_verdict"), r.get("reviewer"), r.get("reviewed_at"), r.get("review_note"),
             json.dumps(r["summary"], ensure_ascii=False),
+            r.get("request_id"),
         ])
     return buf.getvalue()
 
@@ -493,6 +450,8 @@ def get_stats(
 def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["summary"] = json.loads(d.pop("summary_json"))
+    images_json = d.pop("images_json", None)
+    d["images"] = json.loads(images_json) if images_json else {}
     return d
 
 

@@ -1,6 +1,6 @@
 # 管理者手冊
 
-適用版本 0.16.0。
+適用版本 0.17.0。
 
 ## 安裝
 
@@ -16,26 +16,30 @@ cd backend && uvicorn main:app
 
 ## `.env` 設定參考
 
-設定放在專案根目錄 `.env`（範本 `.env.example`）。**「需重啟」＝ 啟動時讀一次；「即時」＝ 每次使用時重讀。** 表格為 0.16.0 手動整理，後續版本將由程式自動產生。
+設定放在專案根目錄 `.env`（範本 `.env.example`），真實環境變數優先於 `.env`。**「即時」＝ 每次使用時重新讀取（改 `.env` 不必重啟）；「需重啟」＝ 服務啟動時讀一次。** 下表由 `scripts/gen_settings_doc.py` 依 `backend/core/settings.py` 自動產生，請勿手改。
 
+<!-- settings-table:begin -->
 | 變數 | 預設 | 用途 | 生效 |
 |---|---|---|---|
-| `LLM_ENGINE` | `ollama` | LLM 引擎：`ollama`（離線）或 `gemini`（免費層備援） | 即時 |
+| `LLM_ENGINE` | `ollama` | LLM 引擎：ollama（離線）或 gemini（免費層備援） | 即時 |
 | `OLLAMA_MODEL` | `qwen3.5:9b` | Ollama 模型名稱 | 即時 |
 | `OLLAMA_KEEP_ALIVE` | `5m` | 模型閒置多久後釋放記憶體 | 即時 |
-| `OLLAMA_TIMEOUT` | `300` | Ollama 呼叫逾時（秒） | 即時 |
-| `GEMINI_API_KEY` | 無 | 僅 `LLM_ENGINE=gemini` 需要；請勿啟用計費帳戶 | 即時 |
+| `OLLAMA_TIMEOUT` | `300.0` | Ollama 呼叫逾時（秒） | 即時 |
+| `GEMINI_API_KEY` | 無 | 僅 LLM_ENGINE=gemini 需要；請勿啟用計費帳戶 | 即時 |
 | `GEMINI_MODEL` | `gemini-3.6-flash` | Gemini 模型 | 即時 |
-| `SAVE_IMAGES` | `true` | 是否存原圖與標註圖（`data/images/`） | 即時 |
-| `INSPECTION_DB` | `data/inspections.db` | 檢驗紀錄 SQLite 路徑 | 即時 |
-| `INSPECTION_IMAGES_DIR` | `data/images` | 圖片存放目錄 | 即時 |
-| `GOLDEN_SAMPLES_DIR` | `data/golden_samples` | 黃金樣本目錄 | 即時 |
-| `API_KEYS` | 空 | `/api/inspections*` 的 `X-API-Key` 白名單，格式 `名稱:key,名稱:key`；正式環境務必換成隨機字串 | 即時 |
-| `CORS_ORIGINS` | 本機 8000 埠 | 允許的前端網域（逗號分隔） | **需重啟** |
-| `MAX_UPLOAD_MB` | `20` | 單張圖片大小上限，超過回 413 | 即時 |
-| `MAX_VIDEO_MB` | `200` | 影片大小上限 | 即時 |
-| `ERP_WEBHOOK_URL` | 空 | NG 時 POST 通知的網址；空白＝不啟用 | 即時 |
-| `TRUST_REMOTE_CODE` | 程式內設定 | 只用於載入本機訓練的異常檢測權重，請勿手動設定 | — |
+| `SAVE_IMAGES` | `True` | 是否存原圖與標註圖 | 即時 |
+| `INSPECTION_DB` | 無 | 檢驗紀錄 SQLite 路徑（預設 data/inspections.db） | 即時 |
+| `INSPECTION_IMAGES_DIR` | 無 | 圖片存放目錄（預設 data/images） | 即時 |
+| `GOLDEN_SAMPLES_DIR` | 無 | 黃金樣本目錄（預設 data/golden_samples） | 即時 |
+| `API_KEYS` | 空 | /api/inspections* 的 X-API-Key 白名單，格式 名稱:key,名稱:key；正式環境務必換成隨機字串 | 即時 |
+| `CORS_ORIGINS` | `http://127.0.0.1:8000,http://localhost:8000` | 允許的前端網域（逗號分隔） | **需重啟** |
+| `MAX_UPLOAD_MB` | `20` | 單張圖片大小上限（MB），超過回 413 | 即時 |
+| `MAX_VIDEO_MB` | `200` | 影片大小上限（MB） | 即時 |
+| `ERP_WEBHOOK_URL` | 無 | NG 時 POST 通知的網址；空白＝不啟用 | 即時 |
+| `LOG_LEVEL` | `INFO` | 日誌層級（DEBUG／INFO／WARNING／ERROR） | **需重啟** |
+<!-- settings-table:end -->
+
+`TRUST_REMOTE_CODE` 由程式在載入本機訓練的異常檢測權重時自行設定，不屬於使用者設定，請勿手動設定。
 
 ## 模型訓練與擬合
 
@@ -44,6 +48,12 @@ cd backend && uvicorn main:app
 - **PCB／安全帽**：`scripts/prepare_deeppcb.py`、`scripts/prepare_hardhat.py` 轉檔後以 ultralytics 訓練，或使用 `notebooks/` 的 Colab 版。訓練的 `project` 參數必須用**絕對路徑**。
 - **醫學影像分類**：`python scripts/train_medmnist.py`（僅供技術展示）。
 - **權重位置**：`models/`（不進版控）。正式導入須以自有資料重新擬合／訓練，MVTec AD 訓練的權重不得商用。
+
+## 日誌與問題追查
+
+- 日誌為 key=value 格式（`ts= level= logger= request_id= msg=`），輸出到標準輸出；層級由 `LOG_LEVEL` 設定（需重啟）。
+- 每個請求有 `request_id`（回應 header `X-Request-ID`，可由呼叫端帶入）；檢驗紀錄的 `request_id` 欄位與 CSV 最後一欄可對回日誌。
+- 記錄項目：請求（方法、路徑、狀態、耗時）、辨識完成（模組、判定、耗時）、模型載入耗時、LLM 呼叫耗時與失敗。不記錄 API key 與圖片內容。
 
 ## 整合與維運
 

@@ -21,6 +21,7 @@ import torch
 
 from core.image_io import bgr_to_data_url, load_image
 from core.inspection_log import record_result
+from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 
 MODULE = "anomaly"
@@ -104,7 +105,8 @@ def _get_inferencer(category: str):
         # 這裡載入的是 scripts/train_anomaly.py 在本機訓練、自己匯出的權重，不是下載來路不明
         # 的檔案，可信任；只在載入這個模組期間開啟，不動全域環境。
         os.environ["TRUST_REMOTE_CODE"] = "1"
-        _inferencers[category] = TorchInferencer(path=weights_path, device="cpu")
+        with log_model_load(f"anomaly-patchcore:{category}"):
+            _inferencers[category] = TorchInferencer(path=weights_path, device="cpu")
     return _inferencers[category]
 
 
