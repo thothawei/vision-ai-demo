@@ -50,6 +50,16 @@ def _isolate_data_paths(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _cheap_password_hashing(monkeypatch):
+    """argon2id 正式參數刻意很慢（雜湊與驗證各約 40ms），約 300 個測試要建帳號登入，占了整套測試近一半時間。
+    測試只需要「雜湊可驗證」，所以降到最低成本；正式程式碼的參數不動。"""
+    from argon2 import PasswordHasher
+    from core import users
+
+    monkeypatch.setattr(users, "_hasher", PasswordHasher(time_cost=1, memory_cost=8, parallelism=1))
+
+
+@pytest.fixture(autouse=True)
 def _ignore_real_dotenv(monkeypatch):
     """設定會讀專案根目錄的 .env（含真實的 Gemini key 等）；測試一律只看環境變數，
     不然 `monkeypatch.delenv` 蓋不住 .env 裡的值，測試可能拿真 key 打外部服務。"""
