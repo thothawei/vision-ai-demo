@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### 新增（Phase 23 進行中）
+- 批號／料號三級比對（一致／疑似／不一致，rapidfuzz）：包裝與出貨標籤共用，疑似判 INFO 交人工確認。
+- `scripts/evaluate.py` 與 `tests/real_samples/`：真實照片評估集；尚無照片的模組在 `docs/evaluation.md` 標示「待補真實照片」。
+- GitHub Actions CI（check_wording、ruff、pytest + coverage）；`pytest -m e2e` 截圖流程。
+
 ## [0.22.0]
 
 ### 新增
