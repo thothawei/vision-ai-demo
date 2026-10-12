@@ -78,3 +78,31 @@ def describe(model_id: str) -> dict:
                 "dataset": source["dataset"].format(category=category), "dataset_license": source["dataset_license"]}
     return {"title": model_id, "task": "", "dataset": "", "dataset_license": "", "documented_metrics": {},
             "limitations": "", "not_for": ""}
+
+
+# 缺權重時給使用者的下一步（健康檢查與系統狀態頁用）
+MISSING_HINTS = {
+    "pcb-defect": "請準備 DeepPCB 資料並訓練（scripts/prepare_deeppcb.py），再用 scripts/register_model.py 登錄",
+    "ppe-helmet": "請準備 Hard Hat Workers 資料並訓練（scripts/prepare_hardhat.py），再用 scripts/register_model.py 登錄",
+    "person-detector": "請下載 yolo11n.pt 放到 models/yolo/（見 README 安裝步驟）",
+    "pneumonia-cnn": "請執行 python scripts/train_medmnist.py",
+}
+
+
+def default_weights_path(model_id: str):
+    """模型第一次使用時會就地登錄的預設權重位置（各服務的 WEIGHTS_PATH 常數）；不認得的 id 回傳 None。"""
+    if model_id == "pcb-defect":
+        from modules.defect.service import WEIGHTS_PATH
+    elif model_id == "ppe-helmet":
+        from modules.safety.service import PPE_WEIGHTS_PATH as WEIGHTS_PATH
+    elif model_id == "person-detector":
+        from modules.safety.service import WEIGHTS_PATH
+    elif model_id == "pneumonia-cnn":
+        from modules.medical.service import WEIGHTS_PATH
+    elif model_id.startswith("anomaly-"):
+        from modules.anomaly.service import MODELS_DIR
+
+        return MODELS_DIR / model_id[len("anomaly-"):] / "weights" / "torch" / "model.pt"
+    else:
+        return None
+    return WEIGHTS_PATH

@@ -52,6 +52,11 @@
 - **模型一律走 `core/model_registry.resolve(model_id, default_path, missing_message)`**：回傳啟用版本並驗證 SHA-256，同時把版本記進 `request_scope`（`record_result` 寫 `model_id`／`model_version`）；快取用 `VersionedCache`（以版本為鍵）。沒有版本且預設路徑存在時就地登錄 v1。服務的 `_get_model`／`_get_ppe_model`／`_get_inferencer` 與 `WEIGHTS_PATH` 是測試接縫，不要刪。**異常檢測的門檻、評分檔在版本資料夾內**（`active_anomaly_root`），不要再寫回 `models/anomaly/<類別>/`。權重只能由伺服器端腳本登錄（pickle 風險），不要加網頁上傳。
 - **批次逐張、配方逐步之前用 `request_scope.reset_step()`**（清圖片與模型資訊），不是只清圖片。
 - **測試一律預設隔離資料庫／圖片／黃金樣本目錄**（`tests/conftest.py` 的 autouse `_isolate_data_paths`，有測試守住）。任何函式一旦會間接查資料庫（例如模型登錄），沒隔離的測試就會寫進真實 `data/inspections.db`——Phase 21 真的踩到；偵測法：把 `INSPECTION_DB=/dev/null/x` 等三個環境變數設成不可寫再跑 pytest，並比對真實資料庫前後 row 數與 mtime。
+- **背景工作一律走 `core/jobs.py`（`jobs` 表）**：worker 輪詢資料庫、原子領取；啟動時 `anomaly_training.recover()` 把 running 標成 interrupted（含 Phase 22 之前遺留、狀態檔卡住的類別），queued 由 worker 自然接續；重試走 `POST /api/jobs/{id}/retry`。新增背景工作種類時也要走這條路，不要再用記憶體佇列。測試接縫：`_process_one(name)`、`_run_job(job)`、`_worker_loop(stop_event)`。
+- **單一實例鎖（`core/instance_lock.py`）在 `main.py` 的 lifespan 取得**：拿不到就讓啟動失敗，沒拿到鎖之前不可做任何寫入（recover、啟動 worker 都在拿到之後）。**啟動用的腳本一定要有 `if __name__ == "__main__":` 保護**：PatchCore 的 DataLoader 在 macOS 用 spawn 開子程序，會重新匯入 `__main__`，沒有保護會讓每個子程序再啟動一次整個服務（Phase 22 的第一次崩潰驗證就因此互相干擾，`uvicorn main:app` 不受影響）。
+- **健康檢查只做便宜的檢查**（`core/health.py`：檔案存在、Ollama `list()`、資料庫可寫），不載入模型、不重算 SHA-256；結果快取 5 秒。註冊表的 `requires` 只能是 `model:<id>`、`anomaly`、`llm`，新增類型要在 `health._feature_states` 加對應的判斷。公開的 `/readyz` 只能回摘要（不含路徑與細節），明細放在登入後的 `/api/system/status`。
+- **`/metrics` 的標籤一律用路由樣板**（`request.scope["route"].path`），不要用實際網址；測試要用前後差值（指標是整個測試程序共用的累計值）。
+- **手動除錯用的臨時腳本也會連到真實資料庫**：在專案目錄用 `python - <<EOF` 匯入 `core.*` 並呼叫會查資料庫的函式（例如 `metrics.render()`），沒設 `INSPECTION_DB` 就會對真實 `data/inspections.db` 跑 migration；臨時腳本一律先設好三個資料路徑環境變數指到暫存。
 - **會刪資料或覆寫資料的腳本預設只預覽**（`cleanup_images.py`、`restore.py` 要 `--apply`／`--yes`；還原不刪舊資料而是改名保留）；備份不含 `.env`，但含密碼雜湊。
 - **量測值抽取在 `core/measurement_extractors.py`**（依 module 的字典，與缺陷抽取規則同型），由 `log_inspection` 在同一個連線寫入 `measurements`；新增可做 SPC 的特性就在那裡加，不要在各模組 service 裡寫。規格上下限只在結果有存目標與公差時才有（舊紀錄沒有公差 → 無規格）；多孔的孔徑刻意不收。
 - **SPC 的數學都在 `core/spc.py`（純 numpy、標準係數表）**，資料存取在 `core/spc_service.py`，測試用手算數值（A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。Western Electric 規則 4 預設 8 點（原始定義；規劃書寫 7 已與使用者確認改 8），`run_length` 可調。
@@ -169,4 +174,4 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
 - [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [x] Phase 20：SPC 與報表。 [x] Phase 21：模型與資料治理。
-- [ ] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。
+- [x] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。

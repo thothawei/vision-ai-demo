@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from core import auth, registry, request_scope
+from core import auth, metrics, registry, request_scope
 from core.logging_setup import setup_logging
 from core.schemas import ModuleError
 from core.settings import startup_settings
@@ -39,13 +39,38 @@ def _session_secret() -> str:
 SESSION_SECRET = _session_secret()
 
 
+def _log_readiness(health, recovered: dict) -> None:
+    """啟動時把就緒狀況寫進日誌：哪些功能現在用不了、為什麼（不能讓檢查本身擋住啟動）。"""
+    try:
+        status = health.compute_status(force=True)
+    except Exception:  # noqa: BLE001
+        logger.exception("啟動時的就緒檢查失敗")
+        return
+    logger.info("啟動就緒 ready=%s degraded=%s recovered=%s", status["ready"], status["degraded"], recovered)
+    for name, check in status["checks"].items():
+        if not check["ok"]:
+            logger.warning("檢查未通過 check=%s message=%s", name, check["message"])
+    for feature in status["features"]:
+        if not feature["available"]:
+            logger.warning("功能不可用 action=%s reason=%s", feature["action"], feature["reason"])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from core import anomaly_training, webhook
+    from core import anomaly_training, health, instance_lock, webhook
+    from core.inspection_log import _db_path
 
-    webhook.start_background_retry_loop()
-    anomaly_training.start_worker()
-    yield
+    # 同一個資料庫只允許一個服務程序：背景工作的恢復與輪詢都假設單一程序，
+    # 拿不到鎖就直接讓啟動失敗（uvicorn 會在綁定埠號之前結束），不去動別的程序正在做的工作
+    lock = instance_lock.acquire(_db_path())
+    try:
+        recovered = anomaly_training.recover()  # 重啟前做到一半的擬合標成中斷，排隊中的由 worker 接續
+        webhook.start_background_retry_loop()
+        anomaly_training.start_worker()
+        _log_readiness(health, recovered)
+        yield
+    finally:
+        instance_lock.release(lock)
 
 
 app = FastAPI(title="製造業 AI 辨識系統", lifespan=lifespan)
@@ -120,6 +145,9 @@ async def request_scope_middleware(request: Request, call_next):
         raise
     response.headers["X-Request-ID"] = request_id
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    route = request.scope.get("route")
+    metrics.observe_request(request.method, getattr(route, "path", None) or "unmatched", response.status_code,
+                            elapsed_ms / 1000)
     logger.log(
         logging.INFO if is_api else logging.DEBUG,
         "method=%s path=%s status=%s elapsed_ms=%s", request.method, request.url.path,
@@ -139,7 +167,7 @@ for _router in registry.routers():
 app.include_router(importlib.import_module("modules.batch.router").router, dependencies=[Depends(auth.require_login)])
 # 以下 router 自行在端點或 router 層級宣告權限（登入端點本身不需要驗證）
 for _path in ("modules.auth.router", "modules.users.router", "modules.audit.router", "modules.inspections.router",
-              "modules.master.router", "modules.recipes.router", "modules.spc.router", "modules.reports.router", "modules.models.router"):
+              "modules.master.router", "modules.recipes.router", "modules.spc.router", "modules.reports.router", "modules.models.router", "modules.system.router"):
     app.include_router(importlib.import_module(_path).router)
 
 

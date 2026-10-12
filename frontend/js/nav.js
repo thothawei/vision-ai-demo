@@ -1,10 +1,11 @@
 import { loadCatalog } from "./catalog.js";
+import { apiFetch } from "./api.js";
 import { loadMe } from "./session.js";
 
 // 管理類頁面不是辨識動作，不在註冊表內；依角色顯示（伺服器端另有權限檢查，這裡只是不顯示按鈕）
 function adminTabs(role) {
   const tabs = [{ tab: "dashboard", label: role === "operator" ? "我的檢驗紀錄" : "品檢紀錄與看板" }];
-  if (role !== "operator") tabs.push({ tab: "master", label: "主檔與配方" }, { tab: "spc", label: "SPC 管制圖" }, { tab: "models", label: "模型" });
+  if (role !== "operator") tabs.push({ tab: "master", label: "主檔與配方" }, { tab: "spc", label: "SPC 管制圖" }, { tab: "models", label: "模型" }, { tab: "system", label: "系統狀態" });
   if (role === "admin") tabs.push({ tab: "users", label: "使用者" }, { tab: "audit", label: "稽核紀錄" });
   return tabs;
 }
@@ -40,11 +41,44 @@ function ensurePanel(tab, label) {
   document.getElementById("content").appendChild(panel);
 }
 
+// 功能可用性：不可用的功能在導覽灰掉並顯示原因，點進去面板頂端也會有說明（而不是按了才看到錯誤）
+const AVAILABILITY_MIN_INTERVAL_MS = 5000;
+let lastAvailabilityCheck = 0;
+
+async function refreshAvailability() {
+  if (Date.now() - lastAvailabilityCheck < AVAILABILITY_MIN_INTERVAL_MS) return;
+  lastAvailabilityCheck = Date.now();
+  try {
+    const res = await apiFetch("/api/system/status");
+    if (!res.ok) return;
+    const { tabs } = await res.json();
+    document.querySelectorAll(".side-nav .tab-btn").forEach((btn) => {
+      const state = tabs[btn.dataset.tab];
+      const unavailable = Boolean(state) && !state.available;
+      btn.classList.toggle("unavailable", unavailable);
+      btn.title = unavailable ? state.reason || "目前不可用" : "";
+      const panel = document.getElementById("panel-" + btn.dataset.tab);
+      if (!panel) return;
+      let banner = panel.querySelector(":scope > .unavailable-banner");
+      if (unavailable && !banner) {
+        banner = document.createElement("div");
+        banner.className = "unavailable-banner";
+        panel.prepend(banner);
+      }
+      if (banner) {
+        banner.textContent = unavailable ? "此功能目前不可用：" + (state.reason || "") : "";
+        banner.style.display = unavailable ? "block" : "none";
+      }
+    });
+  } catch (err) { /* 狀態查詢失敗不影響操作 */ }
+}
+
 export function activateTab(tab) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + tab));
   history.replaceState(null, "", "#" + tab);
   document.dispatchEvent(new CustomEvent("tab-activated", { detail: tab }));
+  refreshAvailability();
 }
 
 export async function buildNav() {
@@ -80,6 +114,7 @@ export async function buildNav() {
   });
   const fromHash = () => location.hash.slice(1);
   activateTab(allTabs.includes(fromHash()) ? fromHash() : allTabs[0]);
+  setInterval(refreshAvailability, 60000);
   // 瀏覽器上一頁／手動改網址列的 #分頁 也要切換
   window.addEventListener("hashchange", () => {
     if (allTabs.includes(fromHash())) activateTab(fromHash());

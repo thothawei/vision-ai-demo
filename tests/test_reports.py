@@ -144,7 +144,15 @@ def test_daily_report_script_writes_excel_and_html(client, tmp_path):
 
 
 def test_reports_directory_is_gitignored():
-    assert "reports/" in (ROOT / ".gitignore").read_text().splitlines()
+    import subprocess
+
+    def ignored(path):
+        return subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
+
+    assert ignored("reports/daily.xlsx")
+    # 規則要錨定在根目錄：曾因 `reports/`、`models/` 沒加 `/`，把 backend/modules 下的同名原始碼目錄也擋掉而漏 commit
+    assert not ignored("backend/modules/reports/router.py")
+    assert not ignored("backend/modules/models/router.py")
 
 
 def _legacy_rows():

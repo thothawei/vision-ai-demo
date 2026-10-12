@@ -628,6 +628,24 @@
   </div>
 </div>
 
+<div class="panel" id="panel-system">
+  <div class="card">
+    <h2>系統狀態</h2>
+    <p style="color:var(--muted); font-size:13px;">資料庫、migration、Ollama、磁碟、背景工作，以及每個功能現在能不能用（原因與下一步）。狀態快取 5 秒。外部監控可用 <code>GET /healthz</code>（存活）與 <code>GET /readyz</code>（就緒摘要）；<code>GET /metrics</code>（Prometheus）需要 qc 以上登入或 API key。</p>
+    <div class="row"><button type="button" id="system-refresh-btn">重新檢查</button><span class="hint" id="system-checked-at"></span></div>
+    <table class="dash-table"><thead><tr><th>檢查項</th><th>狀態</th><th>說明</th></tr></thead><tbody id="system-checks"></tbody></table>
+  </div>
+  <div class="card">
+    <h2>功能可用性</h2>
+    <table class="dash-table"><thead><tr><th>功能</th><th>狀態</th><th>原因／下一步</th></tr></thead><tbody id="system-features"></tbody></table>
+  </div>
+  <div class="card">
+    <h2>背景工作</h2>
+    <table class="dash-table"><thead><tr><th>ID</th><th>種類</th><th>對象</th><th>狀態</th><th>次數</th><th>時間</th><th>錯誤</th><th></th></tr></thead><tbody id="system-jobs"></tbody></table>
+    <div class="status" id="system-jobs-status"></div>
+  </div>
+</div>
+
 </main>
 </div>
 

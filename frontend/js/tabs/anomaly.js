@@ -18,7 +18,7 @@ document.getElementById("anomaly-btn").addEventListener("click", () => {
 });
 
 // ⑥ 異常檢測：Phase 12 自訂類別（上傳 zip → 背景排隊擬合 → 門檻調校）
-const STATUS_LABELS = { queued: "排隊中", fitting: "擬合中…", done: "完成", failed: "失敗" };
+const STATUS_LABELS = { queued: "排隊中", fitting: "擬合中…", done: "完成", failed: "失敗", interrupted: "已中斷" };
 let anomalyPollTimer = null;
 let currentThresholdScores = null;
 let currentThresholdCategory = null;
@@ -54,10 +54,22 @@ async function refreshAnomalyCategoryTable() {
     const threshold = c.threshold != null ? c.threshold.toFixed(4) : "—";
     const countLabel = `${c.good_count ?? "—"} / ${c.defect_count ?? 0}`;
     const tuneBtn = c.status === "done" ? `<button type="button" class="anomaly-tune-btn" data-name="${c.name}">門檻調校</button>` : "";
-    const errorHint = c.status === "failed" && c.error ? `<div class="hint" style="color:#ff3b30;">${c.error}</div>` : "";
-    tr.innerHTML = `<td>${c.name}</td><td>${STATUS_LABELS[c.status] || c.status}${errorHint}</td>
-      <td>${countLabel}</td><td>${auroc}</td><td>${threshold}</td><td>${tuneBtn}</td>`;
+    const retryBtn = (c.status === "failed" || c.status === "interrupted") && c.job_id
+      ? `<button type="button" class="anomaly-retry-btn" data-job-id="${c.job_id}" data-name="${c.name}">重試</button>` : "";
+    tr.innerHTML = `<td></td><td><span class="anomaly-status"></span><div class="hint anomaly-error" style="color:#ff3b30;"></div></td>
+      <td>${countLabel}</td><td>${auroc}</td><td>${threshold}</td><td>${tuneBtn} ${retryBtn}</td>`;
+    tr.children[0].textContent = c.name;
+    tr.querySelector(".anomaly-status").textContent = (STATUS_LABELS[c.status] || c.status) + (c.model_version ? `（v${c.model_version}）` : "");
+    tr.querySelector(".anomaly-error").textContent = (c.status === "failed" || c.status === "interrupted") && c.error ? c.error : "";
     tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll(".anomaly-retry-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm(`重試「${btn.dataset.name}」的擬合？會用已上傳的照片重新擬合，完成後成為新版本。`)) return;
+      const res = await apiFetch(`/api/jobs/${btn.dataset.jobId}/retry`, { method: "POST" });
+      if (!res.ok) { alert((await res.json()).detail || "重試失敗"); return; }
+      await refreshAnomalyCategoryTable();
+    });
   });
   tbody.querySelectorAll(".anomaly-tune-btn").forEach((btn) => {
     btn.addEventListener("click", () => openThresholdPanel(btn.dataset.name));

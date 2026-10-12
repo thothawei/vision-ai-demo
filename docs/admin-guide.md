@@ -1,6 +1,6 @@
 # 管理者手冊
 
-適用版本 0.21.0。
+適用版本 0.22.0。
 
 ## 安裝
 
@@ -84,6 +84,28 @@ cd backend && uvicorn main:app
 - 日誌為 key=value 格式（`ts= level= logger= request_id= msg=`），輸出到標準輸出；層級由 `LOG_LEVEL` 設定（需重啟）。
 - 每個請求有 `request_id`（回應 header `X-Request-ID`，可由呼叫端帶入）；檢驗紀錄的 `request_id` 欄位與 CSV 最後一欄可對回日誌。
 - 記錄項目：請求（方法、路徑、狀態、耗時）、辨識完成（模組、判定、耗時）、模型載入耗時、LLM 呼叫耗時與失敗。不記錄 API key 與圖片內容。
+
+## 健康檢查與監控
+
+| 端點 | 權限 | 用途 |
+|---|---|---|
+| `GET /healthz` | 公開 | 程序存活（負載平衡器的存活探測），只回 `{"status":"ok"}` |
+| `GET /readyz` | 公開 | 就緒摘要：資料庫可寫且 migration 到位回 200，否則 503；只回各檢查項的 ok／warn／fail 與 `degraded`，不含路徑與細節 |
+| `GET /api/system/status` | 登入 | 完整明細：每個功能是否可用與原因、Ollama、磁碟、背景工作（`?force=true` 略過 5 秒快取） |
+| `GET /metrics` | qc 以上或 API key | Prometheus 文字格式（請求數與耗時、各模組辨識耗時與判定筆數、背景工作數） |
+
+- **降級不等於故障**：缺某個模型的權重、Ollama 沒啟動，`/readyz` 仍是 200（`degraded: true`），只有那些功能會在導覽灰掉並顯示原因與下一步（「管理 → 系統狀態」也看得到）；只有資料庫不可寫或 schema 版本不對才是 503。
+- 檢查項目：資料庫可寫（取得寫入鎖再放掉，不改資料）、schema 版本、AI（Ollama 可連線且設定的模型已下載；`LLM_ENGINE=gemini` 只檢查有沒有設 key，不會呼叫外部服務）、磁碟剩餘空間（低於 1GB 警告）、被中斷的背景工作、每個模型的啟用版本權重檔是否存在。檢查不載入模型、不重算 SHA-256。
+- 啟動時會把就緒狀況寫進日誌（`啟動就緒 …`、`功能不可用 action=… reason=…`）。
+- **`/metrics` 的認證**：用 `X-API-Key` header（`.env` 的 `API_KEYS`）。Prometheus 內建的 `authorization` 設定只支援 `Authorization: Bearer`，不能帶自訂的 `X-API-Key`，所以要抓取請在前面放一個會加上該 header 的反向代理（例如 nginx `proxy_set_header X-API-Key …`），或用 curl／腳本定期抓取。本專案只提供端點，不架 Prometheus。
+- 指標標籤使用路由樣板（例如 `/api/inspections/{inspection_id}`），不會因為網址裡的 id 造成序列爆炸；NG 數看 `vision_inspections_total{verdict="NG"}`。指標是程序內計數，重啟歸零，且假設單一程序。
+
+## 背景工作（擬合）與重啟
+
+- 異常檢測的擬合是「背景工作」，狀態存在資料庫（`jobs` 表），由單一 worker 每 2 秒輪詢領取，同時只跑一個。
+- **服務重啟時**：做到一半的工作標成 **已中斷**（類別表顯示「已中斷」）；排隊中的工作會自動接續。中斷或失敗的工作可以在「外觀異常檢測」的類別表或「管理 → 系統狀態」按 **重試**（admin，寫稽核）：用已存的照片（`data/custom_anomaly/<類別>/`）重新擬合成新版本。
+- **同一個資料庫同一時間只能有一個服務程序**：啟動時會取得 `<資料庫>.lock` 檔案鎖，拿不到就拒絕啟動並說明原因（程序被 kill 時作業系統會自動釋放）。所以不要用多個 uvicorn worker，也不要在同一個資料庫上多開實例。
+- webhook：送不出去的 NG 通知存在 `webhook_queue`，重啟後照常重試（最多 5 次，超過放棄但保留紀錄）。**已知缺口**：程序在「檢驗紀錄寫入」與「webhook 送出失敗、寫入佇列」之間被終止，這一筆通知不會被送出也不會進佇列——ERP 一定要用 `since_id` 輪詢當保底。
 
 ## 模型登錄與回滾
 

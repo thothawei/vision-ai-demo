@@ -20,6 +20,7 @@ import "./tabs/recipe-run.js";
 import "./tabs/master.js";
 import "./tabs/spc.js";
 import "./tabs/models.js";
+import "./tabs/system.js";
 import "./trace-master.js";
 import "./userbar.js";
 import { buildNav } from "./nav.js";

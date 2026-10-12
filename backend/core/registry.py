@@ -102,7 +102,7 @@ class ActionSpec:
     handler: Handler | None = None  # 批次用；不支援批次的動作為 None
     params: type[BaseModel] | None = None
     defect_extractor: Callable[[list], list[str]] | None = None  # 柏拉圖用；掛在 module 層級
-    requires: list[str] = field(default_factory=list)  # 給健康檢查用：weights:<路徑>、llm、dir:<路徑>
+    requires: list[str] = field(default_factory=list)  # 給健康檢查用：model:<模型 id>、anomaly（至少一個異常檢測類別可用）、llm
     router: str | None = None  # 該動作端點所在的 router 模組（main.py 依此掛載）
     batch_enabled: bool = True  # False：有 handler（可用於配方）但不開放批次 API
 
@@ -138,10 +138,10 @@ def _build_specs() -> list[ActionSpec]:
 
     return [
         ActionSpec("anomaly", "anomaly", "外觀瑕疵異常檢測", "外觀檢測", "anomaly", "inspection",
-                   anomaly, AnomalyParams, dx.defect_anomaly, ["dir:models/anomaly"], "modules.anomaly.router"),
+                   anomaly, AnomalyParams, dx.defect_anomaly, ["anomaly"], "modules.anomaly.router"),
         ActionSpec("defect", "defect", "PCB 瑕疵偵測", "外觀檢測", "defect", "inspection",
                    lambda b, p: detect_pcb_defects(b), None, dx.defect_pcb,
-                   ["weights:models/defect/pcb_yolo11n/weights/best.pt"], "modules.defect.router"),
+                   ["model:pcb-defect"], "modules.defect.router"),
         ActionSpec("assembly", "assembly", "組裝防呆比對", "外觀檢測", "assembly", "inspection",
                    assembly_handler, AssemblyParams, dx.defect_assembly, [], "modules.assembly.router",
                    batch_enabled=False),
@@ -176,16 +176,16 @@ def _build_specs() -> list[ActionSpec]:
                    ["llm"], "modules.docs.router"),
         ActionSpec("intrusion", "safety", "危險區域入侵", "工安", "safety", "inspection",
                    lambda b, p: detect_intrusion(b, p.zone), IntrusionParams, dx.defect_safety,
-                   ["weights:models/yolo/yolo11n.pt"], "modules.safety.router"),
+                   ["model:person-detector"], "modules.safety.router"),
         ActionSpec("ppe", "ppe", "安全帽偵測", "工安", "ppe", "inspection",
                    lambda b, p: detect_ppe(b), None, dx.defect_ppe,
-                   ["weights:models/ppe/ppe_yolo11n/weights/best.pt"], "modules.safety.router"),
+                   ["model:ppe-helmet"], "modules.safety.router"),
         ActionSpec("general", "general", "現場照片辨識", "其他", "general", "info",
                    lambda b, p: describe_image(b), None, None, ["llm"], "modules.general.router"),
         ActionSpec("pneumonia", "medical_pneumonia_demo", "醫學影像分類展示",
                    "其他", "pneumonia", "info",
                    lambda b, p: classify_pneumonia_demo(b), None, None,
-                   ["weights:models/medical/pneumonia_cnn/model.pt"], "modules.medical.router"),
+                   ["model:pneumonia-cnn"], "modules.medical.router"),
     ]
 
 

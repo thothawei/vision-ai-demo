@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.22.0]
+
+### 新增
+- 健康檢查：`GET /healthz`（存活）、`GET /readyz`（資料庫可寫且 migration 到位才是 200，只回摘要、不含路徑）、`GET /api/system/status`（登入後的完整明細：每個功能是否可用與原因、Ollama、磁碟、背景工作；快取 5 秒，`?force=true` 立即重查）。
+- 前端「管理 → 系統狀態」頁；不可用的功能在導覽灰掉、顯示原因，面板頂端也有說明。啟動時把就緒狀況與不可用功能寫進日誌。
+- 持久化工作佇列（`jobs` 表）：擬合改由輪詢資料庫的 worker 領取；服務重啟時做到一半的工作標成 `interrupted`，排隊中的工作自動接續；`GET /api/jobs`、`POST /api/jobs/{id}/retry`（admin，寫稽核）；異常檢測類別表新增「已中斷」狀態與「重試」按鈕。
+- 單一實例鎖：同一個資料庫同一時間只允許一個服務程序，拿不到鎖就拒絕啟動並說明原因（避免第二個程序把第一個程序正在做的工作誤標成中斷）。
+- Prometheus 指標 `GET /metrics`（qc 以上或 API key）：請求數與耗時（以路由樣板為標籤）、各模組辨識耗時與各判定筆數、背景工作數。新增相依 prometheus-client 0.26.0（Apache-2.0 AND BSD-2-Clause）。
+
+### 變更
+- 註冊表的 `requires` 改成 `model:<模型 id>`、`anomaly`、`llm`（取代已過時的預設權重路徑）。
+- 擬合的 worker 改成輪詢資料庫；`enqueue_category` 會建立 job 並在類別狀態記下 `job_id`。
+
 ## [0.21.0]
 
 ### 新增

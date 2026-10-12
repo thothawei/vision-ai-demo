@@ -33,6 +33,7 @@
 | rapid-table | 3.0.2 | Apache-2.0 | 是 | 免費（開源） | pure | M4 表格結構辨識（取代 PP-Structure） | https://pypi.org/project/rapid-table/ |
 | rapid-layout | 1.2.1 | Apache-2.0 | 是 | 免費（開源） | pure | M4 版面分析 | https://pypi.org/project/rapid-layout/ |
 | pytesseract | 0.3.13 | Apache-2.0 | 是 | 免費（開源） | pure | M4 Tesseract 比較選項（沿用） | https://pypi.org/project/pytesseract/ |
+| prometheus-client | 0.26.0（PyPI JSON API 查證，2026-09-29） | Apache-2.0 AND BSD-2-Clause | 是 | 免費（開源） | pure | `/metrics` 指標端點（Phase 22；只輸出指標，不需要架 Prometheus） | https://pypi.org/project/prometheus-client/ |
 | ollama（Python client） | 0.6.3（2026-09-29 查證） | MIT | 是 | 免費（開源） | pure | 本機 LLM 呼叫 | https://pypi.org/project/ollama/ |
 | google-genai | 2.25.0 | Apache-2.0 | 是 | 免費（開源） | pure | Gemini 備援引擎 | https://pypi.org/project/google-genai/ |
 | medmnist | 3.0.2（Phase 7 已裝並用於訓練） | 程式 Apache-2.0 | 是 | 免費（開源） | pure | M8-2 資料集下載 | https://github.com/MedMNIST/MedMNIST |

@@ -31,7 +31,7 @@ def create_category(
     同時只允許一個擬合工作，其餘排隊；用 GET /categories/{name}/status 查進度。"""
     try:
         result = anomaly_training.enqueue_category(
-            name, good_zip.file.read(), defect_zip.file.read() if defect_zip else None,
+            name, good_zip.file.read(), defect_zip.file.read() if defect_zip else None, principal.actor,
         )
     except ModuleError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

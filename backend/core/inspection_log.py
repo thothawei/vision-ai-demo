@@ -216,6 +216,9 @@ def record_result(
 
     logger.info("辨識完成 module=%s verdict=%s engine=%s elapsed_ms=%s inspection_id=%s",
                 module, verdict, engine, elapsed_ms, inspection_id)
+    from core import metrics
+
+    metrics.observe_inspection(module, verdict, elapsed_ms)
 
     if verdict == "NG":
         from core import webhook  # 延後匯入避免循環匯入（webhook.py 會匯入本檔的佇列函式）

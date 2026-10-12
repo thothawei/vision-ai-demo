@@ -117,3 +117,6 @@ input[type="number"] { width: 90px; padding: 6px 8px; border-radius: 6px; border
 .userbar button { padding: 4px 10px; font-size: 13px; }
 .login-card { max-width: 360px; margin: 12vh auto 0; }
 .login-card input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+
+.side-nav .tab-btn.unavailable { opacity: 0.5; text-decoration: line-through; }
+.unavailable-banner { display: none; background: #ff3b3014; border: 1px solid #ff3b30; color: var(--text); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
