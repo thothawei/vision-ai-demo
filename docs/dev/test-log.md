@@ -284,3 +284,14 @@
 - **測試隔離事故**（詳見 decisions.md）：新寫的兩個測試沒用 `client` fixture，連到真實 `data/inspections.db`——真實資料庫被 migration 升級，並被寫入 13 筆垃圾 `model_versions`（`anomaly-cat` 7 筆、`anomaly-old_cat` 6 筆）；發現後修法是 autouse fixture 全域隔離，並驗證：三個資料路徑環境變數設成不可寫後整個測試套件 289 項（當時）全過，真實資料庫前後 `model_versions` 為 13、`inspections` 為 284、檔案修改時間不變。**那 13 筆垃圾列與升級後的 schema 仍在真實資料庫裡，尚未清除**（清除也是寫入資料庫，需要使用者同意）。
 - **驗證時寫入的真實路徑（已清理）**：真實擬合流程會寫 `models/registry/`（1.4GB）、`data/custom_anomaly/`（139MB）與 `models/anomaly/categories.json`；驗證完已刪除前兩者並把 `categories.json` 還原成 `{}`。
 - **未驗證**：`train_anomaly.py`（內建三個 MVTec 類別，每個 5–11 分鐘）改成寫進登錄庫後**沒有重新完整跑過**，只驗證了語法與其餘流程共用的登錄邏輯（網頁擬合流程實跑過）；`register_model.py register` 的 `anomaly-*` 分支（整個 root 資料夾複製）只有程式碼審視，沒有實跑；`restore.py` 的 `--include-models` 還原路徑沒有測；還原後服務重新啟動的行為只測了資料層；大量圖片（例如數十萬張）的備份與清理效能沒測；權重在服務執行中被改動要到下次重啟才會被發現（設計上的取捨）。
+
+
+### Phase 22：功能驗證（2026-10-12）
+
+- **單元測試**：`pytest` 356 項全過（含 `test_health`、`test_jobs`、`test_instance_lock`、`test_metrics`）；CI（ubuntu-latest，Python 3.11）同樣 356 項全過、覆蓋率 93%。
+- **驗收 1：缺權重**（真實伺服器＋暫存資料庫，工作目錄沒有 `models/`）：`/healthz` 回 ok；`/readyz` 回 200 且 `degraded=true`、`unavailable_features=10`；`/api/system/status` 逐項列出 defect、ppe、intrusion、pneumonia、anomaly 的缺件原因與處理指令；不需模型的功能（assembly、colordiff、count、measure、seven_segment、gauge、codes）標示可用，實際 `POST /api/codes/decode` 回 200；缺權重的 `POST /api/defect/pcb` 回 503 並說明如何準備。
+- **驗收 2：擬合中重啟**（真實 PatchCore，20 張合成良品經網頁上傳流程）：狀態進到 `fitting` 後對服務 `kill -9`；重啟後類別狀態為 `interrupted`（訊息「服務重啟時這個工作還沒做完，已中斷；可以重試」），`GET /api/jobs` 列出該工作為 interrupted；`POST /api/jobs/{id}/retry` 回 200，工作重新排隊，42 秒後 `done`，登錄為模型版本 1。AUROC 為空是因為沒有提供 NG 照片。
+- **驗收 3：Ollama 關閉**（`OLLAMA_HOST` 指向無服務的埠）：`/readyz` 的 `llm` 為 warn；packaging、shipping、nameplate、docs、general 在狀態表標示不可用並附 `ollama serve` 指示；實際 `POST /api/general/describe` 回 503「無法連到 Ollama…」；非 LLM 功能照常。
+- **前端導覽灰化與面板橫幅**：只有程式碼審視與單元測試，這次沒有用瀏覽器實際看過畫面。
+- **未驗證**：webhook 重啟後恢復在單元測試中以「同一資料庫新連線」模擬，沒有真的重啟程序；`/metrics` 只驗證輸出內容，沒有接 Prometheus 抓取。
+- **已寫入真實資料庫的紀錄**：無（真實 `data/inspections.db` 修改時間仍為 09-30，演練全用暫存資料庫；演練產生的 `data/`、`models/` 已刪除）。
