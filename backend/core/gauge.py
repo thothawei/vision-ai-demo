@@ -8,8 +8,8 @@
 
 流程：
 1. 找錶面圓心：優先用 HoughCircles 抓外框圓；找不到就要求使用者提供 center_x/center_y。
-2. 二值化抓指針（假設指針是畫面中的少數前景像素，跟計數模組同一套假設與限制）。
-3. HoughLinesP 找線段，只保留「一端靠近圓心」的線段，挑最長的當指針。
+2. 以 Lab 色差（相對於錶面底色）取前景，彩色指針也抓得到。
+3. HoughLinesP 找線段，保留所在直線通過圓心附近的，依方向投票（權重＝長度）選出指針方向；針尖是兩端中延伸較長的一端。
 4. 指針角度 → 用 min_angle/max_angle 對應 min_value/max_value 線性內插，
    處理跨 360 度的情況（例如 min_angle=225、max_angle=135，指針順時針掃過頂端）。
 """
@@ -21,7 +21,8 @@ import numpy as np
 
 from core.schemas import ModuleError
 
-_NEEDLE_MIN_DIST_RATIO = 0.35  # 線段兩端點中，離圓心較近的那端要在這個比例的半徑內，才算是指針
+_WORK_SIZE = 640  # 指針偵測的工作解析度（最長邊）
+_NEEDLE_MAX_OFFSET_RATIO = 0.12  # 圓心到線段所在直線的距離要在這個比例的半徑內，才算是通過軸心的指針
 _NEEDLE_MIN_LEN_RATIO = 0.25  # 指針長度至少要有半徑的這個比例，避免把刻度線、數字誤認成指針
 
 
@@ -45,43 +46,97 @@ def find_center(gray: np.ndarray) -> tuple[float, float, float] | None:
     return float(cx), float(cy), float(r)
 
 
-def detect_needle_angle(bgr: np.ndarray, cx: float, cy: float, r: float) -> tuple[float, float]:
-    """回傳 (角度 0~360, 指針長度 px)。偵測不到指針時拋出 ModuleError。"""
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    _, binary_a = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    binary_b = cv2.bitwise_not(binary_a)
-    # 指針通常是畫面中的少數前景像素，兩種極性都試，取前景面積較小的那個
-    binary = binary_a if cv2.countNonZero(binary_a) <= cv2.countNonZero(binary_b) else binary_b
+def _foreground(bgr: np.ndarray, cx: float, cy: float, r: float) -> np.ndarray:
+    """指針與刻度等「比附近的錶面底色突出」的像素。用 Lab 色差而不是灰階 Otsu：紅色指針在金色錶面上灰階幾乎
+    一樣，灰階二值化會把它丟掉；底色用「局部」中位數而不是整張圖的單一顏色：錶面常有光照渐变，單一底色
+    會把整片較亮或較暗的區域都當成前景。局部視窗要比指針寬度大很多、又比錶面小。"""
+    lab = cv2.cvtColor(cv2.GaussianBlur(bgr, (5, 5), 0), cv2.COLOR_BGR2LAB)
+    window = int(r * 0.3) | 1
+    background = cv2.medianBlur(lab, min(window, 255))
+    diff = np.linalg.norm(lab.astype(np.float32) - background.astype(np.float32), axis=2)
+    yy, xx = np.mgrid[0 : diff.shape[0], 0 : diff.shape[1]]
+    inside = (xx - cx) ** 2 + (yy - cy) ** 2 <= (0.95 * r) ** 2
+    scaled = np.clip(diff * (255.0 / max(float(diff[inside].max()), 1.0)), 0, 255).astype(np.uint8)
+    threshold, _ = cv2.threshold(scaled[inside].reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return ((scaled > threshold) & inside).astype(np.uint8) * 255
 
+
+def _reach(mask: np.ndarray, px: float, py: float, angle_deg: float, r: float) -> float:
+    """從軸心 (px, py) 沿著角度往外走，指針在前景上連續延伸到多遠（容許極短的斷點）。軸心帽常是空心圓，
+    所以從 0.1 倍半徑之外才開始找，並容許在 0.1~0.3 倍半徑之間才碰到指針。找不到回傳 0。"""
+    dx, dy = math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))
+    h, w = mask.shape
+    start, first_limit, max_gap = int(r * 0.1), int(r * 0.3), max(4, int(r * 0.02))
+    reach, gap, seen = 0.0, 0, False
+    for step in range(start, int(r * 1.0)):
+        x, y = round(px + dx * step), round(py + dy * step)
+        if not (0 <= x < w and 0 <= y < h):
+            break
+        if mask[max(0, y - 1) : y + 2, max(0, x - 1) : x + 2].any():
+            reach, gap, seen = float(step), 0, True
+        elif seen:
+            gap += 1
+            if gap > max_gap:
+                break
+        elif step > first_limit:
+            return 0.0
+    return reach
+
+
+def detect_needle_angle(bgr: np.ndarray, cx: float, cy: float, r: float) -> tuple[float, float]:
+    """回傳 (角度 0~360, 指針長度 px)。偵測不到指針時拋出 ModuleError。
+
+    指針是一條通過軸心的長直線（兩端都可能離圓心很遠，例如帶配重的細長指針），所以找的是「直線是否通過
+    圓心附近」而不是「端點是否靠近圓心」；方向由直線決定（不受圓心誤差影響），針尖是兩端中連續前景延伸
+    比較長的那端（配重比指針短）。"""
+    # 縮小到最長邊約 640 px 處理（局部中位數很吃解析度）；角度不受縮放影響，長度最後換算回原圖
+    scale = min(1.0, _WORK_SIZE / max(bgr.shape[:2]))
+    if scale < 1.0:
+        bgr = cv2.resize(bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        cx, cy, r = cx * scale, cy * scale, r * scale
+    mask = _foreground(bgr, cx, cy, r)
     lines = cv2.HoughLinesP(
-        binary,
+        mask,
         1,
         np.pi / 180,
         threshold=30,
         minLineLength=max(int(r * _NEEDLE_MIN_LEN_RATIO), 10),
-        maxLineGap=10,
+        maxLineGap=int(r * 0.03) + 3,
     )
     if lines is None:
         raise ModuleError("找不到指針，請確認畫面清楚、指針跟錶面對比明顯", 422)
 
-    best, best_len = None, 0.0
-    for x1, y1, x2, y2 in lines.reshape(-1, 4):
-        x1f, y1f, x2f, y2f = float(x1), float(y1), float(x2), float(y2)
-        d1, d2 = math.hypot(x1f - cx, y1f - cy), math.hypot(x2f - cx, y2f - cy)
-        length = math.hypot(x2f - x1f, y2f - y1f)
-        if min(d1, d2) < r * _NEEDLE_MIN_DIST_RATIO and length > best_len:
-            best_len = length
-            best = (x1f, y1f, x2f, y2f)
+    # 每條線段投票給它的方向（0~180 度），權重是長度；只收「直線通過圓心附近」的
+    votes: dict[int, float] = {}
+    members: dict[int, list[tuple[float, float, float, float]]] = {}
+    for x1, y1, x2, y2 in lines.reshape(-1, 4).astype(float):
+        length = math.hypot(x2 - x1, y2 - y1)
+        distance = abs((x2 - x1) * (y1 - cy) - (x1 - cx) * (y2 - y1)) / max(length, 1e-6)  # 圓心到這條直線的距離
+        if distance > r * _NEEDLE_MAX_OFFSET_RATIO:
+            continue
+        direction = math.degrees(math.atan2(y2 - y1, x2 - x1)) % 180
+        key = round(direction / 2)
+        votes[key] = votes.get(key, 0.0) + length
+        members.setdefault(key, []).append((x1, y1, x2, y2))
+    if not votes:
+        raise ModuleError("有偵測到線段，但沒有任何一條通過圓心附近，可能圓心座標不準或指針太短", 422)
 
-    if best is None:
-        raise ModuleError("有偵測到線段，但沒有任何一條的端點靠近圓心，可能圓心座標不準或指針太短", 422)
+    # 相鄰方向合併後取最高票，用該方向內的線段擬合出精確方向
+    smoothed = {k: votes.get(k - 1, 0) + votes[k] + votes.get(k + 1, 0) for k in votes}
+    best_key = max(smoothed, key=smoothed.get)
+    points = [
+        pt for k in (best_key - 1, best_key, best_key + 1) for seg in members.get(k, []) for pt in (seg[:2], seg[2:])
+    ]
+    vx, vy, x0, y0 = cv2.fitLine(np.array(points, dtype=np.float32), cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+    line_angle = math.degrees(math.atan2(vy, vx)) % 360
+    # 直線上離圓心最近的點當作軸心（只用來量兩端的延伸長度）
+    t = (cx - x0) * vx + (cy - y0) * vy
+    hub_x, hub_y = x0 + t * vx, y0 + t * vy
 
-    x1, y1, x2, y2 = best
-    d1, d2 = math.hypot(x1 - cx, y1 - cy), math.hypot(x2 - cx, y2 - cy)
-    far_x, far_y = (x2, y2) if d2 > d1 else (x1, y1)
-    angle = math.degrees(math.atan2(far_y - cy, far_x - cx)) % 360
-    return angle, best_len
+    forward = _reach(mask, hub_x, hub_y, line_angle, r)
+    backward = _reach(mask, hub_x, hub_y, line_angle + 180, r)
+    angle = line_angle if forward >= backward else (line_angle + 180) % 360
+    return angle, max(forward, backward) / scale
 
 
 def angle_to_value(angle: float, min_angle: float, max_angle: float, min_value: float, max_value: float) -> float:

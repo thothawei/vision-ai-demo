@@ -12,12 +12,19 @@
 | `seven_segment/calculator_led.jpg` | https://commons.wikimedia.org/wiki/File:Commodore_calculator_-_model_SR7919_(18313124193).jpg | striegel | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0) |
 | `seven_segment/beckman_77.jpg` | https://commons.wikimedia.org/wiki/File:Beckman_SP-352.jpg | Wosch21149 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
 | `seven_segment/led_clock_238.jpg` | https://commons.wikimedia.org/wiki/File:LED-7-Segment-Display.jpg | RetroEditor | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
+| `gauge/hygrometer_33.jpg` | https://commons.wikimedia.org/wiki/File:HigrometroEspiral-1.jpg | Wiki LIC | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
+| `gauge/boiler_gauge_175.jpg` | https://commons.wikimedia.org/wiki/File:Canadian_Pacific_pressure_gauge_(2800301396).jpg | RAF-YYC from Calgary, Canada | [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0) |
+| `gauge/india_gauge_21psi.jpg` | https://commons.wikimedia.org/wiki/File:Pressure_Gauge.jpg | In Transit | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
 | `count/two_screws.jpg` | https://commons.wikimedia.org/wiki/File:Screws_EXP_054.JPG | Tomasz Sienicki（Commons 使用者 tsca） | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0) |
 | `count/bolts_and_nuts.jpg` | https://commons.wikimedia.org/wiki/File:18-03-16-Schrauben-M6x20_RRK3198.jpg | Ralf Roletschek | [GFDL 1.2](http://www.gnu.org/licenses/old-licenses/fdl-1.2.html) |
 
 ## 讀值與個數是怎麼來的
 
-標註是我（Claude）逐張目視判讀，**不是儀器校準值**：指針錶量出圓心、刻度端點與指針的角度後線性內插（溫度計用兩種方式估出 23.0 與 23.8 °C，標註 23.5、容許 ±1.5）；七段顯示器與個數直接讀。裁切後放大再確認過數字。容許誤差約為滿刻度的 4–5%。
+標註是我（Claude）逐張目視判讀，**不是儀器校準值**：指針錶量出圓心、刻度端點與指針的角度後線性內插（溫度計用兩種方式估出 23.0 與 23.8 °C，標註 23.5、容許 ±1.5）。`gauge/manometer_104026.jpg` 的標註在 2026-10-12 更正過一次：先前把帶圓環的配重端誤認成針尖（標 9.8），改為指在 0（指針是細長、末端碰到刻度弧的那端）；七段顯示器與個數直接讀。裁切後放大再確認過數字。容許誤差約為滿刻度的 4–5%。
+
+## 留出照片
+
+指針錶的 `hygrometer_33`、`boiler_gauge_175`、`india_gauge_21psi` 是 2026-10-12 重寫指針偵測**之後**才加入的（標註在跑工具之前定好，不依結果調整）；前三張（`pool_gauge_0bar`、`manometer_104026`、`round_thermometer`）是開發時用來調整的，通過率不代表泛化。
 
 ## 為什麼只有三個模組
 

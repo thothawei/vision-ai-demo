@@ -6,10 +6,10 @@
 
 | 模組 | 狀態 | 張數 | 正確 | 準確率 | 平均絕對誤差 | 平均耗時 | 拍攝裝置 |
 |---|---|---|---|---|---|---|---|
-| count | 真實照片實測 | 3 | 0 | 0% | 26.333 | 0.11 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
+| count | 真實照片實測 | 3 | 0 | 0% | 26.333 | 0.12 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
 | measure | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | seven_segment | 真實照片實測 | 8 | 5 | 62% | — | 0.21 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
-| gauge | 真實照片實測 | 3 | 1 | 33% | 13.037 | 0.43 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
+| gauge | 真實照片實測 | 6 | 6 | 100% | 1.077 | 0.36 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
 | assembly | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | colordiff | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | shipping | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
@@ -46,5 +46,8 @@
 | 照片 | 結果 | 明細 |
 |---|---|---|
 | pool_gauge_0bar.jpg | 通過 | 讀值: 預期 0.0／實際 0.0 |
-| manometer_104026.jpg | 未通過 | 讀值: 預期 9.8／實際 0.73 |
-| round_thermometer.jpg | 未通過 | 讀值: 預期 23.5／實際 -6.54 |
+| manometer_104026.jpg | 通過 | 讀值: 預期 0.0／實際 0.05 |
+| round_thermometer.jpg | 通過 | 讀值: 預期 23.5／實際 23.37 |
+| hygrometer_33.jpg | 通過 | 讀值: 預期 33.5／實際 33.98 |
+| boiler_gauge_175.jpg | 通過 | 讀值: 預期 175.0／實際 179.68 |
+| india_gauge_21psi.jpg | 通過 | 讀值: 預期 21.0／實際 19.88 |

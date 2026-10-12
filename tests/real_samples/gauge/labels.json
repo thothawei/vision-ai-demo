@@ -1,12 +1,87 @@
 {
   "device": "網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機",
-  "note": "讀值為人工目視（量圓心、刻度端點與指針角度後線性內插），不是儀器校準值，誤差容許約為滿刻度的 4–5%",
+  "note": "讀值為人工目視（量圓心、刻度端點與指針角度後線性內插），不是儀器校準值，誤差容許約為滿刻度的 4–5%；manometer_104026 的標註 2026-10-12 更正：原先把帶小圓環的短端當成針尖（讀 9.8），實際上細長、末端碰到刻度弧的那端才是指針（指在 0），帶圓環的是配重，所以讀值是 0。這是標註錯誤，不是為了配合演算法的結果；hygrometer_33、boiler_gauge_175、india_gauge_21psi 是演算法修改後才加入的留出照片（標註在跑工具之前就定好，不依結果調整）；前三張是開發時用來調整的",
   "samples": [
-    {"file": "pool_gauge_0bar.jpg", "expected": {"讀值": 0.0}, "tolerance": 0.15,
-     "params": {"min_value": 0, "max_value": 3, "min_angle": 143, "max_angle": 47}},
-    {"file": "manometer_104026.jpg", "expected": {"讀值": 9.8}, "tolerance": 0.6,
-     "params": {"min_value": 0, "max_value": 15, "min_angle": 131.6, "max_angle": 42.5}},
-    {"file": "round_thermometer.jpg", "expected": {"讀值": 23.5}, "tolerance": 1.5,
-     "params": {"min_value": -20, "max_value": 60, "min_angle": 149.2, "max_angle": 26.4}}
+    {
+      "file": "pool_gauge_0bar.jpg",
+      "expected": {
+        "讀值": 0.0
+      },
+      "tolerance": 0.15,
+      "params": {
+        "min_value": 0,
+        "max_value": 3,
+        "min_angle": 143,
+        "max_angle": 47
+      }
+    },
+    {
+      "file": "manometer_104026.jpg",
+      "expected": {
+        "讀值": 0.0
+      },
+      "tolerance": 0.4,
+      "params": {
+        "min_value": 0,
+        "max_value": 15,
+        "min_angle": 131.6,
+        "max_angle": 42.5
+      }
+    },
+    {
+      "file": "round_thermometer.jpg",
+      "expected": {
+        "讀值": 23.5
+      },
+      "tolerance": 1.5,
+      "params": {
+        "min_value": -20,
+        "max_value": 60,
+        "min_angle": 149.2,
+        "max_angle": 26.4
+      }
+    },
+    {
+      "file": "hygrometer_33.jpg",
+      "expected": {
+        "讀值": 33.5
+      },
+      "tolerance": 3.0,
+      "holdout": true,
+      "params": {
+        "min_value": 20,
+        "max_value": 100,
+        "min_angle": 129.9,
+        "max_angle": 47.0
+      }
+    },
+    {
+      "file": "boiler_gauge_175.jpg",
+      "expected": {
+        "讀值": 175.0
+      },
+      "tolerance": 12.0,
+      "holdout": true,
+      "params": {
+        "min_value": 0,
+        "max_value": 400,
+        "min_angle": 130.1,
+        "max_angle": 52.4
+      }
+    },
+    {
+      "file": "india_gauge_21psi.jpg",
+      "expected": {
+        "讀值": 21.0
+      },
+      "tolerance": 4.0,
+      "holdout": true,
+      "params": {
+        "min_value": 0,
+        "max_value": 60,
+        "min_angle": 140.0,
+        "max_angle": 36.0
+      }
+    }
   ]
 }
