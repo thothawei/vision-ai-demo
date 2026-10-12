@@ -5,10 +5,25 @@
 
 ## [Unreleased]
 
-### 新增（Phase 23 進行中）
+## [1.0.0]
+
+### 新增
+- 容器化部署：`Dockerfile`（多階段、非 root）、`compose.yaml`（app + ollama，另有選用的 SQL Server profile）；管理者手冊新增「容器化部署」與「Windows 部署（未實測）」。
+- ERP 端到端驗證（SQLite 版，`tests/test_erp_end_to_end.py`）：增量輪詢、UPSERT、複判同步、重啟續傳、主檔推送。SQL Server 容器在 Apple Silicon 上無法啟動，已如實記錄。
 - 批號／料號三級比對（一致／疑似／不一致，rapidfuzz）：包裝與出貨標籤共用，疑似判 INFO 交人工確認。
 - `scripts/evaluate.py` 與 `tests/real_samples/`：真實照片評估集；尚無照片的模組在 `docs/evaluation.md` 標示「待補真實照片」。
 - GitHub Actions CI（check_wording、ruff、pytest + coverage）；`pytest -m e2e` 截圖流程。
+
+### 變更
+- 全專案套用 ruff format 與 import 排序；`pyproject.toml` 版本與變更紀錄對齊。
+- 測試中降低 argon2 成本（整套測試約快 25%）；測試圖字型可跨平台。
+
+### 修正
+- `.gitignore` 的 `models/`、`reports/` 改錨定根目錄，補回先前漏 commit 的 `backend/modules/models`、`backend/modules/reports`。
+- `test_instance_lock` 在子程序被 kill 後呼叫 `Event.set()` 造成死結；Ollama 缺模型測試改用假 client，不依賴本機是否開著 Ollama。
+
+### 已知缺口（見 docs/known-limitations.md）
+- 真實照片評估集尚無照片（各模組標示「待補真實照片」）；效能基準與 ONNX 未做；Windows、Colima／Podman、x86_64 容器未實測。
 
 ## [0.22.0]
 

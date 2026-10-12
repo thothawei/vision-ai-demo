@@ -295,3 +295,16 @@
 - **前端導覽灰化與面板橫幅**：只有程式碼審視與單元測試，這次沒有用瀏覽器實際看過畫面。
 - **未驗證**：webhook 重啟後恢復在單元測試中以「同一資料庫新連線」模擬，沒有真的重啟程序；`/metrics` 只驗證輸出內容，沒有接 Prometheus 抓取。
 - **已寫入真實資料庫的紀錄**：無（真實 `data/inspections.db` 修改時間仍為 09-30，演練全用暫存資料庫；演練產生的 `data/`、`models/` 已刪除）。
+
+
+### Phase 24：功能驗證（2026-10-12）
+
+- **環境**：Apple Silicon（arm64）macOS，Docker Desktop（Server 20.10.17、Compose v2.7.0，4 CPU／8GB）；**沒有用 Colima／Podman**（機器上沒有安裝，Docker Desktop 已存在）。
+- **建置**：`docker compose build app` 成功，6 分 36 秒，映像 2.54GB；容器內程序 uid 1000（非 root）。第一次建置因缺 `.env` 失敗（`env_file` 必填），符合文件步驟「先 `cp .env.example .env`」。
+- **啟動與功能**：`docker compose up -d` 後 `/healthz` 回 ok、`/readyz` 回降級（沒有 `models/`，10 項功能不可用）；用函式建立 admin 後登入 200；系統狀態列出 7 項可用功能；實測成功 5 項：追溯碼（Data Matrix GS1，OK）、七段顯示器（讀值 235，OK）、指針錶（INFO）、尺寸量測（長 50.6／寬 20.3／孔 5.42 mm）、計數（8 個）。
+- **持久化**：`docker compose restart app` 後，原帳密登入 200、檢驗紀錄 5 筆仍在（資料在掛載的 `./data`）；主頁登入後 200，未登入導向 302。
+- **容器間連線**：`app` 能連到 `ollama` 容器，系統狀態回報「Ollama 沒有模型 qwen3.5:9b」（連得到、模型沒下載）。**沒有拉 `qwen3.5:9b`（約 6GB），LLM 功能在容器內沒有實跑。**
+- **SQL Server 容器**：`mcr.microsoft.com/mssql/server:2022-latest`（linux/amd64，QEMU 模擬）啟動即結束，退出碼 1，錯誤為 `Invalid mapping of address … in reserved address space`；已清除容器與映像。依規劃書改以 SQLite 版端到端測試替代（`tests/test_erp_end_to_end.py`，4 項通過）。
+- **整體**：`pytest` 360 項全過（含新增 4 項 ERP 端到端、先前的測試缺陷修正）；`ruff`、`check_wording` 皆通過。另修正 `test_startup_refuses_without_or_with_short_session_secret`：子程序會讀專案根目錄的真實 `.env`，有 `.env` 的 checkout 會誤判失敗；現在先關閉 `env_file`，拿掉或保留 `.env` 都通過。
+- **未驗證**：Colima／Podman、x86_64 Linux、Windows；LLM 功能在容器內的實際推論；真實 SQL Server 上的 C# 範例；效能基準（可選項，未做）；README 快速開始在「全新 clone」上的完整重跑見下一條。
+- **已寫入真實資料庫的紀錄**：無（容器使用掛載的暫存 `./data`，驗證後已刪除；`docker compose down -v` 已移除 volume）。

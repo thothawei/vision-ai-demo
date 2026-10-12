@@ -122,3 +122,15 @@
 - **pytest-cov 7.1.0**：MIT（PyPI 標示，2026-10-12 查證）；只用於 CI 與本機的覆蓋率報告，不進 `backend/requirements.txt`。
 - **ruff 0.17.0**：開發工具（CI 與本機 lint／format），不進執行環境相依。
 - **GitHub Actions**：依 GitHub 官方計費說明（https://docs.github.com/en/billing/concepts/product-billing/github-actions ，2026-10-12 查證）「公開 repo 使用標準 GitHub-hosted runner 免費」；larger runner 另計費。本專案的 workflow 只用 `ubuntu-latest`，不用 larger／self-hosted runner，也不上傳 coverage 到外部服務（只留在 Actions log 與 artifact）。**若 repo 轉為私有，Actions 分鐘數會計入帳號方案額度**，需重新評估。
+
+## Phase 24 新增：容器與 ERP 驗證元件（查證日 2026-10-12）
+
+| 元件 | 授權／費用 | 用途與說明 |
+|---|---|---|
+| `python:3.11-slim`（Docker 官方映像） | 映像免費；內含 Python（PSF）、Debian 套件各自授權 | 應用程式基底映像 |
+| `ollama/ollama` | MIT（Ollama 專案） | compose 的 LLM 服務；模型權重授權另見模型各自頁面 |
+| tesseract-ocr、tesseract-ocr-chi-tra（Debian 套件） | Apache-2.0 | M4 的比較模式；映像內安裝 |
+| PyTorch CPU 輪子（download.pytorch.org/whl/cpu） | BSD-3-Clause | 避免 x86_64 預設輪子帶 CUDA（數 GB） |
+| `mcr.microsoft.com/mssql/server:2022-latest` | **Developer 版僅限開發測試；Express 版有容量／資源上限**；使用即同意 EULA（`ACCEPT_EULA=Y`） | 只在選用的 `erp` profile；官方 Linux 映像只有 x86_64，Apple Silicon 上模擬執行無法啟動（官方文件註明模擬環境不支援） |
+| Docker Desktop | 大型企業使用需付費訂閱，符合免費條件者可用（條件以 https://www.docker.com/pricing/ 為準） | **不作為安裝需求**；本次驗證機器已安裝，故用它實測（Colima／Podman 未實測） |
+

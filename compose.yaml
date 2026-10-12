@@ -1,0 +1,44 @@
+# 啟動：docker compose up -d --build
+# 首次使用：先建立 .env（至少 SESSION_SECRET），再建立管理員與下載 LLM 模型，見 docs/admin-guide.md「容器化部署」
+services:
+  app:
+    build: .
+    image: vision-inspection-platform:local
+    env_file: .env
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      # 容器內固定路徑；對外只開放這個服務的 8000 埠
+      INSPECTION_DB: /app/data/inspections.db
+      INSPECTION_IMAGES_DIR: /app/data/images
+      GOLDEN_SAMPLES_DIR: /app/data/golden_samples
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # 不對外開放埠：只有 app 容器透過內部網路連線
+
+  # 選用：ERP 端到端驗證用的 SQL Server（docker compose --profile erp up -d sqlserver）。
+  # 只能用 Developer（開發測試）或 Express（有容量／資源上限）版；官方 Linux 映像只有 x86_64，Apple Silicon 需模擬執行。
+  sqlserver:
+    profiles: ["erp"]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Erp-Dev-Pass-123}
+    ports:
+      - "127.0.0.1:1433:1433"
+
+volumes:
+  ollama-models:
