@@ -4,7 +4,7 @@ import base64
 import io
 
 import numpy as np
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 from core import request_scope
 from core.schemas import ModuleError

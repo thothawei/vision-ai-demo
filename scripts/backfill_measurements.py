@@ -26,7 +26,9 @@ def backfill(dry_run: bool = False) -> dict:
     with connect() as conn:
         rows = conn.execute(
             f"SELECT * FROM inspections WHERE module IN ({','.join('?' * len(MODULES))})"
-            " AND id NOT IN (SELECT inspection_id FROM measurements) ORDER BY id", MODULES).fetchall()
+            " AND id NOT IN (SELECT inspection_id FROM measurements) ORDER BY id",
+            MODULES,
+        ).fetchall()
         for row in rows:
             summary = json.loads(row["summary_json"])
             if not extract_measurements(row["module"], summary):
@@ -36,8 +38,9 @@ def backfill(dry_run: bool = False) -> dict:
                 inserted += len(extract_measurements(row["module"], summary))
                 continue
             trace = {k: row[k] for k in ("part_no", "work_order", "lot_no", "station")}
-            inserted += insert_measurements(conn, row["id"], row["created_at"], row["module"], summary, trace,
-                                            row["run_id"])
+            inserted += insert_measurements(
+                conn, row["id"], row["created_at"], row["module"], summary, trace, row["run_id"]
+            )
         if not dry_run:
             conn.commit()
     return {"inspections": inspections, "measurements": inserted, "dry_run": dry_run}
@@ -47,4 +50,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="補歷史量測值")
     parser.add_argument("--dry-run", action="store_true", help="只統計，不寫入")
     result = backfill(parser.parse_args().dry_run)
-    print(f"{'（試跑）' if result['dry_run'] else ''}補了 {result['inspections']} 筆紀錄、{result['measurements']} 個量測值")
+    print(
+        f"{'（試跑）' if result['dry_run'] else ''}補了 {result['inspections']} 筆紀錄、{result['measurements']} 個量測值"
+    )

@@ -11,8 +11,9 @@ def ollama_env(monkeypatch):
 
 
 def test_live_work_order(client, ollama_env, work_order_png):
-    res = client.post("/api/docs/extract", params={"mode": "ocr"},
-                      files={"file": ("wo.png", work_order_png, "image/png")})
+    res = client.post(
+        "/api/docs/extract", params={"mode": "ocr"}, files={"file": ("wo.png", work_order_png, "image/png")}
+    )
 
     assert res.status_code == 200, res.text
     body = res.json()
@@ -27,8 +28,9 @@ def test_live_work_order(client, ollama_env, work_order_png):
 
 
 def test_live_shipping_order_with_table(client, ollama_env, shipping_order_png):
-    res = client.post("/api/docs/extract", params={"mode": "ocr"},
-                      files={"file": ("so.png", shipping_order_png, "image/png")})
+    res = client.post(
+        "/api/docs/extract", params={"mode": "ocr"}, files={"file": ("so.png", shipping_order_png, "image/png")}
+    )
 
     assert res.status_code == 200, res.text
     body = res.json()
@@ -41,8 +43,9 @@ def test_live_shipping_order_with_table(client, ollama_env, shipping_order_png):
 
 
 def test_live_inspection_report(client, ollama_env, inspection_report_png):
-    res = client.post("/api/docs/extract", params={"mode": "ocr"},
-                      files={"file": ("ir.png", inspection_report_png, "image/png")})
+    res = client.post(
+        "/api/docs/extract", params={"mode": "ocr"}, files={"file": ("ir.png", inspection_report_png, "image/png")}
+    )
 
     assert res.status_code == 200, res.text
     body = res.json()

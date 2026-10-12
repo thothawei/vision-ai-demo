@@ -6,9 +6,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-from fastapi.testclient import TestClient
-
 from conftest import TEST_API_KEY
+from fastapi.testclient import TestClient
 
 
 def test_api_key_missing_or_wrong_is_401_correct_key_is_200(client):
@@ -124,7 +123,9 @@ def _wait_until(predicate, timeout=3.0, interval=0.05):
     return False
 
 
-def test_ok_verdict_does_not_trigger_webhook(client, fake_pcb_detector_no_defect, webhook_server, monkeypatch, warning_sign_png):
+def test_ok_verdict_does_not_trigger_webhook(
+    client, fake_pcb_detector_no_defect, webhook_server, monkeypatch, warning_sign_png
+):
     url, received = webhook_server
     monkeypatch.setenv("ERP_WEBHOOK_URL", url)
 
@@ -146,7 +147,9 @@ def test_ng_verdict_triggers_webhook(client, fake_pcb_detector, webhook_server, 
     assert received[0]["module"] == "defect"
 
 
-def test_ng_webhook_receiver_down_response_still_ok_and_queued(client, fake_pcb_detector, monkeypatch, warning_sign_png):
+def test_ng_webhook_receiver_down_response_still_ok_and_queued(
+    client, fake_pcb_detector, monkeypatch, warning_sign_png
+):
     # 先開一個 server 拿到一個「保證沒人聽」的 port，再關掉，確保連線失敗
     dead_server = ThreadingHTTPServer(("127.0.0.1", 0), _CapturingHandler)
     dead_port = dead_server.server_address[1]
@@ -175,9 +178,10 @@ def test_webhook_retry_succeeds_once_receiver_is_back(client, fake_pcb_detector,
     dead_server.server_close()
     monkeypatch.setenv("ERP_WEBHOOK_URL", f"http://127.0.0.1:{dead_port}")
 
-    res = client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")})
+    client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")})
 
     from core.inspection_log import list_pending_webhooks
+
     assert _wait_until(lambda: len(list_pending_webhooks()) == 1)
 
     _CapturingHandler.received = []

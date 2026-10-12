@@ -5,10 +5,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from core import settings as settings_module
 from core.settings import Settings, get_settings, startup_settings
+from pydantic import ValidationError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -18,7 +17,12 @@ def test_defaults(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     s = get_settings()
     assert (s.llm_engine, s.max_upload_mb, s.save_images, s.erp_webhook_url, s.api_keys) == (
-        "ollama", 20, True, None, "")
+        "ollama",
+        20,
+        True,
+        None,
+        "",
+    )
 
 
 def test_live_settings_reflect_env_changes_immediately(monkeypatch):
@@ -74,8 +78,9 @@ def test_only_startup_baked_settings_need_restart():
 
 
 def test_admin_guide_settings_table_is_up_to_date():
-    res = subprocess.run([sys.executable, str(ROOT / "scripts" / "gen_settings_doc.py"), "--check"],
-                         capture_output=True, text=True)
+    res = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "gen_settings_doc.py"), "--check"], capture_output=True, text=True
+    )
     assert res.returncode == 0, res.stdout
 
 

@@ -42,17 +42,22 @@ def _insert_record(module, verdict, summary, image_rel_path, review_verdict=None
 def test_export_yolo_ppe_converts_boxes_and_classes(export_env):
     img_rel = "images/1_raw.png"
     _make_test_image(export_env / "data" / img_rel)
-    summary = [{
-        "偵測到人頭數": 2, "未戴安全帽數": 1,
-        "明細": [
-            {"類型": "已戴安全帽", "信心度": 0.9, "邊界框": [10, 10, 50, 50]},
-            {"類型": "未戴安全帽", "信心度": 0.8, "邊界框": [60, 10, 90, 50]},
-        ],
-    }]
+    summary = [
+        {
+            "偵測到人頭數": 2,
+            "未戴安全帽數": 1,
+            "明細": [
+                {"類型": "已戴安全帽", "信心度": 0.9, "邊界框": [10, 10, 50, 50]},
+                {"類型": "未戴安全帽", "信心度": 0.8, "邊界框": [60, 10, 90, 50]},
+            ],
+        }
+    ]
     rec_id = _insert_record("ppe", "NG", summary, img_rel, review_verdict="NG")
 
     out_dir = export_env / "export_ppe"
-    manifest = export_reviewed.export_yolo("ppe", export_reviewed.PPE_CLASS_MAP, export_reviewed.PPE_CLASS_NAMES, out_dir)
+    manifest = export_reviewed.export_yolo(
+        "ppe", export_reviewed.PPE_CLASS_MAP, export_reviewed.PPE_CLASS_NAMES, out_dir
+    )
 
     assert manifest["exported"] == 1
     assert manifest["skipped_no_image"] == 0
@@ -74,14 +79,18 @@ def test_export_yolo_only_includes_reviewed_records(export_env):
     _insert_record("ppe", "OK", [{"明細": []}], img_rel, review_verdict=None)  # 沒複判，不該被匯出
 
     out_dir = export_env / "export_ppe2"
-    manifest = export_reviewed.export_yolo("ppe", export_reviewed.PPE_CLASS_MAP, export_reviewed.PPE_CLASS_NAMES, out_dir)
+    manifest = export_reviewed.export_yolo(
+        "ppe", export_reviewed.PPE_CLASS_MAP, export_reviewed.PPE_CLASS_NAMES, out_dir
+    )
     assert manifest["exported"] == 0
 
 
 def test_export_yolo_skips_missing_image_file(export_env):
     _insert_record("defect", "NG", [{"明細": []}], "images/missing.png", review_verdict="NG")
     out_dir = export_env / "export_defect"
-    manifest = export_reviewed.export_yolo("defect", export_reviewed.DEFECT_CLASS_MAP, export_reviewed.DEFECT_CLASS_NAMES, out_dir)
+    manifest = export_reviewed.export_yolo(
+        "defect", export_reviewed.DEFECT_CLASS_MAP, export_reviewed.DEFECT_CLASS_NAMES, out_dir
+    )
     assert manifest["exported"] == 0
     assert manifest["skipped_no_image"] == 1
 
@@ -91,7 +100,9 @@ def test_export_anomaly_mvtec_splits_by_review_verdict(export_env):
     _make_test_image(export_env / "data" / img1)
     _make_test_image(export_env / "data" / img2)
     _insert_record("anomaly", "NG", [{"類別": "screw", "判定": "異常"}], img2, review_verdict="NG")
-    _insert_record("anomaly", "NG", [{"類別": "screw", "判定": "異常"}], img1, review_verdict="OK")  # AI 誤判，複判成良品
+    _insert_record(
+        "anomaly", "NG", [{"類別": "screw", "判定": "異常"}], img1, review_verdict="OK"
+    )  # AI 誤判，複判成良品
 
     out_dir = export_env / "export_anomaly"
     manifest = export_reviewed.export_anomaly_mvtec("screw", out_dir)

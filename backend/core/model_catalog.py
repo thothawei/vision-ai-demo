@@ -13,7 +13,11 @@ CATALOG: dict[str, dict] = {
         "dataset": "DeepPCB（1500 張 640x640，依固定種子 42 自行切成 1000／250／250，非官方切分）",
         "dataset_license": f"資料集 MIT；{_YOLO_LICENSE}",
         "documented_metrics": {
-            "mAP50": 0.978, "mAP50-95": 0.735, "precision": 0.964, "recall": 0.945, "test_set_size": 250,
+            "mAP50": 0.978,
+            "mAP50-95": 0.735,
+            "precision": 0.964,
+            "recall": 0.945,
+            "test_set_size": 250,
             "來源": "docs/dev/test-log.md「Phase 5：功能驗證」（官方測試集切分上的驗證輸出）",
         },
         "limitations": "只認上述 6 類瑕疵；以 DeepPCB 風格的 PCB 影像訓練，實際產線影像（光源、解析度、板型不同）的準確度未驗證，導入時需以自有資料重訓。",
@@ -25,7 +29,11 @@ CATALOG: dict[str, dict] = {
         "dataset": "Hard Hat Workers（5297 張訓練、1766 張測試，沿用資料集官方切分）",
         "dataset_license": f"資料集 CC0 1.0；{_YOLO_LICENSE}",
         "documented_metrics": {
-            "mAP50": 0.977, "mAP50-95": 0.680, "precision": 0.948, "recall": 0.942, "test_set_size": 1766,
+            "mAP50": 0.977,
+            "mAP50-95": 0.680,
+            "precision": 0.948,
+            "recall": 0.942,
+            "test_set_size": 1766,
             "來源": "docs/dev/test-log.md「Phase 5：功能驗證」（官方測試集）",
         },
         "limitations": "只有 helmet／head 兩類，沒有反光背心等其他防護具；召回率 0.942，約 6% 的未戴安全帽可能漏判。",
@@ -36,7 +44,9 @@ CATALOG: dict[str, dict] = {
         "task": "COCO 預訓練 YOLO11n 的 person 類別，搭配使用者畫的多邊形判斷腳底位置是否入侵",
         "dataset": "COCO（官方預訓練權重，本專案未重新訓練）",
         "dataset_license": f"COCO 標註 CC BY 4.0、圖片依 Flickr 各自授權；{_YOLO_LICENSE}",
-        "documented_metrics": {"來源": "本專案未重新評估 COCO 指標；只用一張授權真人照片驗證過（95.1% 信心度，見 docs/dev/test-log.md「Phase 2」）"},
+        "documented_metrics": {
+            "來源": "本專案未重新評估 COCO 指標；只用一張授權真人照片驗證過（95.1% 信心度，見 docs/dev/test-log.md「Phase 2」）"
+        },
         "limitations": "以腳底參考點判斷，假設危險區域畫在地面；抽幀影片可能漏掉快速通過的違規。",
         "not_for": "不可當作唯一的安全聯鎖。",
     },
@@ -72,12 +82,24 @@ def describe(model_id: str) -> dict:
     if model_id in CATALOG:
         return CATALOG[model_id]
     if model_id.startswith("anomaly-"):
-        category = model_id[len("anomaly-"):]
+        category = model_id[len("anomaly-") :]
         source = _ANOMALY_BUILTIN if category in BUILTIN_ANOMALY else _ANOMALY_CUSTOM
-        return {"title": f"外觀異常檢測：{category}", **_ANOMALY_COMMON, "documented_metrics": {},
-                "dataset": source["dataset"].format(category=category), "dataset_license": source["dataset_license"]}
-    return {"title": model_id, "task": "", "dataset": "", "dataset_license": "", "documented_metrics": {},
-            "limitations": "", "not_for": ""}
+        return {
+            "title": f"外觀異常檢測：{category}",
+            **_ANOMALY_COMMON,
+            "documented_metrics": {},
+            "dataset": source["dataset"].format(category=category),
+            "dataset_license": source["dataset_license"],
+        }
+    return {
+        "title": model_id,
+        "task": "",
+        "dataset": "",
+        "dataset_license": "",
+        "documented_metrics": {},
+        "limitations": "",
+        "not_for": "",
+    }
 
 
 # 缺權重時給使用者的下一步（健康檢查與系統狀態頁用）
@@ -102,7 +124,7 @@ def default_weights_path(model_id: str):
     elif model_id.startswith("anomaly-"):
         from modules.anomaly.service import MODELS_DIR
 
-        return MODELS_DIR / model_id[len("anomaly-"):] / "weights" / "torch" / "model.pt"
+        return MODELS_DIR / model_id[len("anomaly-") :] / "weights" / "torch" / "model.pt"
     else:
         return None
     return WEIGHTS_PATH

@@ -13,12 +13,11 @@ Pydantic 驗證失敗時回傳完整的錯誤欄位列表，不會硬塞預設�
 
 import time
 
-from pydantic import ValidationError
-
 from core import llm
 from core.image_io import load_image
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
+from pydantic import ValidationError
 from schemas.documents import DOC_TYPE_SCHEMAS, STRICT_DOC_TYPES
 
 MODULE = "docs"
@@ -176,7 +175,7 @@ def _classify_from_text(ocr_text: str) -> tuple[str, str]:
 
 def _classify_from_image(image) -> tuple[str, str]:
     result, engine = llm.generate_json(
-        '這是一份文件的圖片。判斷這是什麼類型的文件，只能從這幾種裡面選一個：'
+        "這是一份文件的圖片。判斷這是什麼類型的文件，只能從這幾種裡面選一個："
         '工單、出貨單、進料檢驗報告、報價單、名片、其他。只回傳 JSON：{"文件類型": "你的判斷"}',
         image,
     )
@@ -185,8 +184,7 @@ def _classify_from_image(image) -> tuple[str, str]:
 
 def _extract_strict_from_text(doc_type: str, ocr_text: str, table_html: str | None) -> tuple[dict, str]:
     table_section = (
-        f"以下是版面分析抓到的表格結構（HTML，可能不完全準確，只當輔助參考）：\n{table_html}\n"
-        if table_html else ""
+        f"以下是版面分析抓到的表格結構（HTML，可能不完全準確，只當輔助參考）：\n{table_html}\n" if table_html else ""
     )
     prompt = STRICT_PROMPT_FROM_TEXT_TEMPLATE.format(
         doc_type=doc_type,

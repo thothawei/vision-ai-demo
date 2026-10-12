@@ -30,8 +30,14 @@ def find_center(gray: np.ndarray) -> tuple[float, float, float] | None:
     h, w = gray.shape
     blurred = cv2.GaussianBlur(gray, (9, 9), 2)
     circles = cv2.HoughCircles(
-        blurred, cv2.HOUGH_GRADIENT, dp=1, minDist=max(h, w),
-        param1=100, param2=40, minRadius=min(h, w) // 6, maxRadius=min(h, w) // 2,
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1,
+        minDist=max(h, w),
+        param1=100,
+        param2=40,
+        minRadius=min(h, w) // 6,
+        maxRadius=min(h, w) // 2,
     )
     if circles is None or len(circles[0]) == 0:
         return None
@@ -49,8 +55,12 @@ def detect_needle_angle(bgr: np.ndarray, cx: float, cy: float, r: float) -> tupl
     binary = binary_a if cv2.countNonZero(binary_a) <= cv2.countNonZero(binary_b) else binary_b
 
     lines = cv2.HoughLinesP(
-        binary, 1, np.pi / 180, threshold=30,
-        minLineLength=max(int(r * _NEEDLE_MIN_LEN_RATIO), 10), maxLineGap=10,
+        binary,
+        1,
+        np.pi / 180,
+        threshold=30,
+        minLineLength=max(int(r * _NEEDLE_MIN_LEN_RATIO), 10),
+        maxLineGap=10,
     )
     if lines is None:
         raise ModuleError("找不到指針，請確認畫面清楚、指針跟錶面對比明顯", 422)

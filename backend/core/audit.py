@@ -13,7 +13,10 @@ def record(actor: str, action: str, target_type: str, target_id, before=None, af
             "INSERT INTO audit_log (at, actor, action, target_type, target_id, before_json, after_json, request_id)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                datetime.now().isoformat(timespec="seconds"), actor, action, target_type,
+                datetime.now().isoformat(timespec="seconds"),
+                actor,
+                action,
+                target_type,
                 None if target_id is None else str(target_id),
                 None if before is None else json.dumps(before, ensure_ascii=False),
                 None if after is None else json.dumps(after, ensure_ascii=False),
@@ -24,8 +27,14 @@ def record(actor: str, action: str, target_type: str, target_id, before=None, af
         return cur.lastrowid
 
 
-def query(action: str | None = None, actor: str | None = None, target_type: str | None = None,
-          date_from: str | None = None, date_to: str | None = None, limit: int = 200) -> list[dict]:
+def query(
+    action: str | None = None,
+    actor: str | None = None,
+    target_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
     sql = "SELECT * FROM audit_log WHERE 1=1"
     params: list = []
     for column, value in (("action", action), ("actor", actor), ("target_type", target_type)):

@@ -54,7 +54,9 @@ def _app_version() -> str:
         return "unknown"
 
 
-def backup(out_dir: Path, include_models: bool = False, models_dir: Path | None = None, now: datetime | None = None) -> Path:
+def backup(
+    out_dir: Path, include_models: bool = False, models_dir: Path | None = None, now: datetime | None = None
+) -> Path:
     now = now or datetime.now()
     models_dir = models_dir or ROOT / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -80,14 +82,22 @@ def backup(out_dir: Path, include_models: bool = False, models_dir: Path | None 
         schema_version = migrations.current_version(check)
         check.close()
 
-        members = [("db/inspections.db", snapshot), *_tree(_images_dir(), "images"), *_tree(_golden_dir(), "golden_samples")]
+        members = [
+            ("db/inspections.db", snapshot),
+            *_tree(_images_dir(), "images"),
+            *_tree(_golden_dir(), "golden_samples"),
+        ]
         if anomaly_training.REGISTRY_PATH.exists():
             members.append(("anomaly/categories.json", anomaly_training.REGISTRY_PATH))
         if include_models:
             members += _tree(models_dir, "models")
         manifest = {
-            "format": FORMAT_VERSION, "created_at": now.isoformat(timespec="seconds"), "app_version": _app_version(),
-            "schema_version": schema_version, "includes_models": include_models, "counts": counts,
+            "format": FORMAT_VERSION,
+            "created_at": now.isoformat(timespec="seconds"),
+            "app_version": _app_version(),
+            "schema_version": schema_version,
+            "includes_models": include_models,
+            "counts": counts,
             "files": {name: {"size": path.stat().st_size, "sha256": sha256_of(path)} for name, path in members},
         }
         manifest_path = Path(tmp) / MANIFEST

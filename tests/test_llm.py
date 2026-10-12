@@ -1,10 +1,9 @@
 """LLM 抽象層：引擎切換、JSON 解析、連線失敗時的錯誤訊息（不需要真的有模型）。"""
 
 import pytest
-from PIL import Image
-
 from core import llm
 from core.schemas import ModuleError
+from PIL import Image
 
 
 def test_parse_json_strips_code_fence():

@@ -33,8 +33,16 @@ def create_job(kind: str, payload: dict, created_by: str | None = None, status: 
         cur = conn.execute(
             "INSERT INTO jobs (kind, payload_json, status, attempts, created_by, created_at, started_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (kind, json.dumps(payload, ensure_ascii=False), status, 1 if status == "running" else 0, created_by, _now(),
-             _now() if status == "running" else None))
+            (
+                kind,
+                json.dumps(payload, ensure_ascii=False),
+                status,
+                1 if status == "running" else 0,
+                created_by,
+                _now(),
+                _now() if status == "running" else None,
+            ),
+        )
         conn.commit()
     return get_job(cur.lastrowid)
 
@@ -68,14 +76,17 @@ def claim_next(kind: str, name: str | None = None) -> dict | None:
     """領取一個排隊中的工作（最早的先做）並標成 running；沒有就回傳 None。
     `name` 只給測試與直接呼叫用：只領 payload 裡 name 相符的工作。"""
     with connect() as conn:
-        rows = conn.execute("SELECT id, payload_json FROM jobs WHERE kind = ? AND status = 'queued' ORDER BY id",
-                            (kind,)).fetchall()
+        rows = conn.execute(
+            "SELECT id, payload_json FROM jobs WHERE kind = ? AND status = 'queued' ORDER BY id", (kind,)
+        ).fetchall()
         for row in rows:
             if name is not None and json.loads(row["payload_json"]).get("name") != name:
                 continue
             claimed = conn.execute(
                 "UPDATE jobs SET status = 'running', attempts = attempts + 1, started_at = ?, finished_at = NULL, error = NULL"
-                " WHERE id = ? AND status = 'queued'", (_now(), row["id"]))
+                " WHERE id = ? AND status = 'queued'",
+                (_now(), row["id"]),
+            )
             conn.commit()
             if claimed.rowcount == 1:  # 別的 worker 搶先領走的話 rowcount 是 0，換下一個
                 return get_job(row["id"])
@@ -86,7 +97,9 @@ def finish(job_id: int, status: str, error: str | None = None) -> None:
     if status not in ("done", "failed", "interrupted"):
         raise ValueError(f"finish 的狀態只能是 done／failed／interrupted，目前是「{status}」")
     with connect() as conn:
-        conn.execute("UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?", (status, error, _now(), job_id))
+        conn.execute(
+            "UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?", (status, error, _now(), job_id)
+        )
         conn.commit()
 
 
@@ -94,8 +107,10 @@ def recover_interrupted() -> list[dict]:
     """啟動時呼叫：把還在 running 的工作標成 interrupted（單一程序假設，見模組說明）。回傳被標記的工作。"""
     with connect() as conn:
         rows = conn.execute("SELECT id FROM jobs WHERE status = 'running'").fetchall()
-        conn.execute("UPDATE jobs SET status = 'interrupted', error = ?, finished_at = ? WHERE status = 'running'",
-                     (INTERRUPTED_MESSAGE, _now()))
+        conn.execute(
+            "UPDATE jobs SET status = 'interrupted', error = ?, finished_at = ? WHERE status = 'running'",
+            (INTERRUPTED_MESSAGE, _now()),
+        )
         conn.commit()
     return [get_job(r["id"]) for r in rows]
 

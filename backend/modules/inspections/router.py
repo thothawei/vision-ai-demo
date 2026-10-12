@@ -1,20 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
-
 from core import audit, recipes
 from core.auth import Principal, require_login, require_role
 from core.inspection_log import (
     get_image_file_path,
-    is_image_expired,
     get_inspection,
     get_stats,
+    is_image_expired,
     query_inspections,
     query_reviewed_since,
     to_csv,
     update_review,
 )
 from core.request_scope import IMAGE_ROLES
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/inspections", tags=["檢驗紀錄"])
 
@@ -39,7 +38,16 @@ def list_inspections(
     """operator 只看得到自己建立的紀錄；qc、admin 與 API key 看全部。"""
     created_by = principal.actor if principal.kind == "user" and principal.role == "operator" else None
     return query_inspections(
-        module, verdict, date_from, date_to, work_order, part_no, lot_no, station, limit, since_id,
+        module,
+        verdict,
+        date_from,
+        date_to,
+        work_order,
+        part_no,
+        lot_no,
+        station,
+        limit,
+        since_id,
         created_by=created_by,
     )
 
@@ -64,7 +72,15 @@ def export_csv(
     _: Principal = Depends(_read),
 ):
     records = query_inspections(
-        module, verdict, date_from, date_to, work_order, part_no, lot_no, station, limit,
+        module,
+        verdict,
+        date_from,
+        date_to,
+        work_order,
+        part_no,
+        lot_no,
+        station,
+        limit,
     )
     # 加 BOM 讓 Excel 直接開啟時中文不亂碼
     return Response(
@@ -102,7 +118,9 @@ class ReviewRequest(BaseModel):
 
 @router.patch("/{inspection_id}/review")
 def review_inspection(
-    inspection_id: int, body: ReviewRequest, principal: Principal = Depends(require_role("qc")),
+    inspection_id: int,
+    body: ReviewRequest,
+    principal: Principal = Depends(require_role("qc")),
 ):
     """複判人一律取自登入者；body 的 reviewer 欄位僅為相容舊客戶端而保留，會被忽略。"""
     before = get_inspection(inspection_id)
@@ -113,8 +131,14 @@ def review_inspection(
     if updated is None:
         raise HTTPException(status_code=404, detail=f"找不到檢驗紀錄 id={inspection_id}")
     fields = ("review_verdict", "reviewer", "reviewed_at", "review_note")
-    audit.record(principal.actor, "inspection.review", "inspection", inspection_id,
-                 before={k: before[k] for k in fields}, after={k: updated[k] for k in fields})
+    audit.record(
+        principal.actor,
+        "inspection.review",
+        "inspection",
+        inspection_id,
+        before={k: before[k] for k in fields},
+        after={k: updated[k] for k in fields},
+    )
     return updated
 
 
@@ -132,7 +156,9 @@ def get_image(inspection_id: int, kind: str = "raw", _: Principal = Depends(_rea
         raise HTTPException(status_code=400, detail=f"kind 只能是 annotated 或 {'、'.join(IMAGE_ROLES)}")
     path = get_image_file_path(inspection_id, kind)
     if path is None and is_image_expired(inspection_id, kind):
-        raise HTTPException(status_code=410, detail=f"id={inspection_id} 的 {kind} 圖片已依保存期限清理（紀錄本身保留）")
+        raise HTTPException(
+            status_code=410, detail=f"id={inspection_id} 的 {kind} 圖片已依保存期限清理（紀錄本身保留）"
+        )
     if path is None:
         raise HTTPException(status_code=404, detail=f"找不到 id={inspection_id} 的 {kind} 圖片")
     return FileResponse(path)

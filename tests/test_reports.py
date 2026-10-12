@@ -7,11 +7,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-from openpyxl import load_workbook
-
 from core import reports
 from core.inspection_log import connect, log_inspection, update_review
+from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = date.today()
@@ -27,8 +26,14 @@ def _seed():
     ids["nostation"] = log_inspection("general", "INFO", "e", 1, [{"主要物件": "x"}], {})
     update_review(ids["ng_reviewed"], "OK", "qc", "誤判")
     for v in [9, 10, 11, 12, 13, 10, 11, 12, 13, 14, 8, 9, 10, 11, 12]:
-        log_inspection("measure", "OK", "e", 1, [{"長度mm": float(v), "目標長度mm": 10.5, "公差mm": 5.5}],
-                       {"part_no": "P-1", "station": "S1"})
+        log_inspection(
+            "measure",
+            "OK",
+            "e",
+            1,
+            [{"長度mm": float(v), "目標長度mm": 10.5, "公差mm": 5.5}],
+            {"part_no": "P-1", "station": "S1"},
+        )
     return ids
 
 
@@ -75,7 +80,10 @@ def test_report_only_covers_the_requested_period(client):
     assert reports.build_report("day", TODAY)["summary"]["total"] == 17
     assert reports.build_report("day", TODAY - timedelta(days=8))["summary"]["total"] == 3
     week = reports.build_report("week", TODAY - timedelta(days=8))
-    assert week["summary"]["total"] >= 3 and week["date_from"] <= (TODAY - timedelta(days=8)).isoformat() <= week["date_to"]
+    assert (
+        week["summary"]["total"] >= 3
+        and week["date_from"] <= (TODAY - timedelta(days=8)).isoformat() <= week["date_to"]
+    )
 
 
 def test_empty_report_does_not_crash(client):
@@ -99,8 +107,9 @@ def test_excel_is_readable_and_keeps_chinese(client):
 
 
 def test_html_is_printable_and_escapes_content(client):
-    log_inspection("defect", "NG", "e", 1,
-                   [{"明細": [{"瑕疵類型": "<script>alert(1)</script>"}]}], {"station": "<b>S</b>"})
+    log_inspection(
+        "defect", "NG", "e", 1, [{"明細": [{"瑕疵類型": "<script>alert(1)</script>"}]}], {"station": "<b>S</b>"}
+    )
     page = reports.to_html(reports.build_report("day", TODAY))
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page and "&lt;b&gt;S&lt;/b&gt;" in page
     assert "@media print" in page and "<title>品質日報" in page
@@ -132,6 +141,7 @@ def test_report_permissions(admin_client, qc_client, operator_client, client):
 
 # --- 腳本 ---
 
+
 def test_daily_report_script_writes_excel_and_html(client, tmp_path):
     _seed()
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -159,13 +169,20 @@ def _legacy_rows():
     """模擬 Phase 20 之前的紀錄：直接寫 inspections，不會產生 measurements。"""
     with connect() as conn:
         for module, summary, part in (
-            ("measure", [{"長度mm": 50.6, "寬度mm": 20.3, "孔徑mm": [5.4], "目標長度mm": 50, "長度誤差mm": 0.6}], "P-9"),
+            (
+                "measure",
+                [{"長度mm": 50.6, "寬度mm": 20.3, "孔徑mm": [5.4], "目標長度mm": 50, "長度誤差mm": 0.6}],
+                "P-9",
+            ),
             ("colordiff", [{"ΔE00": 1.7, "門檻": 3.0, "判定": "合格"}], "P-9"),
             ("measure", [{"計數結果": 8, "預期數量": 8, "明細": []}], "P-9"),
             ("codes", [{"效期狀態": "正常"}], "P-9"),
         ):
-            conn.execute("INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, part_no)"
-                         " VALUES ('2026-01-05T09:00:00', ?, 'OK', 'e', 1, ?, ?)", (module, json.dumps(summary, ensure_ascii=False), part))
+            conn.execute(
+                "INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, part_no)"
+                " VALUES ('2026-01-05T09:00:00', ?, 'OK', 'e', 1, ?, ?)",
+                (module, json.dumps(summary, ensure_ascii=False), part),
+            )
         conn.commit()
 
 

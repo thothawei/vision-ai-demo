@@ -180,15 +180,15 @@
   ```python
   @dataclass(frozen=True)
   class ActionSpec:
-      action: str            # 批次/路由用代號，例如 "defect"
-      module: str            # 寫進 inspections.module 的名稱
-      label: str             # 前端顯示名稱（繁中）
-      category: str          # 17.4 的功能分類
-      handler: Callable      # service 函式
-      params: type[BaseModel] | None   # 額外參數的 Pydantic model
+      action: str  # 批次/路由用代號，例如 "defect"
+      module: str  # 寫進 inspections.module 的名稱
+      label: str  # 前端顯示名稱（繁中）
+      category: str  # 17.4 的功能分類
+      handler: Callable  # service 函式
+      params: type[BaseModel] | None  # 額外參數的 Pydantic model
       verdict_kind: Literal["inspection", "info"]  # info 不列入良率
       defect_extractor: Callable | None  # 柏拉圖用；inspection 類必填
-      requires: list[str]    # 需要的權重/服務，給 Phase 22 健康檢查用
+      requires: list[str]  # 需要的權重/服務，給 Phase 22 健康檢查用
   ```
 - `core/batch_dispatch.py`、`modules/batch/router.py`、`inspection_log.extract_defect_labels()`、前端模組名稱對照全部改為讀註冊表；新增 `GET /api/modules` 回傳註冊表（不含 handler），前端動態讀取。
 - **加一個測試：所有 `verdict_kind="inspection"` 的動作都必須有 `defect_extractor`**，否則測試失敗 —— 直接修掉 B1，且之後不會再漏。

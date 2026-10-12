@@ -25,8 +25,14 @@ from core import audit, model_registry  # noqa: E402
 ACTOR = "script:register_model"
 
 
-def register(model_id: str, weights: Path, metrics: dict | None = None, note: str = "", activate: bool = False,
-             adopt: bool = False) -> dict:
+def register(
+    model_id: str,
+    weights: Path,
+    metrics: dict | None = None,
+    note: str = "",
+    activate: bool = False,
+    adopt: bool = False,
+) -> dict:
     weights = Path(weights).resolve()
     if not weights.is_file():
         raise ValueError(f"找不到權重檔：{weights}")
@@ -44,11 +50,15 @@ def register(model_id: str, weights: Path, metrics: dict | None = None, note: st
             else:
                 copied = target_dir / weights.name
                 shutil.copy2(weights, copied)
-            entry = model_registry.register_version(model_id, copied, metrics, note, ACTOR, activate=False, version=version)
+            entry = model_registry.register_version(
+                model_id, copied, metrics, note, ACTOR, activate=False, version=version
+            )
         except Exception:
             shutil.rmtree(target_dir, ignore_errors=True)
             raise
-    audit.record(ACTOR, "model.register", "model", model_id, after={"version": entry["version"], "sha256": entry["sha256"][:12]})
+    audit.record(
+        ACTOR, "model.register", "model", model_id, after={"version": entry["version"], "sha256": entry["sha256"][:12]}
+    )
     if activate:
         activate_version(model_id, entry["version"])
         entry = model_registry.get_version(model_id, entry["version"])
@@ -63,8 +73,14 @@ def activate_version(model_id: str, version: int) -> dict:
     if not path.is_file() or model_registry.sha256_file(path) != target["sha256"]:
         raise ValueError(f"v{version} 的權重檔不存在或 SHA-256 與登錄不符，不能啟用")
     previous, current = model_registry.activate_version(model_id, version)
-    audit.record(ACTOR, "model.activate", "model", model_id,
-                 before={"version": previous["version"] if previous else None}, after={"version": version})
+    audit.record(
+        ACTOR,
+        "model.activate",
+        "model",
+        model_id,
+        before={"version": previous["version"] if previous else None},
+        after={"version": version},
+    )
     return current
 
 
@@ -88,7 +104,9 @@ def main() -> None:
             for m in model_registry.list_models():
                 print(f"{m['model_id']}（{m['title']}）啟用 v{m['active_version']}")
                 for v in m["versions"]:
-                    print(f"  v{v['version']} {v['status']:8} {v['sha256'][:12]} {v['size_bytes']:>11,}B {v['weights_path']}")
+                    print(
+                        f"  v{v['version']} {v['status']:8} {v['sha256'][:12]} {v['size_bytes']:>11,}B {v['weights_path']}"
+                    )
         elif args.command == "register":
             metrics = json.loads(args.metrics_json.read_text(encoding="utf-8")) if args.metrics_json else None
             e = register(args.model_id, args.weights, metrics, args.note, args.activate, args.adopt)

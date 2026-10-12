@@ -24,9 +24,15 @@ def test_all_fields_match_is_ok(client, fake_llm_queue):
     fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "LOT2026A"}, "fake:model"))
     img = make_samples.make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS")
 
-    res = _post(client, img, params={
-        "expected_part_no": "SC-M6-20", "expected_lot_no": "LOT2026A", "expected_quantity": 5000,
-    })
+    res = _post(
+        client,
+        img,
+        params={
+            "expected_part_no": "SC-M6-20",
+            "expected_lot_no": "LOT2026A",
+            "expected_quantity": 5000,
+        },
+    )
     assert res.status_code == 200
     body = res.json()
     assert body["verdict"] == "OK"
@@ -90,8 +96,11 @@ def test_barcode_lot_no_takes_priority_over_printed_text(client, fake_llm_queue)
     # LLM 讀到的印刷批號是 LOT2026A，但標籤上另外有個 GS1 條碼寫 LOT_BARCODE，應該以條碼為準
     fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "LOT2026A"}, "fake:model"))
     img = make_samples.make_shipping_label(
-        part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS",
-        with_barcode=True, barcode_lot_no="LOT_BARCODE",
+        part_no="SC-M6-20",
+        lot_no="LOT2026A",
+        quantity="5000 PCS",
+        with_barcode=True,
+        barcode_lot_no="LOT_BARCODE",
     )
 
     res = _post(client, img, params={"expected_lot_no": "LOT_BARCODE"})

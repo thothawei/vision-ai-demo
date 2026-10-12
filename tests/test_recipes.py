@@ -4,7 +4,6 @@ import io
 import json
 
 import pytest
-
 from core import recipes
 from samples import make_samples
 
@@ -19,14 +18,26 @@ def _png(image) -> bytes:
 def setup(admin_client, fake_anomaly_inferencer, measure_scene_png_marker):
     """料號 SC-M6-20、工單 WO-1，以及三步驟配方：追溯碼(main)、異常檢測 screw(main)、尺寸量測(scene)。"""
     admin_client.post("/api/master/parts", json={"part_no": "SC-M6-20", "name": "螺栓"})
-    admin_client.post("/api/master/work-orders", json={"work_order_no": "WO-1", "part_no": "SC-M6-20",
-                                                       "quantity": 10, "status": "in_progress", "lot_no": "LOT-A"})
+    admin_client.post(
+        "/api/master/work-orders",
+        json={
+            "work_order_no": "WO-1",
+            "part_no": "SC-M6-20",
+            "quantity": 10,
+            "status": "in_progress",
+            "lot_no": "LOT-A",
+        },
+    )
     _, marker_mm = measure_scene_png_marker
     steps = [
         {"action": "codes", "label": "追溯碼"},
         {"action": "anomaly", "params": {"category": "screw"}, "label": "外觀"},
-        {"action": "measure", "image_slot": "scene", "label": "尺寸",
-         "params": {"marker_size_mm": marker_mm, "target_length_mm": 50, "tolerance_mm": 1.0}},
+        {
+            "action": "measure",
+            "image_slot": "scene",
+            "label": "尺寸",
+            "params": {"marker_size_mm": marker_mm, "target_length_mm": 50, "tolerance_mm": 1.0},
+        },
     ]
     res = admin_client.post("/api/recipes", json={"part_no": "SC-M6-20", "steps": steps, "note": "初版"})
     assert res.status_code == 201, res.text
@@ -34,11 +45,16 @@ def setup(admin_client, fake_anomaly_inferencer, measure_scene_png_marker):
 
 
 def _run(session, main_png, scene_png, **fields):
-    return session.post("/api/inspect/recipe", data={"work_order": "WO-1", **fields},
-                        files={"main": ("m.png", main_png, "image/png"), "scene": ("s.png", scene_png, "image/png")})
+    return session.post(
+        "/api/inspect/recipe",
+        data={"work_order": "WO-1", **fields},
+        files={"main": ("m.png", main_png, "image/png"), "scene": ("s.png", scene_png, "image/png")},
+    )
 
 
-def test_recipe_run_ok_creates_one_run_and_one_inspection_per_step(setup, gs1_valid_png_fields, measure_scene_png_marker):
+def test_recipe_run_ok_creates_one_run_and_one_inspection_per_step(
+    setup, gs1_valid_png_fields, measure_scene_png_marker
+):
     admin, recipe = setup
     assert recipe["version"] == 1 and recipe["is_active"] and recipe["slots"] == ["main", "scene"]
     main_png, _ = gs1_valid_png_fields
@@ -62,7 +78,9 @@ def test_recipe_run_ok_creates_one_run_and_one_inspection_per_step(setup, gs1_va
         assert record["work_order"] == "WO-1" and record["part_no"] == "SC-M6-20" and record["lot_no"] == "LOT-A"
 
 
-def test_recipe_run_ng_when_any_inspection_step_is_ng(admin_client, setup, gs1_expired_png_fields, measure_scene_png_marker):
+def test_recipe_run_ng_when_any_inspection_step_is_ng(
+    admin_client, setup, gs1_expired_png_fields, measure_scene_png_marker
+):
     admin, _ = setup
     expired_png, _ = gs1_expired_png_fields
     scene_png, _ = measure_scene_png_marker
@@ -91,8 +109,15 @@ def test_ng_beats_error_in_merged_verdict(setup, gs1_expired_png_fields, blank_p
 
 def test_combine_rules_directly():
     def step(pos, kind, verdict, status="ok", error=None):
-        return {"position": pos, "action": "a", "label": "", "verdict_kind": kind, "verdict": verdict,
-                "status": status, "error": error}
+        return {
+            "position": pos,
+            "action": "a",
+            "label": "",
+            "verdict_kind": kind,
+            "verdict": verdict,
+            "status": status,
+            "error": error,
+        }
 
     assert recipes.combine([step(1, "inspection", "OK"), step(2, "inspection", "OK")])[0] == "OK"
     assert recipes.combine([step(1, "inspection", "OK"), step(2, "inspection", "NG")])[0] == "NG"
@@ -104,22 +129,30 @@ def test_combine_rules_directly():
     assert recipes.combine([step(1, "inspection", "NG"), step(2, "inspection", None, "error", "x")])[0] == "NG"
 
 
-def test_editing_creates_new_version_and_old_runs_keep_pointing_to_old_version(setup, gs1_valid_png_fields, measure_scene_png_marker):
+def test_editing_creates_new_version_and_old_runs_keep_pointing_to_old_version(
+    setup, gs1_valid_png_fields, measure_scene_png_marker
+):
     admin, v1 = setup
     main_png, _ = gs1_valid_png_fields
     scene_png, marker_mm = measure_scene_png_marker[0], measure_scene_png_marker[1]
     old_run = _run(admin, main_png, scene_png).json()
 
     # 新版本：量測目標改成 80mm（實際 50mm → 超差 NG）
-    steps = [{"action": "measure", "image_slot": "scene",
-              "params": {"marker_size_mm": marker_mm, "target_length_mm": 80, "tolerance_mm": 1.0}}]
+    steps = [
+        {
+            "action": "measure",
+            "image_slot": "scene",
+            "params": {"marker_size_mm": marker_mm, "target_length_mm": 80, "tolerance_mm": 1.0},
+        }
+    ]
     v2 = admin.post("/api/recipes", json={"part_no": "SC-M6-20", "steps": steps}).json()
     assert v2["version"] == 2 and v2["is_active"]
     assert admin.get(f"/api/recipes/{v1['id']}").json()["is_active"] is False  # 同一料號只有一個啟用版本
 
     assert admin.get(f"/api/recipes/{v1['id']}").json()["steps"][2]["params"]["target_length_mm"] == 50  # 舊版不變
-    new_run = admin.post("/api/inspect/recipe", data={"work_order": "WO-1"},
-                         files={"scene": ("s.png", scene_png, "image/png")}).json()
+    new_run = admin.post(
+        "/api/inspect/recipe", data={"work_order": "WO-1"}, files={"scene": ("s.png", scene_png, "image/png")}
+    ).json()
     assert new_run["version"] == 2 and new_run["verdict"] == "NG"
     assert admin.get(f"/api/runs/{old_run['run_id']}").json()["recipe_id"] == v1["id"]  # 舊 run 仍指向 v1
 
@@ -132,6 +165,7 @@ def test_editing_creates_new_version_and_old_runs_keep_pointing_to_old_version(s
 
 def test_recipe_validation(admin_client, fake_anomaly_inferencer):
     admin_client.post("/api/master/parts", json={"part_no": "P1"})
+
     def create(steps, part="P1"):
         return admin_client.post("/api/recipes", json={"part_no": part, "steps": steps})
 
@@ -146,9 +180,25 @@ def test_recipe_validation(admin_client, fake_anomaly_inferencer):
     assert create([{"action": "assembly"}]).status_code == 422  # 黃金樣本不存在
     assert create([{"action": "codes", "image_slot": "bad slot!"}]).status_code == 422
     assert create([{"action": "colordiff", "params": {"measure_rect": [0, 0, 1, 1]}}]).status_code == 422  # 缺標準色
-    assert create([{"action": "colordiff", "params": {"ref_lab": [50, 0, 0], "ref_rect": [0, 0, 1, 1], "measure_rect": [0, 0, 1, 1]}}]).status_code == 422
-    assert create([{"action": "colordiff", "params": {"ref_lab": [50, 0], "measure_rect": [0, 0, 1, 1]}}]).status_code == 422
-    assert create([{"action": "colordiff", "params": {"ref_lab": [50, 0, 0], "measure_rect": [0, 0, 2, 1]}}]).status_code == 422
+    assert (
+        create(
+            [
+                {
+                    "action": "colordiff",
+                    "params": {"ref_lab": [50, 0, 0], "ref_rect": [0, 0, 1, 1], "measure_rect": [0, 0, 1, 1]},
+                }
+            ]
+        ).status_code
+        == 422
+    )
+    assert (
+        create([{"action": "colordiff", "params": {"ref_lab": [50, 0], "measure_rect": [0, 0, 1, 1]}}]).status_code
+        == 422
+    )
+    assert (
+        create([{"action": "colordiff", "params": {"ref_lab": [50, 0, 0], "measure_rect": [0, 0, 2, 1]}}]).status_code
+        == 422
+    )
     assert create([{"action": "codes"}]).status_code == 201
 
 
@@ -156,29 +206,47 @@ def test_assembly_and_colordiff_steps_run_from_recipe(admin_client, blank_png):
     """assembly／colordiff 不開放批次，但可用於配方；黃金樣本預設用配方料號，色差標準存在步驟參數裡。"""
     admin_client.post("/api/master/parts", json={"part_no": "ASM-1"})
     golden = _png(make_samples.make_assembly_scene())
-    assert admin_client.post("/api/assembly/golden-samples", params={"part_no": "ASM-1"},
-                             data={"rois": json.dumps(make_samples.ASSEMBLY_ROIS)},
-                             files={"file": ("g.png", golden, "image/png")}).status_code == 200
+    assert (
+        admin_client.post(
+            "/api/assembly/golden-samples",
+            params={"part_no": "ASM-1"},
+            data={"rois": json.dumps(make_samples.ASSEMBLY_ROIS)},
+            files={"file": ("g.png", golden, "image/png")},
+        ).status_code
+        == 200
+    )
     rect = [[40 / 600, 40 / 300, 280 / 600, 260 / 300], [320 / 600, 40 / 300, 560 / 600, 260 / 300]]
     steps = [
         {"action": "assembly", "image_slot": "asm", "label": "組裝"},
-        {"action": "colordiff", "image_slot": "color", "label": "色差",
-         "params": {"ref_rect": rect[0], "measure_rect": rect[1], "threshold": 3.0}},
+        {
+            "action": "colordiff",
+            "image_slot": "color",
+            "label": "色差",
+            "params": {"ref_rect": rect[0], "measure_rect": rect[1], "threshold": 3.0},
+        },
     ]
     recipe = admin_client.post("/api/recipes", json={"part_no": "ASM-1", "steps": steps}).json()
     assert recipe["steps"][0]["params"]["golden"] is None  # 沒填就用配方料號
 
     missing_part = _png(make_samples.make_assembly_scene(missing_index=2))
     chips = _png(make_samples.make_color_chip_scene((200, 30, 30), (30, 30, 200)))
-    body = admin_client.post("/api/inspect/recipe", data={"part_no": "ASM-1"}, files={
-        "asm": ("a.png", missing_part, "image/png"), "color": ("c.png", chips, "image/png")}).json()
+    body = admin_client.post(
+        "/api/inspect/recipe",
+        data={"part_no": "ASM-1"},
+        files={"asm": ("a.png", missing_part, "image/png"), "color": ("c.png", chips, "image/png")},
+    ).json()
     assert body["verdict"] == "NG" and [s["verdict"] for s in body["steps"]] == ["NG", "NG"]
     # 沒工單的檢驗會標記為臨時
     assert admin_client.get(f"/api/runs/{body['run_id']}").json()["adhoc"] == 1
 
-    ok = admin_client.post("/api/inspect/recipe", data={"part_no": "ASM-1"}, files={
-        "asm": ("a.png", golden, "image/png"),
-        "color": ("c.png", _png(make_samples.make_color_chip_scene((180, 60, 60), (180, 60, 60))), "image/png")}).json()
+    ok = admin_client.post(
+        "/api/inspect/recipe",
+        data={"part_no": "ASM-1"},
+        files={
+            "asm": ("a.png", golden, "image/png"),
+            "color": ("c.png", _png(make_samples.make_color_chip_scene((180, 60, 60), (180, 60, 60))), "image/png"),
+        },
+    ).json()
     assert ok["verdict"] == "OK"
 
 
@@ -200,7 +268,9 @@ def test_run_request_errors(setup, gs1_valid_png_fields, measure_scene_png_marke
     assert admin.post("/api/inspect/recipe", data={"work_order": "WO-1"}, files=files).status_code == 404
 
 
-def test_run_uses_trace_headers_and_temporary_work_order_is_marked(setup, gs1_valid_png_fields, measure_scene_png_marker):
+def test_run_uses_trace_headers_and_temporary_work_order_is_marked(
+    setup, gs1_valid_png_fields, measure_scene_png_marker
+):
     admin, _ = setup
     main_png, _ = gs1_valid_png_fields
     scene_png, _ = measure_scene_png_marker
@@ -221,7 +291,9 @@ def test_permissions(setup, qc_client, operator_client, client, gs1_valid_png_fi
         assert who.post(f"/api/recipes/{recipe['id']}/activate").status_code == 403
     assert qc_client.get("/api/recipes").status_code == 200 and client.get("/api/recipes").status_code == 200
     assert operator_client.get("/api/recipes").status_code == 403
-    assert operator_client.get("/api/recipes/active", params={"part_no": "SC-M6-20"}).status_code == 200  # 要看得到圖片槽
+    assert (
+        operator_client.get("/api/recipes/active", params={"part_no": "SC-M6-20"}).status_code == 200
+    )  # 要看得到圖片槽
     assert operator_client.get("/api/runs").status_code == 403 and qc_client.get("/api/runs").status_code == 200
     main_png, _ = gs1_valid_png_fields
     scene_png, _ = measure_scene_png_marker
@@ -232,7 +304,10 @@ def test_permissions(setup, qc_client, operator_client, client, gs1_valid_png_fi
 
 def test_recipe_changes_are_audited_including_color_standard(setup):
     admin, recipe = setup
-    color = {"action": "colordiff", "params": {"ref_lab": [50.0, 20.0, 20.0], "measure_rect": [0.1, 0.1, 0.5, 0.5], "threshold": 2.5}}
+    color = {
+        "action": "colordiff",
+        "params": {"ref_lab": [50.0, 20.0, 20.0], "measure_rect": [0.1, 0.1, 0.5, 0.5], "threshold": 2.5},
+    }
     admin.post("/api/recipes", json={"part_no": "SC-M6-20", "steps": [color], "activate": False})
     admin.post(f"/api/recipes/{recipe['id']}/deactivate")
     admin.post(f"/api/recipes/{recipe['id']}/activate")
@@ -248,20 +323,25 @@ def test_recipe_changes_are_audited_including_color_standard(setup):
     assert deactivated["before"]["active_version"] == 1 and deactivated["after"]["is_active"] is False
 
 
-def test_runs_list_filters_since_id_and_api_key_readable(setup, client, gs1_valid_png_fields, gs1_expired_png_fields,
-                                                         measure_scene_png_marker):
+def test_runs_list_filters_since_id_and_api_key_readable(
+    setup, client, gs1_valid_png_fields, gs1_expired_png_fields, measure_scene_png_marker
+):
     admin, _ = setup
     scene_png, _ = measure_scene_png_marker
     ids = [_run(admin, png, scene_png).json()["run_id"] for png, _ in (gs1_valid_png_fields, gs1_expired_png_fields)]
     assert [r["id"] for r in admin.get("/api/runs").json()] == ids[::-1]
     assert [r["id"] for r in admin.get("/api/runs", params={"verdict": "NG"}).json()] == [ids[1]]
-    assert [r["id"] for r in client.get("/api/runs", params={"since_id": ids[0]}).json()] == [ids[1]]  # ERP 增量輪詢，升冪
+    assert [r["id"] for r in client.get("/api/runs", params={"since_id": ids[0]}).json()] == [
+        ids[1]
+    ]  # ERP 增量輪詢，升冪
 
 
 # --- run 視角統計 ---
 
-def test_run_scope_stats_and_review_of_a_step_changes_the_run(setup, qc_client, gs1_valid_png_fields,
-                                                                gs1_expired_png_fields, measure_scene_png_marker):
+
+def test_run_scope_stats_and_review_of_a_step_changes_the_run(
+    setup, qc_client, gs1_valid_png_fields, gs1_expired_png_fields, measure_scene_png_marker
+):
     admin, _ = setup
     scene_png, _ = measure_scene_png_marker
     ok_run = _run(admin, gs1_valid_png_fields[0], scene_png).json()
@@ -299,4 +379,7 @@ def test_existing_step_stats_are_unchanged_when_no_scope_given(setup, gs1_valid_
 
 def test_batch_api_still_rejects_assembly_and_colordiff(client, warning_sign_png):
     for action in ("assembly", "colordiff"):
-        assert client.post(f"/api/batch/{action}", files=[("files", ("a.png", warning_sign_png, "image/png"))]).status_code == 400
+        assert (
+            client.post(f"/api/batch/{action}", files=[("files", ("a.png", warning_sign_png, "image/png"))]).status_code
+            == 400
+        )

@@ -4,9 +4,8 @@ import multiprocessing
 import time
 
 import pytest
-from fastapi.testclient import TestClient
-
 from core import instance_lock, jobs
+from fastapi.testclient import TestClient
 
 
 def test_second_holder_is_refused_with_the_first_holders_pid(tmp_path):

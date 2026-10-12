@@ -70,17 +70,23 @@ def migrate(conn: sqlite3.Connection, path: Path) -> None:
     if key in _checked:
         return
     migrations = _discover()
-    conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+    )
     conn.commit()
     current = current_version(conn)
     latest = migrations[-1][0]
     if current > latest:
-        raise SchemaTooNew(f"資料庫的 schema 版本是 {current}，比這個程式支援的 {latest} 新；請升級程式，或還原較舊的備份")
+        raise SchemaTooNew(
+            f"資料庫的 schema 版本是 {current}，比這個程式支援的 {latest} 新；請升級程式，或還原較舊的備份"
+        )
     for version, name, module in migrations:
         if version <= current:
             continue
         module.upgrade(conn)
-        conn.execute("INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)",
-                     (version, name, datetime.now().isoformat(timespec="seconds")))
+        conn.execute(
+            "INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)",
+            (version, name, datetime.now().isoformat(timespec="seconds")),
+        )
         conn.commit()
     _checked.add(_key(path))

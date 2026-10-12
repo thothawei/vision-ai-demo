@@ -1,9 +1,8 @@
 """統計製程管制：特性清單與管制圖。qc 以上，或系統對系統的 API key（唯讀）。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
 from core import spc, spc_service
 from core.auth import Principal, require_role
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 router = APIRouter(prefix="/api/spc", tags=["SPC"], dependencies=[Depends(require_role("qc", allow_api_key=True))])
 
@@ -28,6 +27,8 @@ def analyze(
 ):
     """X̄-R（chart=xbar_r，子群大小 2–10）或 I-MR（chart=imr）；回傳管制界限、Cp／Cpk、Western Electric 規則觸發點。"""
     try:
-        return spc_service.analyze(part_no, characteristic, chart, subgroup_size, date_from, date_to, station, run_length)
+        return spc_service.analyze(
+            part_no, characteristic, chart, subgroup_size, date_from, date_to, station, run_length
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -3,15 +3,13 @@
 import json
 import re
 import threading
-import time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-from fastapi.testclient import TestClient
-
 from core import metrics
 from core.inspection_log import connect, enqueue_webhook, list_pending_webhooks
+from fastapi.testclient import TestClient
 
 
 def _sample(text: str, name: str, **labels) -> float | None:
@@ -43,7 +41,10 @@ def _delta(before: str, after: str, name: str, **labels) -> float:
 
 def test_inspection_counters_and_latency_histogram(client, fake_pcb_detector_no_defect, warning_sign_png):
     before = _scrape(client)
-    assert client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")}).json()["verdict"] == "OK"
+    assert (
+        client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")}).json()["verdict"]
+        == "OK"
+    )
     after = _scrape(client)
     assert _delta(before, after, "vision_inspections_total", module="defect", verdict="OK") == 1.0
     assert _delta(before, after, "vision_inspections_total", module="defect", verdict="NG") == 0.0
@@ -60,16 +61,32 @@ def test_ng_count_is_readable_from_the_verdict_label(client, fake_pcb_detector, 
 
 def test_http_metrics_use_route_templates_so_labels_do_not_explode(client, admin_client, fake_llm, warning_sign_png):
     before = _scrape(client)
-    ids = [client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")}).json()["inspection_id"]
-           for _ in range(3)]
+    ids = [
+        client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")}).json()[
+            "inspection_id"
+        ]
+        for _ in range(3)
+    ]
     for i in ids:
         admin_client.get(f"/api/inspections/{i}")
     admin_client.get("/api/no/such/route")
     text = _scrape(client)
-    assert _delta(before, text, "vision_http_requests_total", method="GET", route="/api/inspections/{inspection_id}", status="200") == 3.0
+    assert (
+        _delta(
+            before,
+            text,
+            "vision_http_requests_total",
+            method="GET",
+            route="/api/inspections/{inspection_id}",
+            status="200",
+        )
+        == 3.0
+    )
     assert not re.search(r'route="/api/inspections/\d+"', text)  # 不會每個 id 一個序列
     assert 'route="unmatched"' in text or 'route="/"' in text
-    assert _delta(before, text, "vision_http_request_seconds_count", method="POST", route="/api/general/describe") == 3.0
+    assert (
+        _delta(before, text, "vision_http_request_seconds_count", method="POST", route="/api/general/describe") == 3.0
+    )
 
 
 def test_metrics_never_contain_secrets(client):
@@ -84,7 +101,9 @@ def test_jobs_gauge_reflects_the_database(client, admin_client):
     jobs.create_job("k", {"name": "a"})
     jobs.create_job("k", {"name": "b"}, status="running")
     text = _scrape(admin_client)
-    assert _sample(text, "vision_jobs", status="queued") == 1.0 and _sample(text, "vision_jobs", status="running") == 1.0
+    assert (
+        _sample(text, "vision_jobs", status="queued") == 1.0 and _sample(text, "vision_jobs", status="running") == 1.0
+    )
 
 
 def test_registry_is_isolated_from_the_default_process_collectors():
@@ -92,6 +111,7 @@ def test_registry_is_isolated_from_the_default_process_collectors():
 
 
 # --- webhook 佇列重啟後的恢復 ---
+
 
 class _Handler(BaseHTTPRequestHandler):
     received: list = []
@@ -140,9 +160,13 @@ def test_given_up_and_not_yet_due_webhooks_are_not_sent(client, receiver, monkey
     gave_up = enqueue_webhook(21, {"inspection_id": 21})
     later = enqueue_webhook(22, {"inspection_id": 22})
     with connect() as conn:
-        conn.execute("UPDATE webhook_queue SET given_up = 1, attempts = ? WHERE id = ?", (webhook.MAX_ATTEMPTS, gave_up))
-        conn.execute("UPDATE webhook_queue SET next_retry_at = ? WHERE id = ?",
-                     ((datetime.now() + timedelta(minutes=10)).isoformat(timespec="seconds"), later))
+        conn.execute(
+            "UPDATE webhook_queue SET given_up = 1, attempts = ? WHERE id = ?", (webhook.MAX_ATTEMPTS, gave_up)
+        )
+        conn.execute(
+            "UPDATE webhook_queue SET next_retry_at = ? WHERE id = ?",
+            ((datetime.now() + timedelta(minutes=10)).isoformat(timespec="seconds"), later),
+        )
         conn.commit()
     webhook.retry_pending_once()
     assert received == []  # 放棄的不再送；還沒到重試時間的等到期
@@ -167,6 +191,8 @@ def test_failed_retry_is_rescheduled_and_given_up_after_max_attempts(client, mon
             conn.commit()
         webhook.retry_pending_once()
         with connect() as conn:
-            row = conn.execute("SELECT attempts, given_up, last_error FROM webhook_queue WHERE id = ?", (queued,)).fetchone()
+            row = conn.execute(
+                "SELECT attempts, given_up, last_error FROM webhook_queue WHERE id = ?", (queued,)
+            ).fetchone()
         assert row["attempts"] == attempt and row["last_error"]
     assert row["given_up"] == 1  # 第 5 次仍失敗就放棄，但紀錄保留供事後排查

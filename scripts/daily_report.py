@@ -32,8 +32,12 @@ def generate(period: str, day: date, out_dir: Path) -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="產生品質日報／週報")
     parser.add_argument("--period", choices=["day", "week"], default="day")
-    parser.add_argument("--date", type=date.fromisoformat, default=date.today() - timedelta(days=1),
-                        help="基準日 YYYY-MM-DD（預設昨天；週報是包含該日的那一週，週一到週日）")
+    parser.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        default=date.today() - timedelta(days=1),
+        help="基準日 YYYY-MM-DD（預設昨天；週報是包含該日的那一週，週一到週日）",
+    )
     parser.add_argument("--out", type=Path, default=ROOT / "reports")
     args = parser.parse_args()
     for path in generate(args.period, args.date, args.out):

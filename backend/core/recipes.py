@@ -27,6 +27,7 @@ def _now() -> str:
 
 # --- 步驟驗證 ---
 
+
 def _normalize_steps(part_no: str, steps: list[dict]) -> list[dict]:
     from modules.anomaly.service import is_valid_category
     from modules.assembly.service import list_golden_samples
@@ -50,7 +51,9 @@ def _normalize_steps(part_no: str, steps: list[dict]) -> list[dict]:
             try:
                 model = spec.params.model_validate(raw_params)
             except ValidationError as e:
-                detail = "；".join(f"{'.'.join(str(p) for p in err['loc']) or '參數'}：{err['msg']}" for err in e.errors())
+                detail = "；".join(
+                    f"{'.'.join(str(p) for p in err['loc']) or '參數'}：{err['msg']}" for err in e.errors()
+                )
                 raise ValueError(f"{where}（{action}）參數不正確：{detail}")
             params_dict = model.model_dump(mode="json")
             if action == "anomaly":
@@ -65,20 +68,27 @@ def _normalize_steps(part_no: str, steps: list[dict]) -> list[dict]:
         slot = step.get("image_slot") or "main"
         if not _SLOT_PATTERN.match(slot):
             raise ValueError(f"{where}：圖片槽名稱只能用英數字與底線，長度 1–20")
-        normalized.append({"action": action, "params": params_dict, "image_slot": slot,
-                           "label": (step.get("label") or "").strip()})
+        normalized.append(
+            {"action": action, "params": params_dict, "image_slot": slot, "label": (step.get("label") or "").strip()}
+        )
     return normalized
 
 
 # --- 版本管理 ---
+
 
 def _recipe_row(conn, row) -> dict:
     steps = conn.execute("SELECT * FROM recipe_steps WHERE recipe_id = ? ORDER BY position", (row["id"],)).fetchall()
     recipe = dict(row)
     recipe["is_active"] = bool(recipe["is_active"])
     recipe["steps"] = [
-        {"position": s["position"], "action": s["action"], "params": json.loads(s["params_json"]),
-         "image_slot": s["image_slot"], "label": s["label"]}
+        {
+            "position": s["position"],
+            "action": s["action"],
+            "params": json.loads(s["params_json"]),
+            "image_slot": s["image_slot"],
+            "label": s["label"],
+        }
         for s in steps
     ]
     recipe["slots"] = list(dict.fromkeys(s["image_slot"] for s in recipe["steps"]))
@@ -106,8 +116,10 @@ def list_recipes(part_no: str | None = None) -> list[dict]:
     sql += " ORDER BY part_no, version DESC"
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
-        counts = {r["recipe_id"]: r["n"] for r in conn.execute(
-            "SELECT recipe_id, COUNT(*) AS n FROM recipe_steps GROUP BY recipe_id").fetchall()}
+        counts = {
+            r["recipe_id"]: r["n"]
+            for r in conn.execute("SELECT recipe_id, COUNT(*) AS n FROM recipe_steps GROUP BY recipe_id").fetchall()
+        }
     return [{**dict(r), "is_active": bool(r["is_active"]), "step_count": counts.get(r["id"], 0)} for r in rows]
 
 
@@ -117,15 +129,27 @@ def create_recipe(part_no: str, steps: list[dict], note: str, created_by: str, a
         raise ValueError(f"料號「{part_no}」不在主檔，請先建立料號")
     normalized = _normalize_steps(part_no, steps)
     with connect() as conn:
-        version = (conn.execute("SELECT MAX(version) FROM recipes WHERE part_no = ?", (part_no,)).fetchone()[0] or 0) + 1
-        cur = conn.execute("INSERT INTO recipes (part_no, version, is_active, note, created_by, created_at)"
-                           " VALUES (?, ?, 0, ?, ?, ?)", (part_no, version, note, created_by, _now()))
+        version = (
+            conn.execute("SELECT MAX(version) FROM recipes WHERE part_no = ?", (part_no,)).fetchone()[0] or 0
+        ) + 1
+        cur = conn.execute(
+            "INSERT INTO recipes (part_no, version, is_active, note, created_by, created_at) VALUES (?, ?, 0, ?, ?, ?)",
+            (part_no, version, note, created_by, _now()),
+        )
         recipe_id = cur.lastrowid
         for position, step in enumerate(normalized, 1):
-            conn.execute("INSERT INTO recipe_steps (recipe_id, position, action, params_json, image_slot, label)"
-                         " VALUES (?, ?, ?, ?, ?, ?)",
-                         (recipe_id, position, step["action"], json.dumps(step["params"], ensure_ascii=False),
-                          step["image_slot"], step["label"]))
+            conn.execute(
+                "INSERT INTO recipe_steps (recipe_id, position, action, params_json, image_slot, label)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    recipe_id,
+                    position,
+                    step["action"],
+                    json.dumps(step["params"], ensure_ascii=False),
+                    step["image_slot"],
+                    step["label"],
+                ),
+            )
         conn.commit()
     if activate:
         return activate_recipe(recipe_id)
@@ -154,6 +178,7 @@ def deactivate_recipe(recipe_id: int) -> dict:
 
 # --- 合併判定 ---
 
+
 def combine(steps: list[dict]) -> tuple[str, list[str]]:
     """steps 每項：position、label、action、verdict_kind、status（ok／error）、verdict、error。
     回傳 (verdict, reasons)。"""
@@ -176,6 +201,7 @@ def combine(steps: list[dict]) -> tuple[str, list[str]]:
 
 # --- 執行 ---
 
+
 def slots_required(recipe: dict) -> list[str]:
     return recipe["slots"]
 
@@ -190,9 +216,18 @@ def run_recipe(recipe: dict, images: dict[str, bytes]) -> dict:
         cur = conn.execute(
             "INSERT INTO inspection_runs (created_at, recipe_id, part_no, work_order, lot_no, station, operator,"
             " created_by, request_id, adhoc, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')",
-            (_now(), recipe["id"], recipe["part_no"], trace.get("work_order"), trace.get("lot_no"),
-             trace.get("station"), trace.get("operator"), scope.user, scope.request_id,
-             _is_adhoc(conn, trace.get("work_order"))),
+            (
+                _now(),
+                recipe["id"],
+                recipe["part_no"],
+                trace.get("work_order"),
+                trace.get("lot_no"),
+                trace.get("station"),
+                trace.get("operator"),
+                scope.user,
+                scope.request_id,
+                _is_adhoc(conn, trace.get("work_order")),
+            ),
         )
         run_id = cur.lastrowid
         conn.commit()
@@ -203,8 +238,13 @@ def run_recipe(recipe: dict, images: dict[str, bytes]) -> dict:
         for step in recipe["steps"]:
             request_scope.reset_step()
             spec = registry.get_action(step["action"])
-            entry = {"position": step["position"], "action": step["action"], "label": step["label"],
-                     "image_slot": step["image_slot"], "verdict_kind": spec.verdict_kind if spec else "inspection"}
+            entry = {
+                "position": step["position"],
+                "action": step["action"],
+                "label": step["label"],
+                "image_slot": step["image_slot"],
+                "verdict_kind": spec.verdict_kind if spec else "inspection",
+            }
             try:
                 if spec is None or spec.handler is None:
                     raise ModuleError(f"動作「{step['action']}」已不存在", 500)
@@ -228,16 +268,31 @@ def run_recipe(recipe: dict, images: dict[str, bytes]) -> dict:
 
     verdict, reasons = combine(meta)
     with connect() as conn:
-        conn.execute("UPDATE inspection_runs SET status = 'done', verdict = ?, reasons_json = ?, steps_json = ? WHERE id = ?",
-                     (verdict, json.dumps(reasons, ensure_ascii=False), json.dumps(meta, ensure_ascii=False), run_id))
+        conn.execute(
+            "UPDATE inspection_runs SET status = 'done', verdict = ?, reasons_json = ?, steps_json = ? WHERE id = ?",
+            (verdict, json.dumps(reasons, ensure_ascii=False), json.dumps(meta, ensure_ascii=False), run_id),
+        )
         conn.commit()
-    logger.info("配方檢驗完成 run_id=%s part_no=%s recipe_version=%s verdict=%s", run_id, recipe["part_no"],
-                recipe["version"], verdict)
-    return {"run_id": run_id, "recipe_id": recipe["id"], "part_no": recipe["part_no"], "version": recipe["version"],
-            "verdict": verdict, "reasons": reasons, "steps": steps_out}
+    logger.info(
+        "配方檢驗完成 run_id=%s part_no=%s recipe_version=%s verdict=%s",
+        run_id,
+        recipe["part_no"],
+        recipe["version"],
+        verdict,
+    )
+    return {
+        "run_id": run_id,
+        "recipe_id": recipe["id"],
+        "part_no": recipe["part_no"],
+        "version": recipe["version"],
+        "verdict": verdict,
+        "reasons": reasons,
+        "steps": steps_out,
+    }
 
 
 # --- 查詢 ---
+
 
 def _run_row(row) -> dict:
     d = dict(row)
@@ -252,9 +307,15 @@ def get_run(run_id: int) -> dict | None:
     return _run_row(row) if row else None
 
 
-def list_runs(part_no: str | None = None, work_order: str | None = None, verdict: str | None = None,
-              date_from: str | None = None, date_to: str | None = None, limit: int = 200,
-              since_id: int | None = None) -> list[dict]:
+def list_runs(
+    part_no: str | None = None,
+    work_order: str | None = None,
+    verdict: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 200,
+    since_id: int | None = None,
+) -> list[dict]:
     sql, params = "SELECT * FROM inspection_runs WHERE status = 'done'", []
     for column, value in (("part_no", part_no), ("work_order", work_order), ("verdict", verdict)):
         if value:
@@ -288,9 +349,10 @@ def get_run_stats(group_by: str = "part", date_from: str | None = None, date_to:
     if ids:
         with connect() as conn:
             for chunk_start in range(0, len(ids), 500):
-                chunk = ids[chunk_start:chunk_start + 500]
+                chunk = ids[chunk_start : chunk_start + 500]
                 rows = conn.execute(
-                    f"SELECT * FROM inspections WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall()
+                    f"SELECT * FROM inspections WHERE id IN ({','.join('?' * len(chunk))})", chunk
+                ).fetchall()
                 for row in rows:
                     from core.inspection_log import _row_to_dict
 
@@ -342,12 +404,24 @@ def get_run_stats(group_by: str = "part", date_from: str | None = None, date_to:
         groups, cum = [], 0
         for label, count in sorted(label_counts.items(), key=lambda kv: kv[1], reverse=True):
             cum += count
-            groups.append({"label": label, "count": count, "pct": round(count / total * 100, 2) if total else 0.0,
-                           "cum_pct": round(cum / total * 100, 2) if total else 0.0})
+            groups.append(
+                {
+                    "label": label,
+                    "count": count,
+                    "pct": round(count / total * 100, 2) if total else 0.0,
+                    "cum_pct": round(cum / total * 100, 2) if total else 0.0,
+                }
+            )
 
     return {
-        "scope": "run", "total": len(runs), "ai_verdict_counts": ai_counts, "final_verdict_counts": final_counts,
-        "ai_yield": yield_rate(ai_counts), "final_yield": yield_rate(final_counts), "reviewed_count": reviewed,
+        "scope": "run",
+        "total": len(runs),
+        "ai_verdict_counts": ai_counts,
+        "final_verdict_counts": final_counts,
+        "ai_yield": yield_rate(ai_counts),
+        "final_yield": yield_rate(final_counts),
+        "reviewed_count": reviewed,
         "consistency_rate": round(consistent / reviewed, 4) if reviewed else None,
-        "group_by": group_by, "groups": groups,
+        "group_by": group_by,
+        "groups": groups,
     }

@@ -30,8 +30,12 @@ PPE_CLASS_MAP = {"已戴安全帽": 0, "未戴安全帽": 1}
 PPE_CLASS_NAMES = ["helmet", "head"]
 
 DEFECT_CLASS_MAP = {
-    "斷路 open": 0, "短路 short": 1, "缺口 mousebite": 2,
-    "毛刺 spur": 3, "多餘銅箔 spurious copper": 4, "針孔 pin-hole": 5,
+    "斷路 open": 0,
+    "短路 short": 1,
+    "缺口 mousebite": 2,
+    "毛刺 spur": 3,
+    "多餘銅箔 spurious copper": 4,
+    "針孔 pin-hole": 5,
 }
 DEFECT_CLASS_NAMES = ["open", "short", "mousebite", "spur", "copper", "pin-hole"]
 
@@ -85,9 +89,11 @@ def export_yolo(module: str, class_map: dict, class_names: list[str], out_dir: P
         + "\n"
     )
     manifest = {
-        "module": module, "exported": exported, "skipped_no_image": skipped_no_image,
+        "module": module,
+        "exported": exported,
+        "skipped_no_image": skipped_no_image,
         "note": "AI 偵測框當預標註，框的位置/類別需要人工校正過才能拿去重訓，"
-                "不是可以直接信任的最終標註。用 Label Studio Community 或 CVAT 匯入這個 YOLO 資料夾校正（見 README）。",
+        "不是可以直接信任的最終標註。用 Label Studio Community 或 CVAT 匯入這個 YOLO 資料夾校正（見 README）。",
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     print(f"[{module}] 匯出 {exported} 張（{skipped_no_image} 張缺原圖跳過）到 {out_dir}")
@@ -117,7 +123,9 @@ def export_anomaly_mvtec(category: str | None, out_dir: Path) -> dict:
 
     manifest = {"category": category, **counts}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
-    print(f"[anomaly] good={counts['good']} defect={counts['defect']}（{counts['skipped_no_image']} 張缺原圖跳過）到 {out_dir}")
+    print(
+        f"[anomaly] good={counts['good']} defect={counts['defect']}（{counts['skipped_no_image']} 張缺原圖跳過）到 {out_dir}"
+    )
     return manifest
 
 

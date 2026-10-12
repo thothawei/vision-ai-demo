@@ -8,9 +8,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import TEST_PASSWORD
 from fastapi.testclient import TestClient
-
-from conftest import TEST_API_KEY, TEST_PASSWORD
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,11 +27,22 @@ def bare(client):
 
 # --- 未登入 ---
 
+
 def test_anonymous_requests_are_rejected(bare, warning_sign_png):
     assert bare.post("/api/general/describe", files=_png_file(warning_sign_png)).status_code == 401
-    assert bare.post("/api/batch/general", files=[("files", ("a.png", warning_sign_png, "image/png"))]).status_code == 401
-    for path in ("/api/modules", "/api/inspections", "/api/inspections/stats", "/api/users", "/api/audit",
-                 "/api/anomaly/categories", "/api/assembly/golden-samples", "/api/auth/me"):
+    assert (
+        bare.post("/api/batch/general", files=[("files", ("a.png", warning_sign_png, "image/png"))]).status_code == 401
+    )
+    for path in (
+        "/api/modules",
+        "/api/inspections",
+        "/api/inspections/stats",
+        "/api/users",
+        "/api/audit",
+        "/api/anomaly/categories",
+        "/api/assembly/golden-samples",
+        "/api/auth/me",
+    ):
         assert bare.get(path).status_code == 401, path
 
 
@@ -50,6 +60,7 @@ def test_logged_in_user_can_open_main_page(admin_client):
 
 
 # --- 登入／登出 ---
+
 
 def test_login_logout_and_me(client, make_session_client):
     session = make_session_client("qc", "alice", "愛麗絲")
@@ -96,7 +107,9 @@ def test_lockout_after_repeated_failures_even_correct_password_is_refused(client
     monkeypatch.setenv("LOGIN_MAX_FAILURES", "3")
     users.create_user("locky", "L", TEST_PASSWORD, "operator")
     for _ in range(3):
-        assert bare.post("/api/auth/login", json={"username": "locky", "password": "wrong-password-x"}).status_code == 401
+        assert (
+            bare.post("/api/auth/login", json={"username": "locky", "password": "wrong-password-x"}).status_code == 401
+        )
     assert bare.post("/api/auth/login", json={"username": "locky", "password": TEST_PASSWORD}).status_code == 401
 
     # 鎖定時間過了就能登入（把 locked_until 拉回過去，等同時間流逝）
@@ -121,21 +134,33 @@ def test_successful_login_resets_failure_counter(client, bare, monkeypatch):
 
 # --- 角色權限邊界 ---
 
+
 def _make_record(session, png):
     res = session.post("/api/codes/decode", files=_png_file(png))
     assert res.status_code in (200, 422), res.text
     return res
 
 
-def test_operator_can_inspect_but_not_review_stats_export_or_admin_actions(operator_client, client, fake_llm, warning_sign_png):
+def test_operator_can_inspect_but_not_review_stats_export_or_admin_actions(
+    operator_client, client, fake_llm, warning_sign_png
+):
     res = operator_client.post("/api/general/describe", files=_png_file(warning_sign_png))
     assert res.status_code == 200
     inspection_id = res.json()["inspection_id"]
 
-    assert operator_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "OK"}).status_code == 403
-    for path in ("/api/inspections/stats", "/api/inspections/export.csv", f"/api/inspections/{inspection_id}",
-                 f"/api/inspections/{inspection_id}/image", "/api/inspections/reviews?since=2000-01-01T00:00:00",
-                 "/api/users", "/api/audit"):
+    assert (
+        operator_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "OK"}).status_code
+        == 403
+    )
+    for path in (
+        "/api/inspections/stats",
+        "/api/inspections/export.csv",
+        f"/api/inspections/{inspection_id}",
+        f"/api/inspections/{inspection_id}/image",
+        "/api/inspections/reviews?since=2000-01-01T00:00:00",
+        "/api/users",
+        "/api/audit",
+    ):
         assert operator_client.get(path).status_code == 403, path
     assert operator_client.patch("/api/anomaly/categories/screw/threshold", json={"threshold": 1}).status_code == 403
     assert operator_client.post("/api/assembly/golden-samples", params={"part_no": "p"}).status_code in (403, 422)
@@ -186,14 +211,17 @@ def test_api_key_records_are_attributed_to_the_key_name(client, fake_llm, warnin
 
 # --- 使用者管理 ---
 
+
 def test_user_management_flow_and_immediate_effect(admin_client, make_session_client):
-    created = admin_client.post("/api/users", json={
-        "username": "carol", "display_name": "卡蘿", "password": TEST_PASSWORD, "role": "operator"})
+    created = admin_client.post(
+        "/api/users", json={"username": "carol", "display_name": "卡蘿", "password": TEST_PASSWORD, "role": "operator"}
+    )
     assert created.status_code == 201
     assert "password" not in json.dumps(created.json()) and "password_hash" not in created.json()
     carol_id = created.json()["id"]
 
     from main import app
+
     carol = TestClient(app)
     assert carol.post("/api/auth/login", json={"username": "carol", "password": TEST_PASSWORD}).status_code == 200
     assert carol.get("/api/inspections/stats").status_code == 403
@@ -205,7 +233,10 @@ def test_user_management_flow_and_immediate_effect(admin_client, make_session_cl
     # 停用：既有 session 立即失效
     admin_client.patch(f"/api/users/{carol_id}", json={"is_active": False})
     assert carol.get("/api/auth/me").status_code == 401
-    assert TestClient(app).post("/api/auth/login", json={"username": "carol", "password": TEST_PASSWORD}).status_code == 401
+    assert (
+        TestClient(app).post("/api/auth/login", json={"username": "carol", "password": TEST_PASSWORD}).status_code
+        == 401
+    )
 
 
 def test_cannot_disable_or_demote_the_last_active_admin(admin_client):
@@ -228,24 +259,52 @@ def test_change_own_password_and_admin_reset(admin_client, make_session_client):
     from main import app
 
     user = make_session_client("operator", "frank", "法蘭克")
-    assert user.post("/api/auth/password", json={"current_password": "wrong-one-xxx", "new_password": "new-password-99"}).status_code == 400
-    assert user.post("/api/auth/password", json={"current_password": TEST_PASSWORD, "new_password": "short"}).status_code == 422
-    assert user.post("/api/auth/password", json={"current_password": TEST_PASSWORD, "new_password": "new-password-99"}).status_code == 200
-    assert TestClient(app).post("/api/auth/login", json={"username": "frank", "password": TEST_PASSWORD}).status_code == 401
-    assert TestClient(app).post("/api/auth/login", json={"username": "frank", "password": "new-password-99"}).status_code == 200
+    assert (
+        user.post(
+            "/api/auth/password", json={"current_password": "wrong-one-xxx", "new_password": "new-password-99"}
+        ).status_code
+        == 400
+    )
+    assert (
+        user.post("/api/auth/password", json={"current_password": TEST_PASSWORD, "new_password": "short"}).status_code
+        == 422
+    )
+    assert (
+        user.post(
+            "/api/auth/password", json={"current_password": TEST_PASSWORD, "new_password": "new-password-99"}
+        ).status_code
+        == 200
+    )
+    assert (
+        TestClient(app).post("/api/auth/login", json={"username": "frank", "password": TEST_PASSWORD}).status_code
+        == 401
+    )
+    assert (
+        TestClient(app).post("/api/auth/login", json={"username": "frank", "password": "new-password-99"}).status_code
+        == 200
+    )
 
     frank_id = next(u["id"] for u in admin_client.get("/api/users").json() if u["username"] == "frank")
-    assert admin_client.post(f"/api/users/{frank_id}/password", json={"new_password": "reset-password-77"}).status_code == 200
-    assert TestClient(app).post("/api/auth/login", json={"username": "frank", "password": "reset-password-77"}).status_code == 200
+    assert (
+        admin_client.post(f"/api/users/{frank_id}/password", json={"new_password": "reset-password-77"}).status_code
+        == 200
+    )
+    assert (
+        TestClient(app).post("/api/auth/login", json={"username": "frank", "password": "reset-password-77"}).status_code
+        == 200
+    )
 
 
 # --- 稽核 ---
+
 
 def _audit(admin, **params):
     return admin.get("/api/audit", params=params).json()
 
 
-def test_review_audit_records_before_after_and_login_reviewer(client, qc_client, admin_client, fake_llm, warning_sign_png):
+def test_review_audit_records_before_after_and_login_reviewer(
+    client, qc_client, admin_client, fake_llm, warning_sign_png
+):
     inspection_id = client.post("/api/general/describe", files=_png_file(warning_sign_png)).json()["inspection_id"]
     qc_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "NG", "review_note": "第一次"})
     qc_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "OK", "review_note": "改判"})
@@ -261,8 +320,9 @@ def test_review_audit_records_before_after_and_login_reviewer(client, qc_client,
 
 
 def test_user_management_actions_are_audited_without_passwords(admin_client):
-    created = admin_client.post("/api/users", json={
-        "username": "gina", "display_name": "吉娜", "password": TEST_PASSWORD, "role": "operator"}).json()
+    created = admin_client.post(
+        "/api/users", json={"username": "gina", "display_name": "吉娜", "password": TEST_PASSWORD, "role": "operator"}
+    ).json()
     admin_client.patch(f"/api/users/{created['id']}", json={"role": "qc"})
     admin_client.patch(f"/api/users/{created['id']}", json={"is_active": False})
     admin_client.patch(f"/api/users/{created['id']}", json={"is_active": True})
@@ -277,7 +337,9 @@ def test_user_management_actions_are_audited_without_passwords(admin_client):
     assert role_entry["before"] == {"role": "operator"} and role_entry["after"] == {"role": "qc"}
 
 
-def test_operator_override_is_recorded_and_default_is_login_display_name(make_session_client, admin_client, fake_llm, warning_sign_png):
+def test_operator_override_is_recorded_and_default_is_login_display_name(
+    make_session_client, admin_client, fake_llm, warning_sign_png
+):
     from urllib.parse import quote
 
     op = make_session_client("operator", "hank", "漢克")
@@ -289,8 +351,9 @@ def test_operator_override_is_recorded_and_default_is_login_display_name(make_se
     assert same.status_code == 200
     assert not [e for e in _audit(admin_client) if e["action"] == "inspection.operator_override"]
 
-    other = op.post("/api/general/describe", files=_png_file(warning_sign_png),
-                    headers={"X-Operator": quote("代簽的小明")}).json()["inspection_id"]
+    other = op.post(
+        "/api/general/describe", files=_png_file(warning_sign_png), headers={"X-Operator": quote("代簽的小明")}
+    ).json()["inspection_id"]
     assert admin_client.get(f"/api/inspections/{other}").json()["operator"] == "代簽的小明"
     override = [e for e in _audit(admin_client) if e["action"] == "inspection.operator_override"]
     assert len(override) == 1
@@ -303,14 +366,19 @@ def test_golden_sample_and_threshold_and_category_changes_are_audited(admin_clie
     from samples import make_samples
 
     def png(img):
-        buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
 
     rois_a = [[0.1, 0.1, 0.2, 0.2]]
     rois_b = [[0.3, 0.3, 0.4, 0.4], [0.5, 0.5, 0.6, 0.6]]
     for rois in (rois_a, rois_b):
-        res = admin_client.post("/api/assembly/golden-samples", params={"part_no": "audit_part"},
-                                data={"rois": json.dumps(rois)},
-                                files={"file": ("g.png", png(make_samples.make_assembly_scene()), "image/png")})
+        res = admin_client.post(
+            "/api/assembly/golden-samples",
+            params={"part_no": "audit_part"},
+            data={"rois": json.dumps(rois)},
+            files={"file": ("g.png", png(make_samples.make_assembly_scene()), "image/png")},
+        )
         assert res.status_code == 200
     entries = [e for e in _audit(admin_client, target_type="golden_sample")]
     assert [e["action"] for e in reversed(entries)] == ["golden_sample.create", "golden_sample.update"]
@@ -325,7 +393,9 @@ def test_golden_sample_and_threshold_and_category_changes_are_audited(admin_clie
 
 
 def test_audit_query_filters_and_is_admin_only(admin_client, qc_client):
-    admin_client.post("/api/users", json={"username": "ivy", "display_name": "I", "password": TEST_PASSWORD, "role": "operator"})
+    admin_client.post(
+        "/api/users", json={"username": "ivy", "display_name": "I", "password": TEST_PASSWORD, "role": "operator"}
+    )
     assert _audit(admin_client, action="user.create")
     assert _audit(admin_client, action="no.such.action") == []
     assert _audit(admin_client, actor="user:admin_test")
@@ -335,7 +405,10 @@ def test_audit_query_filters_and_is_admin_only(admin_client, qc_client):
 
 # --- CSRF ---
 
-def test_cross_site_write_is_blocked_but_same_origin_and_api_key_are_fine(admin_client, client, fake_llm, warning_sign_png):
+
+def test_cross_site_write_is_blocked_but_same_origin_and_api_key_are_fine(
+    admin_client, client, fake_llm, warning_sign_png
+):
     files = _png_file(warning_sign_png)
     evil = admin_client.post("/api/general/describe", files=files, headers={"Origin": "http://evil.example"})
     assert evil.status_code == 403
@@ -347,13 +420,15 @@ def test_cross_site_write_is_blocked_but_same_origin_and_api_key_are_fine(admin_
 
 # --- 啟動檢查與機密 ---
 
+
 def _import_main(env_extra: dict):
     import os
 
     env = {k: v for k, v in os.environ.items() if k != "SESSION_SECRET"}
     env.update(env_extra)
-    return subprocess.run([sys.executable, "-c", "import main"], cwd=ROOT / "backend", env=env,
-                          capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, "-c", "import main"], cwd=ROOT / "backend", env=env, capture_output=True, text=True
+    )
 
 
 def test_startup_refuses_without_or_with_short_session_secret():
@@ -379,14 +454,20 @@ def test_no_api_key_or_secret_in_frontend_sources():
 
 # --- 遷移與腳本 ---
 
+
 def test_legacy_db_gains_users_audit_and_created_by(tmp_path, monkeypatch):
     db = tmp_path / "legacy.db"
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE inspections (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, module TEXT NOT NULL,"
-                 " verdict TEXT NOT NULL, engine TEXT NOT NULL, elapsed_ms INTEGER NOT NULL, summary_json TEXT NOT NULL)")
-    conn.execute("INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json)"
-                 " VALUES ('2026-01-01T00:00:00', 'codes', 'OK', 'e', 1, '[]')")
-    conn.commit(); conn.close()
+    conn.execute(
+        "CREATE TABLE inspections (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, module TEXT NOT NULL,"
+        " verdict TEXT NOT NULL, engine TEXT NOT NULL, elapsed_ms INTEGER NOT NULL, summary_json TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json)"
+        " VALUES ('2026-01-01T00:00:00', 'codes', 'OK', 'e', 1, '[]')"
+    )
+    conn.commit()
+    conn.close()
     monkeypatch.setenv("INSPECTION_DB", str(db))
 
     from core.inspection_log import query_inspections

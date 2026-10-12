@@ -139,14 +139,25 @@ CREATE TABLE IF NOT EXISTS webhook_queue (
 
 # inspections 在 Phase 9 之後陸續新增的欄位：全部可 NULL，用 ALTER TABLE ADD COLUMN 補進舊 db。
 _NEW_COLUMNS = [
-    "work_order", "part_no", "lot_no", "station", "operator",
-    "image_path", "annotated_path",
-    "review_verdict", "reviewer", "reviewed_at", "review_note",
-    "images_json", "request_id", "created_by", "run_id", "adhoc",
+    "work_order",
+    "part_no",
+    "lot_no",
+    "station",
+    "operator",
+    "image_path",
+    "annotated_path",
+    "review_verdict",
+    "reviewer",
+    "reviewed_at",
+    "review_note",
+    "images_json",
+    "request_id",
+    "created_by",
+    "run_id",
+    "adhoc",
 ]
 
 _COLUMN_TYPES = {"run_id": "INTEGER", "adhoc": "INTEGER"}  # 其餘補進舊 db 的欄位都是 TEXT
-
 
 
 def upgrade(conn) -> None:

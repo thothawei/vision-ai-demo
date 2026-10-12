@@ -1,14 +1,13 @@
 """POST /api/batch/{action} 批次上傳；動作與參數驗證來自 core/registry.py（未知參數回 422）。"""
 
+from core import registry
+from core.batch_dispatch import run_batch
+from core.schemas import ModuleError
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.datastructures import UploadFile
-
-from core import registry
-from core.batch_dispatch import run_batch
-from core.schemas import ModuleError
 
 router = APIRouter(prefix="/api/batch", tags=["批次上傳"])
 

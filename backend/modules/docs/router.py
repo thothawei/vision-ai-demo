@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.docs.service import extract_document
 
 router = APIRouter(prefix="/api/docs", tags=["M4 製造文件結構化"])

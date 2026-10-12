@@ -36,8 +36,12 @@ class RestoreError(Exception):
 
 
 def _targets(includes_models: bool, models_dir: Path) -> dict[str, Path]:
-    targets = {"db/inspections.db": _db_path(), "images": _images_dir(), "golden_samples": _golden_dir(),
-               "anomaly/categories.json": anomaly_training.REGISTRY_PATH}
+    targets = {
+        "db/inspections.db": _db_path(),
+        "images": _images_dir(),
+        "golden_samples": _golden_dir(),
+        "anomaly/categories.json": anomaly_training.REGISTRY_PATH,
+    }
     if includes_models:
         targets["models"] = models_dir
     return targets
@@ -60,19 +64,34 @@ def restore(archive: Path, apply: bool = False, models_dir: Path | None = None, 
                 raise RestoreError(f"備份檔缺少 {name}")
             if sha256_of(path) != info["sha256"]:
                 raise RestoreError(f"{name} 的 SHA-256 與 manifest 不符（備份檔損毀或被更動），中止還原")
-        extra = {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()} - set(manifest["files"]) - {MANIFEST}
+        extra = (
+            {p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()}
+            - set(manifest["files"])
+            - {MANIFEST}
+        )
         if extra:
             raise RestoreError(f"備份檔含有 manifest 沒列的檔案：{sorted(extra)[:3]}，中止還原")
         latest = migrations.latest_version()
         if manifest["schema_version"] > latest:
-            raise RestoreError(f"備份的資料庫 schema 版本 {manifest['schema_version']} 比這個程式支援的 {latest} 新，請先升級程式")
+            raise RestoreError(
+                f"備份的資料庫 schema 版本 {manifest['schema_version']} 比這個程式支援的 {latest} 新，請先升級程式"
+            )
 
         targets = _targets(manifest["includes_models"], models_dir)
-        plan = [{"source": name, "target": str(path), "replaces_existing": path.exists()} for name, path in targets.items()
-                if (stage / name).exists()]
-        summary = {"apply": apply, "created_at": manifest["created_at"], "schema_version": manifest["schema_version"],
-                   "counts": manifest["counts"], "includes_models": manifest["includes_models"], "plan": plan,
-                   "moved_aside": []}
+        plan = [
+            {"source": name, "target": str(path), "replaces_existing": path.exists()}
+            for name, path in targets.items()
+            if (stage / name).exists()
+        ]
+        summary = {
+            "apply": apply,
+            "created_at": manifest["created_at"],
+            "schema_version": manifest["schema_version"],
+            "counts": manifest["counts"],
+            "includes_models": manifest["includes_models"],
+            "plan": plan,
+            "moved_aside": [],
+        }
         if not apply:
             return summary
 
@@ -107,10 +126,14 @@ def main() -> None:
         s = restore(args.archive, args.yes)
     except (RestoreError, sqlite3.Error, tarfile.TarError, OSError) as e:
         sys.exit(f"還原失敗：{e}")
-    print(f"備份時間 {s['created_at']}，schema v{s['schema_version']}，內容 {s['counts']}"
-          f"{'（含 models）' if s['includes_models'] else '（不含模型權重）'}")
+    print(
+        f"備份時間 {s['created_at']}，schema v{s['schema_version']}，內容 {s['counts']}"
+        f"{'（含 models）' if s['includes_models'] else '（不含模型權重）'}"
+    )
     for item in s["plan"]:
-        print(f"  {item['source']} → {item['target']}" + ("（既有的會先改名保留）" if item["replaces_existing"] else ""))
+        print(
+            f"  {item['source']} → {item['target']}" + ("（既有的會先改名保留）" if item["replaces_existing"] else "")
+        )
     if not s["apply"]:
         print("這只是預覽；確認無誤、服務已停止後，加 --yes 執行")
         return

@@ -44,7 +44,8 @@ def test_batch_anomaly_requires_category(client, fake_anomaly_inferencer, warnin
     assert "category" in body["results"][0]["error"]
 
     ok = client.post(
-        "/api/batch/anomaly", params={"category": "screw"},
+        "/api/batch/anomaly",
+        params={"category": "screw"},
         files=[("files", ("a.png", warning_sign_png, "image/png"))],
     )
     assert ok.json()["failed"] == 0
@@ -52,7 +53,8 @@ def test_batch_anomaly_requires_category(client, fake_anomaly_inferencer, warnin
 
 def test_batch_count_passes_shared_params_and_logs_each_inspection(client, screws_png):
     res = client.post(
-        "/api/batch/count", params={"expected_count": 8},
+        "/api/batch/count",
+        params={"expected_count": 8},
         files=[("files", ("a.png", screws_png, "image/png")), ("files", ("b.png", screws_png, "image/png"))],
     )
     body = res.json()
@@ -64,9 +66,10 @@ def test_batch_count_passes_shared_params_and_logs_each_inspection(client, screw
 
 
 def test_batch_intrusion_shares_zone_form_field(client, fake_person_detector, warning_sign_png):
-    zone = '[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]'
+    zone = "[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]"
     res = client.post(
-        "/api/batch/intrusion", data={"zone": zone},
+        "/api/batch/intrusion",
+        data={"zone": zone},
         files=[("files", ("a.png", warning_sign_png, "image/png"))],
     )
     body = res.json()
@@ -79,9 +82,10 @@ def test_batch_shipping_passes_expected_values_as_query_params(client, fake_llm_
     expected_quantity 這三個參數，FastAPI 會直接忽略多餘的 query string，導致批次上傳時
     這幾個預期值完全沒有傳到 service，全部誤判成 INFO（沒東西可比對）。"""
     fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "LOT2026A"}, "fake:model"))
+    import io
+
     from samples import make_samples
 
-    import io
     buf = io.BytesIO()
     make_samples.make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS").save(buf, format="PNG")
 

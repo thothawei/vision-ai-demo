@@ -18,10 +18,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-
+from core import model_registry
 from core.image_io import bgr_to_data_url, load_image
 from core.inspection_log import record_result
-from core import model_registry
 from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
 
@@ -36,10 +35,7 @@ _cache = model_registry.VersionedCache()
 def _custom_category_names() -> set[str]:
     from core import anomaly_training
 
-    return {
-        c["name"] for c in anomaly_training.list_custom_categories()
-        if c.get("status") == "done"
-    }
+    return {c["name"] for c in anomaly_training.list_custom_categories() if c.get("status") == "done"}
 
 
 def list_all_categories() -> list[str]:
@@ -62,7 +58,8 @@ def _load_threshold(category: str) -> float | None:
 def inspect_part(image_bytes: bytes, category: str) -> InspectionResult:
     if not is_valid_category(category):
         raise ModuleError(
-            f"category「{category}」不存在，目前可用：{list_all_categories()}", 400,
+            f"category「{category}」不存在，目前可用：{list_all_categories()}",
+            400,
         )
 
     started = time.perf_counter()
@@ -105,9 +102,11 @@ def _load_inferencer(path, category: str):
 
 def _get_inferencer(category: str):
     resolved = model_registry.resolve(
-        f"anomaly-{category}", MODELS_DIR / category / "weights" / "torch" / "model.pt",
+        f"anomaly-{category}",
+        MODELS_DIR / category / "weights" / "torch" / "model.pt",
         f"找不到 {category} 的異常檢測模型，請先執行 "
-        f"`python scripts/train_anomaly.py --category {category}` 擬合並匯出")
+        f"`python scripts/train_anomaly.py --category {category}` 擬合並匯出",
+    )
     return _cache.get(resolved, lambda path: _load_inferencer(path, category))
 
 

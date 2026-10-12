@@ -2,13 +2,12 @@
 
 import logging
 
+from core import audit, master, recipes, request_scope
+from core.auth import Principal, require_login, require_role
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import UploadFile
-
-from core import audit, master, recipes, request_scope
-from core.auth import Principal, require_login, require_role
 
 router = APIRouter(prefix="/api", tags=["檢驗配方"])
 logger = logging.getLogger("vision.recipe")
@@ -35,9 +34,14 @@ class RecipeBody(BaseModel):
 
 
 def _summary(recipe: dict) -> dict:
-    return {"part_no": recipe["part_no"], "version": recipe["version"], "is_active": recipe["is_active"],
-            "steps": [{"action": s["action"], "params": s["params"], "image_slot": s["image_slot"]}
-                      for s in recipe["steps"]]}
+    return {
+        "part_no": recipe["part_no"],
+        "version": recipe["version"],
+        "is_active": recipe["is_active"],
+        "steps": [
+            {"action": s["action"], "params": s["params"], "image_slot": s["image_slot"]} for s in recipe["steps"]
+        ],
+    }
 
 
 @router.get("/recipes")
@@ -66,8 +70,9 @@ def get_recipe(recipe_id: int, _: Principal = Depends(_read)):
 def create_recipe(body: RecipeBody, principal: Principal = Depends(_admin)):
     """新增一個版本（既有版本不可修改；要改參數就新增版本）。"""
     try:
-        recipe = recipes.create_recipe(body.part_no, [s.model_dump() for s in body.steps], body.note,
-                                       principal.name, body.activate)
+        recipe = recipes.create_recipe(
+            body.part_no, [s.model_dump() for s in body.steps], body.note, principal.name, body.activate
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     audit.record(principal.actor, "recipe.create", "recipe", recipe["id"], after=_summary(recipe))
@@ -80,9 +85,14 @@ def _switch(recipe_id: int, principal: Principal, activate: bool) -> dict:
         raise HTTPException(status_code=404, detail=f"找不到配方 id={recipe_id}")
     previous = recipes.get_active_recipe(before["part_no"])
     after = recipes.activate_recipe(recipe_id) if activate else recipes.deactivate_recipe(recipe_id)
-    audit.record(principal.actor, "recipe.activate" if activate else "recipe.deactivate", "recipe", recipe_id,
-                 before={"part_no": before["part_no"], "active_version": previous["version"] if previous else None},
-                 after={"part_no": before["part_no"], "version": after["version"], "is_active": after["is_active"]})
+    audit.record(
+        principal.actor,
+        "recipe.activate" if activate else "recipe.deactivate",
+        "recipe",
+        recipe_id,
+        before={"part_no": before["part_no"], "active_version": previous["version"] if previous else None},
+        after={"part_no": before["part_no"], "version": after["version"], "is_active": after["is_active"]},
+    )
     return after
 
 
@@ -106,11 +116,16 @@ async def inspect_by_recipe(request: Request, _: Principal = Depends(require_log
 
     work_order_no = (form.get("work_order") or trace.get("work_order") or "").strip() or None
     work_order = master.get_work_order(work_order_no) if work_order_no else None
-    part_no = (form.get("part_no") or "").strip() or (work_order["part_no"] if work_order else None) or trace.get("part_no")
+    part_no = (
+        (form.get("part_no") or "").strip() or (work_order["part_no"] if work_order else None) or trace.get("part_no")
+    )
     if not part_no:
         raise HTTPException(status_code=422, detail="請指定料號（part_no），或選一張主檔內的工單")
     if work_order and form.get("part_no") and form["part_no"].strip() != work_order["part_no"]:
-        raise HTTPException(status_code=422, detail=f"工單 {work_order_no} 的料號是 {work_order['part_no']}，與指定的 {form['part_no']} 不符")
+        raise HTTPException(
+            status_code=422,
+            detail=f"工單 {work_order_no} 的料號是 {work_order['part_no']}，與指定的 {form['part_no']} 不符",
+        )
 
     recipe = recipes.get_active_recipe(part_no)
     if recipe is None:
@@ -136,9 +151,16 @@ async def inspect_by_recipe(request: Request, _: Principal = Depends(require_log
 
 
 @router.get("/runs")
-def list_runs(part_no: str | None = None, work_order: str | None = None, verdict: str | None = None,
-              date_from: str | None = None, date_to: str | None = None, limit: int = 200,
-              since_id: int | None = None, _: Principal = Depends(_read)):
+def list_runs(
+    part_no: str | None = None,
+    work_order: str | None = None,
+    verdict: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 200,
+    since_id: int | None = None,
+    _: Principal = Depends(_read),
+):
     """`since_id`：只回 id 較大的 run（升冪），給 ERP 增量輪詢。"""
     return recipes.list_runs(part_no, work_order, verdict, date_from, date_to, limit, since_id)
 

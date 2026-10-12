@@ -31,14 +31,31 @@ def list_characteristics(part_no: str | None = None) -> list[dict]:
         rows = conn.execute(
             f"SELECT part_no, characteristic, unit, COUNT(*) AS n, MIN(created_at) AS first_at, MAX(created_at) AS last_at,"
             f" SUM(usl IS NOT NULL OR lsl IS NOT NULL) AS with_spec FROM measurements {sql}"
-            f" GROUP BY part_no, characteristic, unit ORDER BY part_no, characteristic", params).fetchall()
-    return [{"part_no": r["part_no"] or NO_PART, "part_label": r["part_no"] or NO_PART_LABEL,
-             "characteristic": r["characteristic"], "unit": r["unit"], "count": r["n"],
-             "first_at": r["first_at"], "last_at": r["last_at"], "has_spec": bool(r["with_spec"])} for r in rows]
+            f" GROUP BY part_no, characteristic, unit ORDER BY part_no, characteristic",
+            params,
+        ).fetchall()
+    return [
+        {
+            "part_no": r["part_no"] or NO_PART,
+            "part_label": r["part_no"] or NO_PART_LABEL,
+            "characteristic": r["characteristic"],
+            "unit": r["unit"],
+            "count": r["n"],
+            "first_at": r["first_at"],
+            "last_at": r["last_at"],
+            "has_spec": bool(r["with_spec"]),
+        }
+        for r in rows
+    ]
 
 
-def load_series(part_no: str | None, characteristic: str, date_from: str | None = None,
-                date_to: str | None = None, station: str | None = None) -> list[dict]:
+def load_series(
+    part_no: str | None,
+    characteristic: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    station: str | None = None,
+) -> list[dict]:
     sql, params = _where(part_no, characteristic, date_from, date_to)
     if station:
         sql += " AND station = ?"
@@ -58,21 +75,36 @@ def current_spec(rows: list[dict]) -> dict:
     return {"lsl": latest["lsl"], "usl": latest["usl"], "target": latest["target"], "changed": len(distinct) > 1}
 
 
-def analyze(part_no: str | None, characteristic: str, chart: str = "xbar_r", subgroup_size: int = 5,
-            date_from: str | None = None, date_to: str | None = None, station: str | None = None,
-            run_length: int = spc.DEFAULT_RUN_LENGTH) -> dict:
+def analyze(
+    part_no: str | None,
+    characteristic: str,
+    chart: str = "xbar_r",
+    subgroup_size: int = 5,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    station: str | None = None,
+    run_length: int = spc.DEFAULT_RUN_LENGTH,
+) -> dict:
     if chart not in ("xbar_r", "imr"):
         raise ValueError(f"chart 只能是 xbar_r 或 imr，目前是「{chart}」")
     rows = load_series(part_no, characteristic, date_from, date_to, station)
     spec = current_spec(rows)
-    base = {"part_no": part_no, "characteristic": characteristic, "count": len(rows), "spec": spec,
-            "unit": rows[0]["unit"] if rows else None}
+    base = {
+        "part_no": part_no,
+        "characteristic": characteristic,
+        "count": len(rows),
+        "spec": spec,
+        "unit": rows[0]["unit"] if rows else None,
+    }
     if not rows:
         return {**base, "insufficient_data": True, "message": "這個條件下沒有量測資料"}
     values = [r["value"] for r in rows]
     try:
-        result = (spc.imr(values, spec["lsl"], spec["usl"], run_length) if chart == "imr"
-                  else spc.xbar_r(values, subgroup_size, spec["lsl"], spec["usl"], run_length))
+        result = (
+            spc.imr(values, spec["lsl"], spec["usl"], run_length)
+            if chart == "imr"
+            else spc.xbar_r(values, subgroup_size, spec["lsl"], spec["usl"], run_length)
+        )
     except ValueError as e:
         return {**base, "insufficient_data": True, "message": str(e)}
     labels = [r["created_at"] for r in rows]

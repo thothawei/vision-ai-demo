@@ -9,16 +9,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from core import auth, metrics, registry, request_scope
+from core.logging_setup import setup_logging
+from core.schemas import ModuleError
+from core.settings import startup_settings
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-
-from core import auth, metrics, registry, request_scope
-from core.logging_setup import setup_logging
-from core.schemas import ModuleError
-from core.settings import startup_settings
 
 setup_logging(startup_settings().log_level)
 logger = logging.getLogger("vision.http")
@@ -113,8 +112,11 @@ async def page_guard_middleware(request: Request, call_next):
 
 
 app.add_middleware(
-    SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="vision_session",
-    max_age=startup_settings().session_hours * 3600, same_site="lax",
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie="vision_session",
+    max_age=startup_settings().session_hours * 3600,
+    same_site="lax",
     https_only=startup_settings().session_cookie_secure,
 )
 
@@ -146,12 +148,16 @@ async def request_scope_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     route = request.scope.get("route")
-    metrics.observe_request(request.method, getattr(route, "path", None) or "unmatched", response.status_code,
-                            elapsed_ms / 1000)
+    metrics.observe_request(
+        request.method, getattr(route, "path", None) or "unmatched", response.status_code, elapsed_ms / 1000
+    )
     logger.log(
         logging.INFO if is_api else logging.DEBUG,
-        "method=%s path=%s status=%s elapsed_ms=%s", request.method, request.url.path,
-        response.status_code, elapsed_ms,
+        "method=%s path=%s status=%s elapsed_ms=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
     )
     return response
 
@@ -166,8 +172,18 @@ for _router in registry.routers():
     app.include_router(_router, dependencies=[Depends(auth.require_login)])
 app.include_router(importlib.import_module("modules.batch.router").router, dependencies=[Depends(auth.require_login)])
 # 以下 router 自行在端點或 router 層級宣告權限（登入端點本身不需要驗證）
-for _path in ("modules.auth.router", "modules.users.router", "modules.audit.router", "modules.inspections.router",
-              "modules.master.router", "modules.recipes.router", "modules.spc.router", "modules.reports.router", "modules.models.router", "modules.system.router"):
+for _path in (
+    "modules.auth.router",
+    "modules.users.router",
+    "modules.audit.router",
+    "modules.inspections.router",
+    "modules.master.router",
+    "modules.recipes.router",
+    "modules.spc.router",
+    "modules.reports.router",
+    "modules.models.router",
+    "modules.system.router",
+):
     app.include_router(importlib.import_module(_path).router)
 
 

@@ -25,10 +25,16 @@ def test_live_detects_real_person(client):
     assert body["items"][0]["明細"][0]["信心度"] > 0.5
 
     # 人物在照片左半邊，涵蓋左半邊的區域應該判定入侵
-    covering = client.post("/api/safety/intrusion", data={"zone": "[[0,0],[0.6,0],[0.6,1],[0,1]]"},
-                           files={"file": ("f.jpg", img_bytes, "image/jpeg")})
+    covering = client.post(
+        "/api/safety/intrusion",
+        data={"zone": "[[0,0],[0.6,0],[0.6,1],[0,1]]"},
+        files={"file": ("f.jpg", img_bytes, "image/jpeg")},
+    )
     assert covering.json()["verdict"] == "NG"
 
-    not_covering = client.post("/api/safety/intrusion", data={"zone": "[[0.8,0],[1,0],[1,1],[0.8,1]]"},
-                               files={"file": ("f.jpg", img_bytes, "image/jpeg")})
+    not_covering = client.post(
+        "/api/safety/intrusion",
+        data={"zone": "[[0.8,0],[1,0],[1,1],[0.8,1]]"},
+        files={"file": ("f.jpg", img_bytes, "image/jpeg")},
+    )
     assert not_covering.json()["verdict"] == "OK"

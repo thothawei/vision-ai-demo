@@ -44,7 +44,8 @@ def acquire(db_path: Path):
         handle.close()
         raise InstanceLockError(
             f"另一個程序（PID {holder}）正在使用這個資料庫（{db_path.name}），本系統同一個資料庫同一時間只能有一個服務程序；"
-            "請先停止另一個程序（不要用多個 uvicorn worker），確定沒有程序在跑再重試")
+            "請先停止另一個程序（不要用多個 uvicorn worker），確定沒有程序在跑再重試"
+        )
     handle.seek(0)
     handle.truncate()
     handle.write(str(os.getpid()))

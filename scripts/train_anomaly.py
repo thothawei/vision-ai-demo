@@ -21,13 +21,11 @@ import json
 import math
 import os
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
 
-import sys
-
-import torch
 from anomalib.data import Folder, MVTecAD
 from anomalib.deploy import ExportType
 from anomalib.engine import Engine
@@ -48,9 +46,7 @@ MIN_TRAIN_GOOD = 10  # 擬合用的良品照片數量下限（扣掉留給評分
 def train_one(category: str) -> dict:
     category_dir = DATA_ROOT / category
     if not category_dir.exists():
-        raise FileNotFoundError(
-            f"找不到資料集 {category_dir}，請先下載（連結見 docs/licenses.md）並解壓到這個路徑"
-        )
+        raise FileNotFoundError(f"找不到資料集 {category_dir}，請先下載（連結見 docs/licenses.md）並解壓到這個路徑")
 
     # PatchCore 的 coreset 篩選（greedy k-center）在 Python 迴圈裡逐一對張量呼叫 .item()
     # 把純量搬回 CPU，每次呼叫都會讓 MPS 做一次 GPU 同步；實測用 `sample` 系統工具
@@ -82,7 +78,9 @@ def train_one(category: str) -> dict:
     # 匯出成 TorchInferencer 可直接載入的 .pt（把 pre-processor、門檻值一起包進去），
     # 服務層不需要重建完整的 Lightning 模組就能推論。
     try:
-        exported_dir = engine.export(model=model, export_type=ExportType.TORCH, export_root=weights_dir, ckpt_path=ckpt_path)
+        exported_dir = engine.export(
+            model=model, export_type=ExportType.TORCH, export_root=weights_dir, ckpt_path=ckpt_path
+        )
     except Exception:
         shutil.rmtree(weights_dir, ignore_errors=True)
         raise
@@ -97,10 +95,19 @@ def train_one(category: str) -> dict:
         "weights_path": str(Path(exported_dir).relative_to(PROJECT_ROOT)),
     }
     (weights_dir / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
-    model_registry.register_version(model_id, Path(exported_dir), result, f"MVTec AD {category} 擬合", "script:train_anomaly",
-                                    activate=True, version=version)
+    model_registry.register_version(
+        model_id,
+        Path(exported_dir),
+        result,
+        f"MVTec AD {category} 擬合",
+        "script:train_anomaly",
+        activate=True,
+        version=version,
+    )
     print(f"[{category}] 已登錄 {model_id} v{version} 並啟用")
-    print(f"[{category}] image-level AUROC = {result['image_auroc']}（測試集 {n_test} 張，擬合耗時 {result['fit_seconds']}秒）")
+    print(
+        f"[{category}] image-level AUROC = {result['image_auroc']}（測試集 {n_test} 張，擬合耗時 {result['fit_seconds']}秒）"
+    )
     return result
 
 
@@ -191,8 +198,12 @@ def train_custom(
         fit_seconds = time.perf_counter() - started
 
         export_root.mkdir(parents=True, exist_ok=True)
-        ckpt_path = engine.trainer.checkpoint_callback.best_model_path or engine.trainer.checkpoint_callback.last_model_path
-        exported_dir = Path(engine.export(model=model, export_type=ExportType.TORCH, export_root=export_root, ckpt_path=ckpt_path))
+        ckpt_path = (
+            engine.trainer.checkpoint_callback.best_model_path or engine.trainer.checkpoint_callback.last_model_path
+        )
+        exported_dir = Path(
+            engine.export(model=model, export_type=ExportType.TORCH, export_root=export_root, ckpt_path=ckpt_path)
+        )
 
     from anomalib.deploy import TorchInferencer
 

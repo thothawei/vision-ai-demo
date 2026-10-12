@@ -3,7 +3,6 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-
 from samples import make_samples
 
 
@@ -215,9 +214,11 @@ def seven_segment_png() -> bytes:
 @pytest.fixture
 def gauge_png_factory():
     """回傳一個 function(needle_angle_deg) -> png bytes，測試不同指針角度用。"""
+
     def _make(needle_angle_deg: float, min_angle_deg: float = 135, max_angle_deg: float = 45):
         image = make_samples.make_gauge(min_angle_deg, max_angle_deg, needle_angle_deg)
         return png_bytes(image)
+
     return _make
 
 
@@ -229,8 +230,10 @@ def packaging_match_png() -> bytes:
 @pytest.fixture
 def packaging_mismatch_png_factory():
     """回傳 function(printed_batch=None, printed_expiry=None) -> png bytes。"""
+
     def _make(**kwargs):
         return png_bytes(make_samples.make_packaging(days_from_today=200, **kwargs))
+
     return _make
 
 
@@ -252,6 +255,7 @@ def fake_pneumonia_model(monkeypatch):
 @pytest.fixture
 def fake_person_detector(monkeypatch):
     """把 YOLO 換成假函式，回傳固定的偵測框（單位 px，對應 800x600 測試圖）。"""
+
     def _fake(bgr):
         return [{"信心度": 0.9, "邊界框": [100, 100, 200, 500], "腳底參考點": [150, 500]}]
 
@@ -261,6 +265,7 @@ def fake_person_detector(monkeypatch):
 @pytest.fixture
 def fake_pcb_detector(monkeypatch):
     """把 M6 PCB 瑕疵偵測換成假函式，回傳固定的偵測框。"""
+
     class _FakeBox:
         def __init__(self, cls, conf, xyxy):
             import torch
@@ -298,6 +303,7 @@ def fake_pcb_detector_no_defect(monkeypatch):
 @pytest.fixture
 def fake_ppe_detector(monkeypatch):
     """回傳 1 個 helmet + 1 個 head（未戴安全帽），驗證 NG 判定。"""
+
     class _FakeBox:
         def __init__(self, cls, conf, xyxy):
             import torch

@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.medical.service import check_packaging, classify_pneumonia_demo
 
 router = APIRouter(prefix="/api/medical", tags=["M8 醫療相關辨識"])

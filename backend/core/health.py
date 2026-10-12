@@ -81,7 +81,9 @@ def check_disk() -> dict:
     free = shutil.disk_usage(target).free
     gb = free / (1 << 30)
     if free < MIN_FREE_BYTES:
-        return _result(False, f"磁碟剩餘空間只有 {gb:.1f} GB（低於 1 GB），請清理舊圖片或備份後擴充", warning=True, free_bytes=free)
+        return _result(
+            False, f"磁碟剩餘空間只有 {gb:.1f} GB（低於 1 GB），請清理舊圖片或備份後擴充", warning=True, free_bytes=free
+        )
     return _result(True, f"磁碟剩餘 {gb:.1f} GB", free_bytes=free)
 
 
@@ -99,8 +101,10 @@ def model_state(model_id: str) -> tuple[bool, str | None]:
     if active:
         if Path(active["weights_abs"]).is_file():
             return True, None
-        return False, (f"模型「{title}」v{active['version']} 的權重檔不存在（{active['weights_path']}）；"
-                       "請還原檔案，或在「管理 → 模型」切換到可用的版本")
+        return False, (
+            f"模型「{title}」v{active['version']} 的權重檔不存在（{active['weights_path']}）；"
+            "請還原檔案，或在「管理 → 模型」切換到可用的版本"
+        )
     if model_registry.list_versions(model_id):
         return False, f"模型「{title}」沒有啟用中的版本，請在「管理 → 模型」啟用一個版本"
     default = model_catalog.default_weights_path(model_id)
@@ -117,8 +121,10 @@ def anomaly_state() -> tuple[bool, str | None]:
     usable = [c for c in categories if model_state(f"anomaly-{c}")[0]]
     if usable:
         return True, None
-    return False, ("沒有可用的異常檢測類別：請執行 `python scripts/train_anomaly.py --category all`，"
-                   "或在「外觀異常檢測」上傳良品照片建立自訂類別")
+    return False, (
+        "沒有可用的異常檢測類別：請執行 `python scripts/train_anomaly.py --category all`，"
+        "或在「外觀異常檢測」上傳良品照片建立自訂類別"
+    )
 
 
 def _feature_states(llm: dict) -> list[dict]:
@@ -131,7 +137,7 @@ def _feature_states(llm: dict) -> list[dict]:
             elif token == "anomaly":
                 memo[token] = anomaly_state()
             elif token.startswith("model:"):
-                memo[token] = model_state(token[len("model:"):])
+                memo[token] = model_state(token[len("model:") :])
             else:
                 memo[token] = (True, None)
         return memo[token]
@@ -139,8 +145,17 @@ def _feature_states(llm: dict) -> list[dict]:
     features = []
     for spec in registry.all_actions():
         reason = next((r for ok, r in map(evaluate, spec.requires) if not ok), None)
-        features.append({"action": spec.action, "label": spec.label, "tab": spec.tab, "category": spec.category,
-                         "available": reason is None, "reason": reason, "requires": spec.requires})
+        features.append(
+            {
+                "action": spec.action,
+                "label": spec.label,
+                "tab": spec.tab,
+                "category": spec.category,
+                "available": reason is None,
+                "reason": reason,
+                "requires": spec.requires,
+            }
+        )
     return features
 
 
@@ -159,16 +174,24 @@ def compute_status(force: bool = False) -> dict:
     with _lock:
         if not force and _cache["value"] is not None and time.monotonic() - _cache["at"] < CACHE_SECONDS:
             return _cache["value"]
-        checks = {"sqlite": check_sqlite(), "migrations": check_migrations(), "llm": check_llm(),
-                  "disk": check_disk(), "jobs": check_jobs()}
+        checks = {
+            "sqlite": check_sqlite(),
+            "migrations": check_migrations(),
+            "llm": check_llm(),
+            "disk": check_disk(),
+            "jobs": check_jobs(),
+        }
         features = _feature_states(checks["llm"]) if checks["sqlite"]["ok"] else []
         value = {
             "ready": checks["sqlite"]["ok"] and checks["migrations"]["ok"],
             "checked_at": datetime.now().isoformat(timespec="seconds"),
-            "checks": checks, "features": features, "tabs": _tab_states(features),
+            "checks": checks,
+            "features": features,
+            "tabs": _tab_states(features),
         }
         value["degraded"] = any(not f["available"] for f in features) or any(
-            not c["ok"] for name, c in checks.items() if name not in ("sqlite", "migrations"))
+            not c["ok"] for name, c in checks.items() if name not in ("sqlite", "migrations")
+        )
         _cache.update(at=time.monotonic(), value=value)
         return value
 
@@ -180,11 +203,15 @@ def clear_cache() -> None:
 
 def summary(status: dict) -> dict:
     """公開的 /readyz 只回摘要：各檢查項 ok／warn／fail，不含路徑與細節。"""
+
     def state(name: str, check: dict) -> str:
         if check["ok"]:
             return "ok"
         return "fail" if name in ("sqlite", "migrations") else "warn"
 
-    return {"ready": status["ready"], "degraded": status["degraded"],
-            "checks": {name: state(name, c) for name, c in status["checks"].items()},
-            "unavailable_features": sum(1 for f in status["features"] if not f["available"])}
+    return {
+        "ready": status["ready"],
+        "degraded": status["degraded"],
+        "checks": {name: state(name, c) for name, c in status["checks"].items()},
+        "unavailable_features": sum(1 for f in status["features"] if not f["available"]),
+    }

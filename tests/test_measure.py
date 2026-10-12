@@ -18,10 +18,12 @@ def test_count_separates_touching_parts(client, screws_png):
 
 
 def test_count_expected_count_verdict(client, screws_png):
-    ok = client.post("/api/measure/count", params={"expected_count": 8},
-                     files={"file": ("s.png", screws_png, "image/png")})
-    ng = client.post("/api/measure/count", params={"expected_count": 5},
-                     files={"file": ("s.png", screws_png, "image/png")})
+    ok = client.post(
+        "/api/measure/count", params={"expected_count": 8}, files={"file": ("s.png", screws_png, "image/png")}
+    )
+    ng = client.post(
+        "/api/measure/count", params={"expected_count": 5}, files={"file": ("s.png", screws_png, "image/png")}
+    )
 
     assert ok.json()["verdict"] == "OK"
     assert ng.json()["verdict"] == "NG"
@@ -30,8 +32,9 @@ def test_count_expected_count_verdict(client, screws_png):
 def test_measure_accuracy_within_1mm(client, measure_scene_png_marker):
     """正視角、已知 50x20mm 零件 + 5mm 孔，量出來的誤差應該在 1mm 內（無透視變形的理論上限測試）。"""
     png, marker_mm = measure_scene_png_marker
-    res = client.post("/api/measure/measure", params={"marker_size_mm": marker_mm},
-                      files={"file": ("scene.png", png, "image/png")})
+    res = client.post(
+        "/api/measure/measure", params={"marker_size_mm": marker_mm}, files={"file": ("scene.png", png, "image/png")}
+    )
 
     assert res.status_code == 200, res.text
     item = res.json()["items"][0]

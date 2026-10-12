@@ -38,13 +38,21 @@ def cleanup(days: int, apply: bool = False, include_reviewed: bool = False, now:
     now = now or datetime.now()
     cutoff = (now - timedelta(days=days)).isoformat(timespec="seconds")
     images_dir = _images_dir()
-    summary = {"days": days, "cutoff": cutoff, "apply": apply, "inspections": 0, "files": 0, "bytes": 0,
-               "skipped_reviewed": 0}
+    summary = {
+        "days": days,
+        "cutoff": cutoff,
+        "apply": apply,
+        "inspections": 0,
+        "files": 0,
+        "bytes": 0,
+        "skipped_reviewed": 0,
+    }
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM inspections WHERE created_at < ? AND ((image_path IS NOT NULL AND image_path != ?)"
             " OR (annotated_path IS NOT NULL AND annotated_path != ?) OR images_json IS NOT NULL) ORDER BY id",
-            (cutoff, IMAGE_EXPIRED, IMAGE_EXPIRED)).fetchall()
+            (cutoff, IMAGE_EXPIRED, IMAGE_EXPIRED),
+        ).fetchall()
         for row in rows:
             if row["review_verdict"] and not include_reviewed:
                 summary["skipped_reviewed"] += 1
@@ -60,8 +68,13 @@ def cleanup(days: int, apply: bool = False, include_reviewed: bool = False, now:
             extra = json.loads(row["images_json"] or "{}")
             conn.execute(
                 "UPDATE inspections SET image_path = ?, annotated_path = ?, images_json = ? WHERE id = ?",
-                (IMAGE_EXPIRED if row["image_path"] else None, IMAGE_EXPIRED if row["annotated_path"] else None,
-                 json.dumps({role: IMAGE_EXPIRED for role in extra}) if extra else None, row["id"]))
+                (
+                    IMAGE_EXPIRED if row["image_path"] else None,
+                    IMAGE_EXPIRED if row["annotated_path"] else None,
+                    json.dumps({role: IMAGE_EXPIRED for role in extra}) if extra else None,
+                    row["id"],
+                ),
+            )
         if apply:
             conn.commit()
     if apply and images_dir.exists():
@@ -77,10 +90,14 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true", help="真的刪檔（預設只預覽）")
     parser.add_argument("--include-reviewed", action="store_true", help="連有人工複判的圖片一起清")
     args = parser.parse_args()
-    s = cleanup(args.days if args.days is not None else get_settings().image_retention_days, args.apply, args.include_reviewed)
+    s = cleanup(
+        args.days if args.days is not None else get_settings().image_retention_days, args.apply, args.include_reviewed
+    )
     verb = "已清理" if s["apply"] else "（預覽，沒有刪任何檔）會清理"
-    print(f"{verb}：{s['inspections']} 筆紀錄的 {s['files']} 個圖檔、{s['bytes'] / 1024 / 1024:.1f} MB"
-          f"（早於 {s['cutoff']}）；因有人工複判而保留 {s['skipped_reviewed']} 筆")
+    print(
+        f"{verb}：{s['inspections']} 筆紀錄的 {s['files']} 個圖檔、{s['bytes'] / 1024 / 1024:.1f} MB"
+        f"（早於 {s['cutoff']}）；因有人工複判而保留 {s['skipped_reviewed']} 筆"
+    )
     if not s["apply"] and s["files"]:
         print("確認無誤後加 --apply 執行")
 

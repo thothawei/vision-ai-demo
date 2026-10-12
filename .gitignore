@@ -21,3 +21,7 @@ docs/erp-integration-sample/bin/
 docs/erp-integration-sample/obj/
 /reports/
 backups/
+
+# 覆蓋率報告
+.coverage
+coverage.xml

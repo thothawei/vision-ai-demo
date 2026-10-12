@@ -25,7 +25,6 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "inspections.db
 DEFAULT_IMAGES_DIR = Path(__file__).resolve().parents[2] / "data" / "images"
 
 
-
 def extract_defect_labels(module: str, summary: list | dict) -> list[str]:
     """從 record_result 存進 summary_json 的 items 抽出缺陷類別清單。
     沒有對應規則的模組（或 summary 格式不是預期的 list）一律回傳 []，不猜測。"""
@@ -67,8 +66,9 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-def insert_measurements(conn: sqlite3.Connection, inspection_id: int, created_at: str, module: str,
-                        summary, trace: dict, run_id: int | None) -> int:
+def insert_measurements(
+    conn: sqlite3.Connection, inspection_id: int, created_at: str, module: str, summary, trace: dict, run_id: int | None
+) -> int:
     """把可做 SPC 的數值特性寫進 measurements（規則見 core/measurement_extractors.py）；回傳寫入筆數。"""
     from core.measurement_extractors import extract_measurements
 
@@ -77,9 +77,22 @@ def insert_measurements(conn: sqlite3.Connection, inspection_id: int, created_at
         conn.execute(
             "INSERT INTO measurements (inspection_id, run_id, created_at, module, part_no, work_order, lot_no, station,"
             " characteristic, value, lsl, usl, target, unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (inspection_id, run_id, created_at, module, trace.get("part_no"), trace.get("work_order"),
-             trace.get("lot_no"), trace.get("station"), m["characteristic"], m["value"], m["lsl"], m["usl"],
-             m["target"], m["unit"]),
+            (
+                inspection_id,
+                run_id,
+                created_at,
+                module,
+                trace.get("part_no"),
+                trace.get("work_order"),
+                trace.get("lot_no"),
+                trace.get("station"),
+                m["characteristic"],
+                m["value"],
+                m["lsl"],
+                m["usl"],
+                m["target"],
+                m["unit"],
+            ),
         )
     return len(rows)
 
@@ -140,6 +153,7 @@ def log_inspection(
 
 def _decode_data_url(data_url: str) -> bytes:
     import base64
+
     header, _, b64data = data_url.partition(",")
     return base64.b64decode(b64data)
 
@@ -189,15 +203,28 @@ def record_result(
     trace = request_scope.get_trace()
     scope = request_scope.get_scope()
     inspection_id = log_inspection(
-        module, verdict, engine, elapsed_ms, items, trace, scope.request_id, scope.user, scope.run_id,
-        scope.model_id, scope.model_version,
+        module,
+        verdict,
+        engine,
+        elapsed_ms,
+        items,
+        trace,
+        scope.request_id,
+        scope.user,
+        scope.run_id,
+        scope.model_id,
+        scope.model_version,
     )
     if scope.operator_override:
         from core import audit  # 延後匯入：audit 會匯入本檔的連線函式
 
         audit.record(
-            scope.user or "-", "inspection.operator_override", "inspection", inspection_id,
-            before={"operator": scope.trace_operator_default}, after={"operator": scope.operator_override},
+            scope.user or "-",
+            "inspection.operator_override",
+            "inspection",
+            inspection_id,
+            before={"operator": scope.trace_operator_default},
+            after={"operator": scope.operator_override},
         )
 
     if _save_images_enabled():
@@ -214,8 +241,14 @@ def record_result(
                     (image_path, annotated_path, json.dumps(extra) if extra else None, inspection_id),
                 )
 
-    logger.info("辨識完成 module=%s verdict=%s engine=%s elapsed_ms=%s inspection_id=%s",
-                module, verdict, engine, elapsed_ms, inspection_id)
+    logger.info(
+        "辨識完成 module=%s verdict=%s engine=%s elapsed_ms=%s inspection_id=%s",
+        module,
+        verdict,
+        engine,
+        elapsed_ms,
+        inspection_id,
+    )
     from core import metrics
 
     metrics.observe_inspection(module, verdict, elapsed_ms)
@@ -344,7 +377,9 @@ def get_image_file_path(inspection_id: int, kind: str) -> Path | None:
 VALID_REVIEW_VERDICTS = ("OK", "NG")
 
 
-def update_review(inspection_id: int, review_verdict: str, reviewer: str | None, review_note: str | None) -> dict | None:
+def update_review(
+    inspection_id: int, review_verdict: str, reviewer: str | None, review_note: str | None
+) -> dict | None:
     if review_verdict not in VALID_REVIEW_VERDICTS:
         raise ValueError(f"review_verdict 只能是 {VALID_REVIEW_VERDICTS} 其中之一，目前是「{review_verdict}」")
     with _connect() as conn:
@@ -363,20 +398,51 @@ def to_csv(records: list[dict]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf)
     header = [
-        "id", "created_at", "module", "verdict", "engine", "elapsed_ms",
-        "work_order", "part_no", "lot_no", "station", "operator",
-        "review_verdict", "reviewer", "reviewed_at", "review_note",
-        "summary_json", "request_id", "model_id", "model_version",
+        "id",
+        "created_at",
+        "module",
+        "verdict",
+        "engine",
+        "elapsed_ms",
+        "work_order",
+        "part_no",
+        "lot_no",
+        "station",
+        "operator",
+        "review_verdict",
+        "reviewer",
+        "reviewed_at",
+        "review_note",
+        "summary_json",
+        "request_id",
+        "model_id",
+        "model_version",
     ]
     writer.writerow(header)
     for r in records:
-        writer.writerow([
-            r["id"], r["created_at"], r["module"], r["verdict"], r["engine"], r["elapsed_ms"],
-            r.get("work_order"), r.get("part_no"), r.get("lot_no"), r.get("station"), r.get("operator"),
-            r.get("review_verdict"), r.get("reviewer"), r.get("reviewed_at"), r.get("review_note"),
-            json.dumps(r["summary"], ensure_ascii=False),
-            r.get("request_id"), r.get("model_id"), r.get("model_version"),
-        ])
+        writer.writerow(
+            [
+                r["id"],
+                r["created_at"],
+                r["module"],
+                r["verdict"],
+                r["engine"],
+                r["elapsed_ms"],
+                r.get("work_order"),
+                r.get("part_no"),
+                r.get("lot_no"),
+                r.get("station"),
+                r.get("operator"),
+                r.get("review_verdict"),
+                r.get("reviewer"),
+                r.get("reviewed_at"),
+                r.get("review_note"),
+                json.dumps(r["summary"], ensure_ascii=False),
+                r.get("request_id"),
+                r.get("model_id"),
+                r.get("model_version"),
+            ]
+        )
     return buf.getvalue()
 
 
@@ -449,12 +515,14 @@ def get_stats(
         groups = []
         for label, count in sorted_labels:
             cum += count
-            groups.append({
-                "label": label,
-                "count": count,
-                "pct": round(count / total_defects * 100, 2) if total_defects else 0.0,
-                "cum_pct": round(cum / total_defects * 100, 2) if total_defects else 0.0,
-            })
+            groups.append(
+                {
+                    "label": label,
+                    "count": count,
+                    "pct": round(count / total_defects * 100, 2) if total_defects else 0.0,
+                    "cum_pct": round(cum / total_defects * 100, 2) if total_defects else 0.0,
+                }
+            )
 
     return {
         "total": len(records),
@@ -479,6 +547,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 # --- webhook_queue：core/webhook.py 送出失敗時的重試佇列 ---
 
+
 def enqueue_webhook(inspection_id: int, payload: dict) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:
@@ -500,7 +569,9 @@ def list_pending_webhooks(limit: int = 50) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def mark_webhook_attempt(queue_id: int, success: bool, error: str | None, max_attempts: int, retry_delay_seconds: int) -> None:
+def mark_webhook_attempt(
+    queue_id: int, success: bool, error: str | None, max_attempts: int, retry_delay_seconds: int
+) -> None:
     with _connect() as conn:
         if success:
             conn.execute("DELETE FROM webhook_queue WHERE id = ?", (queue_id,))

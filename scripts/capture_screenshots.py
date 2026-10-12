@@ -5,7 +5,6 @@
 """
 
 import os
-import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -39,9 +38,23 @@ STEPS = [
 
 # 步驟編號 → 前端分頁 id（左側導覽由 /api/modules 產生，按鈕帶 data-tab）
 TAB_IDS = {
-    1: "general", 2: "docs", 3: "anomaly", 4: "codes", 5: "measure", 6: "safety", 7: "ppe", 8: "defect",
-    9: "nameplate", 10: "sevenseg", 11: "gauge", 12: "packaging", 13: "pneumonia", 14: "assembly",
-    15: "colordiff", 16: "shipping", 17: "dashboard",
+    1: "general",
+    2: "docs",
+    3: "anomaly",
+    4: "codes",
+    5: "measure",
+    6: "safety",
+    7: "ppe",
+    8: "defect",
+    9: "nameplate",
+    10: "sevenseg",
+    11: "gauge",
+    12: "packaging",
+    13: "pneumonia",
+    14: "assembly",
+    15: "colordiff",
+    16: "shipping",
+    17: "dashboard",
 }
 
 
@@ -131,9 +144,7 @@ def capture_safety(page):
     canvas = page.locator("#safety-canvas")
     canvas.wait_for(state="visible", timeout=10000)
     # canvas 的實際寬高要等圖片 onload 後才會設定，用輪詢確認尺寸穩定再讀 bounding_box
-    page.wait_for_function(
-        "document.querySelector('#safety-canvas').width > 0", timeout=10000
-    )
+    page.wait_for_function("document.querySelector('#safety-canvas').width > 0", timeout=10000)
     page.wait_for_timeout(500)
     box = canvas.bounding_box()
     if not box:
@@ -146,8 +157,7 @@ def capture_safety(page):
     # y 下緣要到 1.0（畫布底部）：人員的「腳底參考點」在原圖裡非常接近下緣（fraction≈0.989），
     # 之前用 0.98 只差一點點就沒蓋到，畫出來像是涵蓋人物，但 pointPolygonTest 其實判定沒入侵。
     w, h = box["width"], box["height"]
-    points = [(w * 0.03, h * 0.05), (w * 0.45, h * 0.05),
-              (w * 0.45, h * 0.995), (w * 0.03, h * 0.995)]
+    points = [(w * 0.03, h * 0.05), (w * 0.45, h * 0.05), (w * 0.45, h * 0.995), (w * 0.03, h * 0.995)]
     for x, y in points:
         canvas.click(position={"x": x, "y": y})
         page.wait_for_timeout(150)
@@ -196,8 +206,10 @@ def capture_assembly(page):
     missing_photo = SAMPLES / "assembly_missing_demo.png"
     if not missing_photo.exists():
         import sys as _sys
+
         _sys.path.insert(0, str(SAMPLES))
         import make_samples as _ms
+
         _ms.make_assembly_scene(missing_index=2).save(missing_photo)
 
     page.set_input_files("#assembly-inspect-file", str(missing_photo))

@@ -1,7 +1,6 @@
 """Phase 21：資料保存（清理圖片）、備份還原、模型說明卡。"""
 
 import json
-import os
 import sqlite3
 import sys
 import tarfile
@@ -17,7 +16,6 @@ import backup as backup_script  # noqa: E402
 import cleanup_images  # noqa: E402
 import gen_model_cards  # noqa: E402
 import restore as restore_script  # noqa: E402
-
 from core import model_registry  # noqa: E402
 from core.inspection_log import connect, get_stats  # noqa: E402
 
@@ -41,6 +39,7 @@ def images_env(client, monkeypatch, fake_llm):
 
 # --- 清理圖片 ---
 
+
 def test_cleanup_defaults_to_preview_and_deletes_nothing(images_env, admin_client, warning_sign_png):
     old = _make_record(images_env, warning_sign_png, days_old=200)
     from core.inspection_log import get_image_file_path
@@ -48,7 +47,11 @@ def test_cleanup_defaults_to_preview_and_deletes_nothing(images_env, admin_clien
     path = get_image_file_path(old, "raw")
     assert path and path.exists()
     preview = cleanup_images.cleanup(180)
-    assert (preview["apply"], preview["inspections"], preview["files"]) == (False, 1, 1)  # 現場照片辨識只有原圖，沒有標註圖
+    assert (preview["apply"], preview["inspections"], preview["files"]) == (
+        False,
+        1,
+        1,
+    )  # 現場照片辨識只有原圖，沒有標註圖
     assert path.exists() and admin_client.get(f"/api/inspections/{old}").json()["image_path"] != "expired"
 
 
@@ -95,7 +98,9 @@ def test_cleanup_keeps_reviewed_images_unless_told_otherwise(images_env, admin_c
     assert forced["inspections"] == 1 and not reviewed_raw.exists()
 
 
-def test_cleanup_covers_extra_roles_and_ignores_paths_outside_the_images_dir(images_env, admin_client, tmp_path, warning_sign_png):
+def test_cleanup_covers_extra_roles_and_ignores_paths_outside_the_images_dir(
+    images_env, admin_client, tmp_path, warning_sign_png
+):
     from core.inspection_log import get_image_file_path
 
     outside = tmp_path / "precious.txt"
@@ -104,9 +109,14 @@ def test_cleanup_covers_extra_roles_and_ignores_paths_outside_the_images_dir(ima
     golden = get_image_file_path(old, "raw").with_name(f"{old}_golden.png")
     golden.write_bytes(b"golden")
     with connect() as conn:  # 一筆有輔助圖，另一筆的路徑被改成指向 images 目錄之外
-        conn.execute("UPDATE inspections SET images_json = ? WHERE id = ?", (json.dumps({"golden": f"images/{golden.parent.name}/{golden.name}"}), old))
-        conn.execute("INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, image_path)"
-                     " VALUES ('2020-01-01T00:00:00', 'general', 'INFO', 'e', 1, '[]', '../precious.txt')")
+        conn.execute(
+            "UPDATE inspections SET images_json = ? WHERE id = ?",
+            (json.dumps({"golden": f"images/{golden.parent.name}/{golden.name}"}), old),
+        )
+        conn.execute(
+            "INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, image_path)"
+            " VALUES ('2020-01-01T00:00:00', 'general', 'INFO', 'e', 1, '[]', '../precious.txt')"
+        )
         conn.commit()
     cleanup_images.cleanup(180, apply=True)
     assert not golden.exists() and outside.read_text() == "do not delete"
@@ -125,6 +135,7 @@ def test_retention_days_setting_default_is_180(monkeypatch):
 
 # --- 備份與還原 ---
 
+
 def _snapshot_state():
     stats = get_stats("module")
     with connect() as conn:
@@ -133,8 +144,9 @@ def _snapshot_state():
     return {"stats": stats, "users": [tuple(u) for u in users], "parts": [tuple(p) for p in parts]}
 
 
-def test_backup_delete_everything_restore_gives_identical_dashboard_numbers(images_env, admin_client, qc_client, tmp_path,
-                                                                            warning_sign_png, monkeypatch):
+def test_backup_delete_everything_restore_gives_identical_dashboard_numbers(
+    images_env, admin_client, qc_client, tmp_path, warning_sign_png, monkeypatch
+):
     from core import anomaly_training
     from core.inspection_log import _db_path, _images_dir, get_image_file_path
     from modules.assembly.service import _golden_dir
@@ -160,7 +172,7 @@ def test_backup_delete_everything_restore_gives_identical_dashboard_numbers(imag
     assert manifest["counts"]["inspections"] == 3 and manifest["counts"]["users"] == 2
     assert manifest["schema_version"] >= 2 and manifest["includes_models"] is False
 
-    for target in (_db_path(), ):
+    for target in (_db_path(),):
         target.unlink()  # 模擬資料全部遺失
     import shutil
 
@@ -178,12 +190,14 @@ def test_backup_delete_everything_restore_gives_identical_dashboard_numbers(imag
     assert get_image_file_path(ids[1], "raw").read_bytes() == raw_bytes
     assert (_golden_dir() / "sample.txt").read_text() == "golden"
     assert json.loads((tmp_path / "anomaly" / "categories.json").read_text())["cat"]["status"] == "done"
-    assert admin_client.post("/api/auth/login", json={"username": "admin_test", "password": "password-1234"}).status_code == 200
+    assert (
+        admin_client.post("/api/auth/login", json={"username": "admin_test", "password": "password-1234"}).status_code
+        == 200
+    )
 
 
 def test_restore_keeps_existing_data_aside_instead_of_deleting(images_env, tmp_path, warning_sign_png, monkeypatch):
     from core import anomaly_training
-    from core.inspection_log import _db_path
 
     monkeypatch.setattr(anomaly_training, "REGISTRY_PATH", tmp_path / "anomaly" / "categories.json")
     _make_record(images_env, warning_sign_png)
@@ -238,12 +252,17 @@ def test_restore_refuses_corrupted_archives_and_newer_schema(images_env, tmp_pat
         restore_script.restore(rewrite(Path("extra.tar.gz"), extra), apply=True, models_dir=tmp_path / "m")
 
     with pytest.raises(restore_script.RestoreError, match="沒有 manifest"):
-        restore_script.restore(rewrite(Path("empty.tar.gz"), lambda stage: (stage / "manifest.json").unlink()),
-                               apply=True, models_dir=tmp_path / "m")
+        restore_script.restore(
+            rewrite(Path("empty.tar.gz"), lambda stage: (stage / "manifest.json").unlink()),
+            apply=True,
+            models_dir=tmp_path / "m",
+        )
     assert _snapshot_state()["stats"]["total"] == 1  # 拒絕還原時原本的資料完全沒動
 
 
-def test_backup_uses_a_consistent_snapshot_and_models_only_with_flag(images_env, tmp_path, warning_sign_png, monkeypatch):
+def test_backup_uses_a_consistent_snapshot_and_models_only_with_flag(
+    images_env, tmp_path, warning_sign_png, monkeypatch
+):
     from core import anomaly_training
 
     monkeypatch.setattr(anomaly_training, "REGISTRY_PATH", tmp_path / "anomaly" / "categories.json")
@@ -252,7 +271,9 @@ def test_backup_uses_a_consistent_snapshot_and_models_only_with_flag(images_env,
     (models / "registry" / "w.pt").write_bytes(b"weights")
     _make_record(images_env, warning_sign_png)
     plain = backup_script.backup(tmp_path / "b1", models_dir=models, now=datetime(2026, 10, 1, 2, 0, 0))
-    full = backup_script.backup(tmp_path / "b2", include_models=True, models_dir=models, now=datetime(2026, 10, 1, 2, 0, 1))
+    full = backup_script.backup(
+        tmp_path / "b2", include_models=True, models_dir=models, now=datetime(2026, 10, 1, 2, 0, 1)
+    )
     assert plain.name == "vision-backup-20261001-020000.tar.gz"
     assert not any(n.startswith("models/") for n in tarfile.open(plain).getnames())
     assert "models/registry/w.pt" in tarfile.open(full).getnames()
@@ -263,6 +284,7 @@ def test_backup_uses_a_consistent_snapshot_and_models_only_with_flag(images_env,
 
 
 # --- 模型說明卡 ---
+
 
 def test_model_cards_are_generated_from_registry_and_check_detects_staleness(client, tmp_path, monkeypatch):
     monkeypatch.setattr(model_registry, "ROOT", tmp_path)
@@ -285,7 +307,10 @@ def test_model_cards_are_generated_from_registry_and_check_detects_staleness(cli
         assert section in screw
     assert gen_model_cards.generate(out, check=True) == []
     model_registry.register_version("anomaly-screw", weights, {"image_auroc": 0.97}, "重擬合", activate=True)
-    assert sorted(p.name for p in gen_model_cards.generate(out, check=True)) == ["README.md", "anomaly-screw.md"]  # 沒動的卡不算過期
+    assert sorted(p.name for p in gen_model_cards.generate(out, check=True)) == [
+        "README.md",
+        "anomaly-screw.md",
+    ]  # 沒動的卡不算過期
 
 
 def test_no_metrics_are_invented_for_models_without_a_source(client, tmp_path, monkeypatch):

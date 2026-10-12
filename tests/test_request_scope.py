@@ -17,8 +17,12 @@ def test_assembly_saves_raw_and_golden_and_image_api_serves_both(admin_client, m
     client = admin_client  # 建立黃金樣本需要 admin
     monkeypatch.setenv("SAVE_IMAGES", "true")
     golden = _png(make_samples.make_assembly_scene())
-    client.post("/api/assembly/golden-samples", params={"part_no": "p1"},
-                data={"rois": json.dumps(make_samples.ASSEMBLY_ROIS)}, files={"file": ("g.png", golden, "image/png")})
+    client.post(
+        "/api/assembly/golden-samples",
+        params={"part_no": "p1"},
+        data={"rois": json.dumps(make_samples.ASSEMBLY_ROIS)},
+        files={"file": ("g.png", golden, "image/png")},
+    )
     target = _png(make_samples.make_assembly_scene(missing_index=2))
     res = client.post("/api/assembly/inspect?part_no=p1", files={"file": ("t.png", target, "image/png")})
     inspection_id = res.json()["inspection_id"]
@@ -30,7 +34,7 @@ def test_assembly_saves_raw_and_golden_and_image_api_serves_both(admin_client, m
     raw = client.get(f"/api/inspections/{inspection_id}/image", params={"kind": "raw"})
     golden_res = client.get(f"/api/inspections/{inspection_id}/image", params={"kind": "golden"})
     assert raw.status_code == golden_res.status_code == 200
-    assert raw.content == target       # 存下來的是待測照片
+    assert raw.content == target  # 存下來的是待測照片
     assert golden_res.content == golden  # 與黃金樣本，兩張不同
 
     bad = client.get(f"/api/inspections/{inspection_id}/image", params={"kind": "nonsense"})
@@ -45,10 +49,13 @@ def test_single_image_modules_have_no_extra_images(client, fake_llm, warning_sig
 
 def test_batch_each_image_keeps_its_own_raw(client, fake_llm, warning_sign_png, blank_png):
     """批次逐張處理：每筆紀錄存的都是自己那張，不會沿用上一張的圖。"""
-    body = client.post("/api/batch/general", files=[
-        ("files", ("a.png", warning_sign_png, "image/png")),
-        ("files", ("b.png", blank_png, "image/png")),
-    ]).json()
+    body = client.post(
+        "/api/batch/general",
+        files=[
+            ("files", ("a.png", warning_sign_png, "image/png")),
+            ("files", ("b.png", blank_png, "image/png")),
+        ],
+    ).json()
     ids = [r["result"]["inspection_id"] for r in body["results"]]
     contents = [client.get(f"/api/inspections/{i}/image", params={"kind": "raw"}).content for i in ids]
     assert contents == [warning_sign_png, blank_png]
@@ -56,15 +63,19 @@ def test_batch_each_image_keeps_its_own_raw(client, fake_llm, warning_sign_png, 
 
 def test_request_id_header_db_column_csv_and_log(client, fake_llm, warning_sign_png, caplog):
     with caplog.at_level(logging.INFO, logger="vision.http"):
-        res = client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")},
-                          headers={"X-Request-ID": "req-abc-123"})
+        res = client.post(
+            "/api/general/describe",
+            files={"file": ("s.png", warning_sign_png, "image/png")},
+            headers={"X-Request-ID": "req-abc-123"},
+        )
     assert res.headers["X-Request-ID"] == "req-abc-123"
     record = client.get(f"/api/inspections/{res.json()['inspection_id']}").json()
     assert record["request_id"] == "req-abc-123"
     header = client.get("/api/inspections/export.csv").text.splitlines()[0].split(",")
     assert header[-3:] == ["request_id", "model_id", "model_version"]  # 新欄位一律追加在最後，不打亂既有欄位順序
-    assert any("path=/api/general/describe" in r.getMessage() and "status=200" in r.getMessage()
-               for r in caplog.records)
+    assert any(
+        "path=/api/general/describe" in r.getMessage() and "status=200" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_request_id_generated_when_missing_or_malformed_and_present_on_401(client, warning_sign_png):

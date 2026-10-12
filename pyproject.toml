@@ -14,3 +14,5 @@ extend-exclude = ["venv", "data", "models", "runs", "docs/erp-integration-sample
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+# 過長的中文字串與註解不折行（程式碼寬度由 ruff format 負責）
+ignore = ["E501"]

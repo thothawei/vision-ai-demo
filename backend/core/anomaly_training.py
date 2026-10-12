@@ -107,7 +107,9 @@ def _safe_extract_images(zf: zipfile.ZipFile, dest: Path) -> list[Path]:
     return extracted
 
 
-def enqueue_category(name: str, good_zip_bytes: bytes, defect_zip_bytes: bytes | None, created_by: str | None = None) -> dict:
+def enqueue_category(
+    name: str, good_zip_bytes: bytes, defect_zip_bytes: bytes | None, created_by: str | None = None
+) -> dict:
     if not name or not all(c.isalnum() or c in "_-" for c in name):
         raise ModuleError("類別名稱只能是英數字、底線、連字號", 400)
     if name in BUILTIN_CATEGORIES:
@@ -192,7 +194,9 @@ def _run_fit(name: str) -> None:
     category_dir = CUSTOM_DATA_DIR / name
     good_paths = sorted(p for p in (category_dir / "good").glob("*") if p.suffix.lower() in IMAGE_EXTS)
     defect_dir = category_dir / "defect"
-    defect_paths = sorted(p for p in defect_dir.glob("*") if p.suffix.lower() in IMAGE_EXTS) if defect_dir.exists() else []
+    defect_paths = (
+        sorted(p for p in defect_dir.glob("*") if p.suffix.lower() in IMAGE_EXTS) if defect_dir.exists() else []
+    )
 
     # 每次擬合都寫進新的版本資料夾（不覆寫舊版本），完成後登錄並啟用；失敗就清掉半成品
     from core import model_registry
@@ -204,8 +208,14 @@ def _run_fit(name: str) -> None:
         weights = root / "weights" / "torch" / "model.pt"
         metrics = json.loads((root / "metrics.json").read_text()) if (root / "metrics.json").exists() else {}
         model_registry.register_version(
-            model_id, weights, metrics, f"自訂類別擬合（良品 {len(good_paths)} 張、NG {len(defect_paths)} 張）",
-            "system:fit", activate=True, version=version)
+            model_id,
+            weights,
+            metrics,
+            f"自訂類別擬合（良品 {len(good_paths)} 張、NG {len(defect_paths)} 張）",
+            "system:fit",
+            activate=True,
+            version=version,
+        )
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise
@@ -268,14 +278,25 @@ def recover() -> dict:
     interrupted = [j for j in jobs.recover_interrupted() if j["kind"] == JOB_KIND]
     for job in interrupted:
         name = job["payload"]["name"]
-        _update_entry(name, status="interrupted", error=jobs.INTERRUPTED_MESSAGE,
-                      finished_at=datetime.now().isoformat(timespec="seconds"), job_id=job["id"])
-    live = {j["payload"].get("name") for j in jobs.list_jobs(JOB_KIND, limit=10_000) if j["status"] in ("queued", "running")}
+        _update_entry(
+            name,
+            status="interrupted",
+            error=jobs.INTERRUPTED_MESSAGE,
+            finished_at=datetime.now().isoformat(timespec="seconds"),
+            job_id=job["id"],
+        )
+    live = {
+        j["payload"].get("name") for j in jobs.list_jobs(JOB_KIND, limit=10_000) if j["status"] in ("queued", "running")
+    }
     orphaned = []
     for entry in list_custom_categories():
         if entry.get("status") in ("queued", "fitting") and entry["name"] not in live:
-            _update_entry(entry["name"], status="interrupted", error="服務重啟前中斷（沒有對應的工作紀錄），請重新上傳",
-                          finished_at=datetime.now().isoformat(timespec="seconds"))
+            _update_entry(
+                entry["name"],
+                status="interrupted",
+                error="服務重啟前中斷（沒有對應的工作紀錄），請重新上傳",
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+            )
             orphaned.append(entry["name"])
     if interrupted or orphaned:
         logger.warning("擬合工作重啟後恢復 interrupted=%s orphaned=%s", [j["id"] for j in interrupted], orphaned)

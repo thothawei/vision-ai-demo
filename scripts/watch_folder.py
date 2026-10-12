@@ -45,8 +45,11 @@ ACTION_URLS = {
 }
 
 TRACE_HEADER_MAP = {
-    "work_order": "X-Work-Order", "part_no": "X-Part-No", "lot_no": "X-Lot-No",
-    "station": "X-Station", "operator": "X-Operator",
+    "work_order": "X-Work-Order",
+    "part_no": "X-Part-No",
+    "lot_no": "X-Lot-No",
+    "station": "X-Station",
+    "operator": "X-Operator",
 }
 
 
@@ -106,8 +109,12 @@ def process_one(
     try:
         with open(path, "rb") as f:
             res = client.post(
-                url, params=params, data=data, headers=headers,
-                files={"file": (path.name, f.read(), content_type)}, timeout=60,
+                url,
+                params=params,
+                data=data,
+                headers=headers,
+                files={"file": (path.name, f.read(), content_type)},
+                timeout=60,
             )
     except httpx.HTTPError as e:
         _move_with_log(path, error_dir, f"連線失敗：{e}", ok=False)
@@ -119,7 +126,8 @@ def process_one(
 
     body = res.json()
     _move_with_log(
-        path, done_dir,
+        path,
+        done_dir,
         f"OK inspection_id={body.get('inspection_id')} verdict={body.get('verdict')}",
         ok=True,
     )
@@ -132,8 +140,17 @@ def build_request_context(args) -> tuple[dict, dict, dict]:
         value = getattr(args, key, None)
         if value:
             params[key] = value
-    for key in ("expected_count", "marker_size_mm", "target_length_mm", "target_width_mm",
-                "tolerance_mm", "min_value", "max_value", "min_angle", "max_angle"):
+    for key in (
+        "expected_count",
+        "marker_size_mm",
+        "target_length_mm",
+        "target_width_mm",
+        "tolerance_mm",
+        "min_value",
+        "max_value",
+        "min_angle",
+        "max_angle",
+    ):
         value = getattr(args, key, None)
         if value is not None:
             params[key] = value
@@ -159,8 +176,18 @@ def scan_existing(client, args, in_dir: Path, done_dir: Path, error_dir: Path) -
     params, data, headers = build_request_context(args)
     for path in sorted(in_dir.iterdir()):
         if path.is_file():
-            process_one(client, args.action, path, done_dir, error_dir, params, data, headers,
-                        args.poll_interval, args.stable_checks)
+            process_one(
+                client,
+                args.action,
+                path,
+                done_dir,
+                error_dir,
+                params,
+                data,
+                headers,
+                args.poll_interval,
+                args.stable_checks,
+            )
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -168,8 +195,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action", required=True, choices=sorted(ACTION_URLS), help="要呼叫的辨識動作")
     parser.add_argument("--in", dest="in_dir", required=True, help="監看的資料夾")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--api-key", dest="api_key", default=os.environ.get("WATCH_API_KEY"),
-                        help="X-API-Key（預設讀環境變數 WATCH_API_KEY）")
+    parser.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=os.environ.get("WATCH_API_KEY"),
+        help="X-API-Key（預設讀環境變數 WATCH_API_KEY）",
+    )
     parser.add_argument("--station")
     parser.add_argument("--work-order", dest="work_order")
     parser.add_argument("--part-no", dest="part_no")
@@ -189,7 +220,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-angle", dest="max_angle", type=float)
     parser.add_argument("--poll-interval", type=float, default=0.5, help="檢查檔案大小是否穩定的間隔秒數")
     parser.add_argument("--stable-checks", type=int, default=2, help="連續幾次大小不變才算寫完")
-    parser.add_argument("--once", action="store_true", help="只處理一次目前資料夾裡的檔案，不繼續監看（測試/單次批次用）")
+    parser.add_argument(
+        "--once", action="store_true", help="只處理一次目前資料夾裡的檔案，不繼續監看（測試/單次批次用）"
+    )
     return parser
 
 
@@ -217,8 +250,18 @@ def main() -> None:
         def on_created(self, event):
             if event.is_directory:
                 return
-            process_one(client, args.action, Path(event.src_path), done_dir, error_dir,
-                        params, data, headers, args.poll_interval, args.stable_checks)
+            process_one(
+                client,
+                args.action,
+                Path(event.src_path),
+                done_dir,
+                error_dir,
+                params,
+                data,
+                headers,
+                args.poll_interval,
+                args.stable_checks,
+            )
 
     observer = Observer()
     observer.schedule(InboxHandler(), str(in_dir), recursive=False)

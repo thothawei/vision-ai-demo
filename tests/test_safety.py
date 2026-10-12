@@ -23,8 +23,9 @@ def test_no_zone_is_info(client, fake_person_detector):
 def test_zone_covering_person_is_ng(client, fake_person_detector):
     # 假的人在 [100,100,200,500]，腳底參考點 [150,500]；區域涵蓋左半邊
     zone = "[[0,0],[0.5,0],[0.5,1],[0,1]]"
-    res = client.post("/api/safety/intrusion", data={"zone": zone},
-                      files={"file": ("i.png", _dummy_image_bytes(), "image/png")})
+    res = client.post(
+        "/api/safety/intrusion", data={"zone": zone}, files={"file": ("i.png", _dummy_image_bytes(), "image/png")}
+    )
 
     body = res.json()
     assert body["verdict"] == "NG"
@@ -33,19 +34,24 @@ def test_zone_covering_person_is_ng(client, fake_person_detector):
 
 def test_zone_not_covering_person_is_ok(client, fake_person_detector):
     zone = "[[0.8,0],[1,0],[1,1],[0.8,1]]"
-    res = client.post("/api/safety/intrusion", data={"zone": zone},
-                      files={"file": ("i.png", _dummy_image_bytes(), "image/png")})
+    res = client.post(
+        "/api/safety/intrusion", data={"zone": zone}, files={"file": ("i.png", _dummy_image_bytes(), "image/png")}
+    )
 
     assert res.json()["verdict"] == "OK"
 
 
 def test_invalid_zone_json_rejected(client, fake_person_detector):
-    res = client.post("/api/safety/intrusion", data={"zone": "not json"},
-                      files={"file": ("i.png", _dummy_image_bytes(), "image/png")})
+    res = client.post(
+        "/api/safety/intrusion", data={"zone": "not json"}, files={"file": ("i.png", _dummy_image_bytes(), "image/png")}
+    )
     assert res.status_code == 400
 
 
 def test_zone_needs_at_least_3_points(client, fake_person_detector):
-    res = client.post("/api/safety/intrusion", data={"zone": "[[0,0],[1,1]]"},
-                      files={"file": ("i.png", _dummy_image_bytes(), "image/png")})
+    res = client.post(
+        "/api/safety/intrusion",
+        data={"zone": "[[0,0],[1,1]]"},
+        files={"file": ("i.png", _dummy_image_bytes(), "image/png")},
+    )
     assert res.status_code == 400

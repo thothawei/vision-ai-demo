@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
-
 from core import anomaly_training, audit
 from core.auth import Principal, require_role
 from core.schemas import InspectionResult, ModuleError
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
+
 from modules.anomaly.service import inspect_part, list_all_categories
 
 router = APIRouter(prefix="/api/anomaly", tags=["M3 外觀瑕疵異常檢測"])
@@ -31,12 +31,20 @@ def create_category(
     同時只允許一個擬合工作，其餘排隊；用 GET /categories/{name}/status 查進度。"""
     try:
         result = anomaly_training.enqueue_category(
-            name, good_zip.file.read(), defect_zip.file.read() if defect_zip else None, principal.actor,
+            name,
+            good_zip.file.read(),
+            defect_zip.file.read() if defect_zip else None,
+            principal.actor,
         )
     except ModuleError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
-    audit.record(principal.actor, "anomaly_category.create", "anomaly_category", name,
-                 after={"with_defect_samples": defect_zip is not None})
+    audit.record(
+        principal.actor,
+        "anomaly_category.create",
+        "anomaly_category",
+        name,
+        after={"with_defect_samples": defect_zip is not None},
+    )
     return result
 
 
@@ -72,6 +80,12 @@ def update_threshold(name: str, body: ThresholdRequest, principal: Principal = D
         result = anomaly_training.set_threshold(name, body.threshold)
     except ModuleError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
-    audit.record(principal.actor, "anomaly_threshold.update", "anomaly_category", name,
-                 before={"threshold": old}, after={"threshold": body.threshold})
+    audit.record(
+        principal.actor,
+        "anomaly_threshold.update",
+        "anomaly_category",
+        name,
+        before={"threshold": old},
+        after={"threshold": body.threshold},
+    )
     return result

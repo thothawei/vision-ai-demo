@@ -63,8 +63,8 @@ def main():
     rng.shuffle(pairs)
     splits = {
         "train": pairs[:N_TRAIN],
-        "val": pairs[N_TRAIN:N_TRAIN + N_VAL],
-        "test": pairs[N_TRAIN + N_VAL:],
+        "val": pairs[N_TRAIN : N_TRAIN + N_VAL],
+        "test": pairs[N_TRAIN + N_VAL :],
     }
 
     if OUT_DIR.exists():

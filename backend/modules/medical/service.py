@@ -17,14 +17,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import zxingcpp
-from PIL import Image
-
-from core import code_match, llm
+from core import code_match, llm, model_registry
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
-from core import model_registry
 from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
+from PIL import Image
+
 from modules.codes.service import describe_barcode
 
 PACKAGING_MODULE = "medical_packaging"
@@ -89,9 +88,14 @@ def check_packaging(image_bytes: bytes) -> InspectionResult:
     else:
         verdict = "OK"
     item = {
-        "條碼批號": barcode_batch, "印刷批號": printed_batch, "批號一致": batch_match, "批號比對": batch_level,
+        "條碼批號": barcode_batch,
+        "印刷批號": printed_batch,
+        "批號一致": batch_match,
+        "批號比對": batch_level,
         "待人工確認": needs_review or None,
-        "條碼效期": barcode_expiry, "印刷效期": printed_expiry_raw, "效期一致": expiry_match,
+        "條碼效期": barcode_expiry,
+        "印刷效期": printed_expiry_raw,
+        "效期一致": expiry_match,
         "條碼效期狀態": barcode_item["效期狀態"],
         "問題": mismatches if mismatches else None,
     }
@@ -144,8 +148,10 @@ def _load_cnn(path) -> _SmallCNN:
 
 def _get_model() -> _SmallCNN:
     resolved = model_registry.resolve(
-        PNEUMONIA_MODEL_ID, WEIGHTS_PATH,
-        f"找不到教學展示模型權重 {WEIGHTS_PATH}，請先執行 `python scripts/train_medmnist.py`")
+        PNEUMONIA_MODEL_ID,
+        WEIGHTS_PATH,
+        f"找不到教學展示模型權重 {WEIGHTS_PATH}，請先執行 `python scripts/train_medmnist.py`",
+    )
     return _cache.get(resolved, _load_cnn)
 
 

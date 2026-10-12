@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.measure.service import count_parts, measure_part
 
 router = APIRouter(prefix="/api/measure", tags=["M2 計數與尺寸量測"])

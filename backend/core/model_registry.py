@@ -74,22 +74,31 @@ def _check_id(model_id: str) -> str:
 
 # --- 查詢 ---
 
+
 def list_versions(model_id: str) -> list[dict]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM model_versions WHERE model_id = ? ORDER BY version DESC", (model_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM model_versions WHERE model_id = ? ORDER BY version DESC", (model_id,)
+        ).fetchall()
     return [_version(r) for r in rows]
 
 
 def get_version(model_id: str, version: int) -> dict | None:
     with connect() as conn:
-        return _version(conn.execute("SELECT * FROM model_versions WHERE model_id = ? AND version = ?",
-                                     (model_id, version)).fetchone())
+        return _version(
+            conn.execute(
+                "SELECT * FROM model_versions WHERE model_id = ? AND version = ?", (model_id, version)
+            ).fetchone()
+        )
 
 
 def get_active(model_id: str) -> dict | None:
     with connect() as conn:
-        return _version(conn.execute("SELECT * FROM model_versions WHERE model_id = ? AND status = 'active'",
-                                     (model_id,)).fetchone())
+        return _version(
+            conn.execute(
+                "SELECT * FROM model_versions WHERE model_id = ? AND status = 'active'", (model_id,)
+            ).fetchone()
+        )
 
 
 def list_models() -> list[dict]:
@@ -100,16 +109,26 @@ def list_models() -> list[dict]:
         versions = list_versions(model_id)
         active = next((v for v in versions if v["status"] == "active"), None)
         info = model_catalog.describe(model_id)
-        out.append({"model_id": model_id, "title": info["title"], "active_version": active["version"] if active else None,
-                    "version_count": len(versions), "versions": versions})
+        out.append(
+            {
+                "model_id": model_id,
+                "title": info["title"],
+                "active_version": active["version"] if active else None,
+                "version_count": len(versions),
+                "versions": versions,
+            }
+        )
     return out
 
 
 # --- 登錄與切換 ---
 
+
 def next_version(model_id: str) -> int:
     with connect() as conn:
-        latest = conn.execute("SELECT MAX(version) FROM model_versions WHERE model_id = ?", (model_id,)).fetchone()[0] or 0
+        latest = (
+            conn.execute("SELECT MAX(version) FROM model_versions WHERE model_id = ?", (model_id,)).fetchone()[0] or 0
+        )
     on_disk = [int(p.name[1:]) for p in (REGISTRY_DIR / model_id).glob("v*") if p.name[1:].isdigit()]
     return max([latest, *on_disk]) + 1
 
@@ -123,8 +142,15 @@ def new_version_dir(model_id: str) -> tuple[int, Path]:
     return version, path
 
 
-def register_version(model_id: str, weights_path: Path, metrics: dict | None = None, note: str = "",
-                     registered_by: str = "script", activate: bool = False, version: int | None = None) -> dict:
+def register_version(
+    model_id: str,
+    weights_path: Path,
+    metrics: dict | None = None,
+    note: str = "",
+    registered_by: str = "script",
+    activate: bool = False,
+    version: int | None = None,
+) -> dict:
     _check_id(model_id)
     weights_path = Path(weights_path)
     if not weights_path.is_file():
@@ -135,8 +161,18 @@ def register_version(model_id: str, weights_path: Path, metrics: dict | None = N
         conn.execute(
             "INSERT INTO model_versions (model_id, version, weights_path, sha256, size_bytes, metrics_json, status, note,"
             " registered_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'archived', ?, ?, ?)",
-            (model_id, version, _stored(weights_path), digest, size, json.dumps(metrics or {}, ensure_ascii=False), note,
-             registered_by, datetime.now().isoformat(timespec="seconds")))
+            (
+                model_id,
+                version,
+                _stored(weights_path),
+                digest,
+                size,
+                json.dumps(metrics or {}, ensure_ascii=False),
+                note,
+                registered_by,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
         conn.commit()
     with _verify_lock:
         _verified.add((model_id, version, digest))  # 剛算過雜湊，不必在首次載入時重算
@@ -147,12 +183,22 @@ def register_version(model_id: str, weights_path: Path, metrics: dict | None = N
 def activate_version(model_id: str, version: int) -> tuple[dict | None, dict]:
     """把指定版本設為啟用（原本啟用的改 archived）。回傳 (原本啟用的版本, 新啟用的版本)。"""
     with connect() as conn:
-        target = conn.execute("SELECT 1 FROM model_versions WHERE model_id = ? AND version = ?", (model_id, version)).fetchone()
+        target = conn.execute(
+            "SELECT 1 FROM model_versions WHERE model_id = ? AND version = ?", (model_id, version)
+        ).fetchone()
         if target is None:
             raise LookupError(f"找不到模型 {model_id} 的版本 v{version}")
-        previous = _version(conn.execute("SELECT * FROM model_versions WHERE model_id = ? AND status = 'active'", (model_id,)).fetchone())
-        conn.execute("UPDATE model_versions SET status = 'archived' WHERE model_id = ? AND status = 'active'", (model_id,))
-        conn.execute("UPDATE model_versions SET status = 'active' WHERE model_id = ? AND version = ?", (model_id, version))
+        previous = _version(
+            conn.execute(
+                "SELECT * FROM model_versions WHERE model_id = ? AND status = 'active'", (model_id,)
+            ).fetchone()
+        )
+        conn.execute(
+            "UPDATE model_versions SET status = 'archived' WHERE model_id = ? AND status = 'active'", (model_id,)
+        )
+        conn.execute(
+            "UPDATE model_versions SET status = 'active' WHERE model_id = ? AND version = ?", (model_id, version)
+        )
         conn.commit()
     logger.info("模型啟用版本切換 model=%s from=%s to=%s", model_id, previous["version"] if previous else None, version)
     return previous, get_version(model_id, version)
@@ -160,8 +206,12 @@ def activate_version(model_id: str, version: int) -> tuple[dict | None, dict]:
 
 # --- 服務使用 ---
 
+
 def _bootstrap_metrics(model_id: str, path: Path) -> dict:
-    for candidate in (path.parent / "metrics.json", path.parents[2] / "metrics.json" if len(path.parents) > 2 else None):
+    for candidate in (
+        path.parent / "metrics.json",
+        path.parents[2] / "metrics.json" if len(path.parents) > 2 else None,
+    ):
         if candidate and candidate.is_file():
             try:
                 return json.loads(candidate.read_text(encoding="utf-8"))
@@ -177,11 +227,18 @@ def _verify_integrity(model_id: str, entry: dict, path: Path) -> None:
             return
     actual = sha256_file(path)
     if actual != entry["sha256"]:
-        logger.error("權重完整性檢查失敗 model=%s version=%s expected=%s actual=%s", model_id, entry["version"],
-                     entry["sha256"][:12], actual[:12])
+        logger.error(
+            "權重完整性檢查失敗 model=%s version=%s expected=%s actual=%s",
+            model_id,
+            entry["version"],
+            entry["sha256"][:12],
+            actual[:12],
+        )
         raise ModuleError(
             f"模型 {model_id} v{entry['version']} 的權重檔 SHA-256 與登錄不符（檔案被更動或損毀），拒絕載入；"
-            f"請還原原檔，或登錄新版本並切換（登錄 {entry['sha256'][:12]}…，實際 {actual[:12]}…）", 500)
+            f"請還原原檔，或登錄新版本並切換（登錄 {entry['sha256'][:12]}…，實際 {actual[:12]}…）",
+            500,
+        )
     with _verify_lock:
         _verified.add(key)
 
@@ -196,8 +253,14 @@ def resolve(model_id: str, default_path: Path | None, missing_message: str) -> R
         if default_path is None or not Path(default_path).is_file():
             raise ModuleError(missing_message, 503)
         try:
-            register_version(model_id, Path(default_path), _bootstrap_metrics(model_id, Path(default_path)),
-                             "既有權重就地登錄為 v1", "system:bootstrap", activate=True)
+            register_version(
+                model_id,
+                Path(default_path),
+                _bootstrap_metrics(model_id, Path(default_path)),
+                "既有權重就地登錄為 v1",
+                "system:bootstrap",
+                activate=True,
+            )
         except sqlite3.IntegrityError:
             pass  # 同時有另一個請求先登錄了
         entry = get_active(model_id)

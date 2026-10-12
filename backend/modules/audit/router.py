@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends
-
 from core import audit
 from core.auth import require_role
+from fastapi import APIRouter, Depends
 
 router = APIRouter(prefix="/api/audit", tags=["稽核紀錄"], dependencies=[Depends(require_role("admin"))])
 

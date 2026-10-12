@@ -6,11 +6,10 @@
 - `/metrics`（qc 以上或 API key）：Prometheus 文字格式。
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse, Response
-
 from core import anomaly_training, audit, health, jobs, metrics
 from core.auth import Principal, require_login, require_role
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 
 router = APIRouter(tags=["系統"])
 _read = require_role("qc", allow_api_key=True)
@@ -55,7 +54,12 @@ def retry_job(job_id: int, principal: Principal = Depends(require_role("admin"))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     health.clear_cache()
-    audit.record(principal.actor, "job.retry", "job", job_id,
-                 before={"status": before["status"], "attempts": before["attempts"]},
-                 after={"status": updated["status"], "name": updated["payload"].get("name")})
+    audit.record(
+        principal.actor,
+        "job.retry",
+        "job",
+        job_id,
+        before={"status": before["status"], "attempts": before["attempts"]},
+        after={"status": updated["status"], "name": updated["payload"].get("name")},
+    )
     return updated

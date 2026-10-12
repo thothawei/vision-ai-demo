@@ -2,12 +2,11 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
-
 from core import audit, users
 from core.auth import Principal, require_login
 from core.users import AuthError
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/auth", tags=["帳號"])
 logger = logging.getLogger("vision.auth")
@@ -24,8 +23,12 @@ class PasswordChangeRequest(BaseModel):
 
 
 def _me(principal: Principal) -> dict:
-    return {"kind": principal.kind, "username": principal.name, "display_name": principal.display_name,
-            "role": principal.role}
+    return {
+        "kind": principal.kind,
+        "username": principal.name,
+        "display_name": principal.display_name,
+        "role": principal.role,
+    }
 
 
 @router.post("/login")

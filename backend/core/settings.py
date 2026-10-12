@@ -35,9 +35,7 @@ class Settings(BaseSettings):
     golden_samples_dir: Path | None = _f(None, "黃金樣本目錄（預設 data/golden_samples）")
 
     api_keys: str = _f("", "/api/inspections* 的 X-API-Key 白名單，格式 名稱:key,名稱:key；正式環境務必換成隨機字串")
-    cors_origins: str = _f(
-        "http://127.0.0.1:8000,http://localhost:8000", "允許的前端網域（逗號分隔）", apply="restart"
-    )
+    cors_origins: str = _f("http://127.0.0.1:8000,http://localhost:8000", "允許的前端網域（逗號分隔）", apply="restart")
     image_retention_days: int = _f(180, "圖片保存天數（給 scripts/cleanup_images.py 用；有人工複判的圖片預設不清）")
     max_upload_mb: int = _f(20, "單張圖片大小上限（MB），超過回 413")
     max_video_mb: int = _f(200, "影片大小上限（MB）")
@@ -46,7 +44,8 @@ class Settings(BaseSettings):
     log_level: str = _f("INFO", "日誌層級（DEBUG／INFO／WARNING／ERROR）", apply="restart")
 
     session_secret: str | None = _f(
-        None, "登入 session 的簽章密鑰（至少 32 字元，未設定則拒絕啟動）；產生：python -c \"import secrets;print(secrets.token_urlsafe(48))\"",
+        None,
+        '登入 session 的簽章密鑰（至少 32 字元，未設定則拒絕啟動）；產生：python -c "import secrets;print(secrets.token_urlsafe(48))"',
         apply="restart",
     )
     session_hours: int = _f(12, "登入有效時數", apply="restart")

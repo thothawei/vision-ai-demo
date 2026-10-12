@@ -12,11 +12,15 @@ _HTTP_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60
 _INFERENCE_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 60, 120)
 
 HTTP_REQUESTS = Counter("vision_http_requests_total", "HTTP 請求數", ["method", "route", "status"], registry=REGISTRY)
-HTTP_SECONDS = Histogram("vision_http_request_seconds", "HTTP 請求耗時（秒）", ["method", "route"],
-                         buckets=_HTTP_BUCKETS, registry=REGISTRY)
-INSPECTIONS = Counter("vision_inspections_total", "辨識完成筆數（NG 數看 verdict=NG）", ["module", "verdict"], registry=REGISTRY)
-INFERENCE_SECONDS = Histogram("vision_inference_seconds", "各模組辨識耗時（秒）", ["module"],
-                              buckets=_INFERENCE_BUCKETS, registry=REGISTRY)
+HTTP_SECONDS = Histogram(
+    "vision_http_request_seconds", "HTTP 請求耗時（秒）", ["method", "route"], buckets=_HTTP_BUCKETS, registry=REGISTRY
+)
+INSPECTIONS = Counter(
+    "vision_inspections_total", "辨識完成筆數（NG 數看 verdict=NG）", ["module", "verdict"], registry=REGISTRY
+)
+INFERENCE_SECONDS = Histogram(
+    "vision_inference_seconds", "各模組辨識耗時（秒）", ["module"], buckets=_INFERENCE_BUCKETS, registry=REGISTRY
+)
 JOBS = Gauge("vision_jobs", "背景工作數（依狀態）", ["status"], registry=REGISTRY)
 
 

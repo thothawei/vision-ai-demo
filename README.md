@@ -1,5 +1,7 @@
 # 製造業視覺品檢平台（Vision Inspection Platform）
 
+[![CI](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml)
+
 適用於台中／中科製造業常見產線情境：工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
 
 ## 核心能力

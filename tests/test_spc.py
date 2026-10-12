@@ -2,7 +2,6 @@
 數值用手算範例驗證（標準係數表 A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。"""
 
 import pytest
-
 from core import spc
 from core.inspection_log import connect, log_inspection
 
@@ -11,6 +10,7 @@ GROUPS = [9, 10, 11, 12, 13, 10, 11, 12, 13, 14, 8, 9, 10, 11, 12]
 
 
 # --- 純計算 ---
+
 
 def test_xbar_r_limits_and_capability_match_hand_calculation():
     r = spc.xbar_r(GROUPS, 5, lsl=5, usl=16)
@@ -72,6 +72,7 @@ def test_reference_only_flag_needs_25_subgroups():
 
 # --- Western Electric ---
 
+
 def test_rule1_one_point_beyond_3_sigma():
     assert spc.western_electric([0, 0, 3.0, 0], 0, 1) == []  # 剛好 3σ 不算超出
     hits = spc.western_electric([0, 0, 0, -3.5], 0, 1)
@@ -119,6 +120,7 @@ def test_violations_are_reported_on_the_real_charts():
 
 # --- 量測值寫入（record_result 路徑）與 API ---
 
+
 def _log_length(value, target=10.5, tolerance=5.5, station="S1", part="P-1", when=None, **extra):
     item = {"長度mm": value, "寬度mm": 5.0, "孔徑mm": [2.0], "目標長度mm": target, "公差mm": tolerance, **extra}
     inspection_id = log_inspection("measure", "OK", "e", 1, [item], {"part_no": part, "station": station})
@@ -158,8 +160,12 @@ def test_colordiff_gauge_and_sevenseg_measurements(client):
 
 def test_real_measure_endpoint_stores_tolerance_and_measurements(client, admin_client, measure_scene_png_marker):
     png, marker_mm = measure_scene_png_marker
-    res = client.post("/api/measure/measure", params={"marker_size_mm": marker_mm, "target_length_mm": 50, "tolerance_mm": 1.0},
-                      files={"file": ("m.png", png, "image/png")}, headers={"X-Part-No": "SC-1"})
+    res = client.post(
+        "/api/measure/measure",
+        params={"marker_size_mm": marker_mm, "target_length_mm": 50, "tolerance_mm": 1.0},
+        files={"file": ("m.png", png, "image/png")},
+        headers={"X-Part-No": "SC-1"},
+    )
     assert res.json()["items"][0]["公差mm"] == 1.0
     chars = {c["characteristic"]: c for c in admin_client.get("/api/spc/characteristics").json()}
     assert set(chars) == {"長度", "寬度", "孔徑"} and chars["長度"]["has_spec"] and not chars["寬度"]["has_spec"]
@@ -193,19 +199,29 @@ def test_spc_api_seven_points_on_one_side_do_not_trigger_but_eight_do(admin_clie
     _seed_series([10.9])
     eight = admin_client.get("/api/spc", params={"part_no": "P-1", "characteristic": "長度", "chart": "imr"}).json()
     assert [v["position"] for v in eight["violations"] if v["rule"] == 4] == [18]
-    relaxed = admin_client.get("/api/spc", params={"part_no": "P-1", "characteristic": "長度", "chart": "imr", "run_length": 7}).json()
+    relaxed = admin_client.get(
+        "/api/spc", params={"part_no": "P-1", "characteristic": "長度", "chart": "imr", "run_length": 7}
+    ).json()
     assert [v["position"] for v in relaxed["violations"] if v["rule"] == 4] == [17, 18]
 
 
 def test_spc_api_filters_insufficient_data_errors_and_spec_change(admin_client):
     _seed_series(part="P-1", station="S1")
     _seed_series([10, 10], part="P-2", station="S2")
-    assert admin_client.get("/api/spc", params={"part_no": "P-2", "characteristic": "長度"}).json()["insufficient_data"] is True
+    assert (
+        admin_client.get("/api/spc", params={"part_no": "P-2", "characteristic": "長度"}).json()["insufficient_data"]
+        is True
+    )
     nodata = admin_client.get("/api/spc", params={"part_no": "NOPE", "characteristic": "長度"}).json()
     assert nodata["insufficient_data"] and "沒有量測資料" in nodata["message"]
     only_s2 = admin_client.get("/api/spc", params={"characteristic": "長度", "station": "S2", "chart": "imr"}).json()
     assert only_s2["count"] == 2 and only_s2["insufficient_data"]
-    assert admin_client.get("/api/spc", params={"part_no": "P-1", "characteristic": "長度", "from": "2999-01-01"}).json()["count"] == 0
+    assert (
+        admin_client.get("/api/spc", params={"part_no": "P-1", "characteristic": "長度", "from": "2999-01-01"}).json()[
+            "count"
+        ]
+        == 0
+    )
     assert admin_client.get("/api/spc", params={"characteristic": "長度", "chart": "pie"}).status_code == 400
     assert admin_client.get("/api/spc", params={"characteristic": "長度", "subgroup_size": 1}).status_code == 422
     assert admin_client.get("/api/spc").status_code == 422  # 缺 characteristic
@@ -220,7 +236,11 @@ def test_no_part_measurements_are_reachable_via_placeholder(admin_client):
     for v in GROUPS:
         log_inspection("measure", "INFO", "e", 1, [{"長度mm": float(v)}], {})
     chars = admin_client.get("/api/spc/characteristics").json()
-    assert chars[0]["part_no"] == "__none__" and chars[0]["part_label"] == "（未指定料號）" and chars[0]["has_spec"] is False
+    assert (
+        chars[0]["part_no"] == "__none__"
+        and chars[0]["part_label"] == "（未指定料號）"
+        and chars[0]["has_spec"] is False
+    )
     body = admin_client.get("/api/spc", params={"part_no": "__none__", "characteristic": "長度"}).json()
     assert body["count"] == 15 and body["capability"]["cpk"] is None and "沒有規格" in body["capability"]["note"]
 
@@ -233,4 +253,5 @@ def test_spc_permissions(admin_client, qc_client, operator_client, client):
     assert client.get("/api/spc/characteristics").status_code == 200
     assert operator_client.get("/api/spc", params=params).status_code == 403
     from fastapi.testclient import TestClient
+
     assert TestClient(admin_client.app).get("/api/spc", params=params).status_code == 401

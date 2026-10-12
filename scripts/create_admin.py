@@ -19,8 +19,13 @@ from core import audit, users  # noqa: E402
 
 def create_admin(username: str, display_name: str, password: str) -> dict:
     user = users.create_user(username, display_name, password, "admin")
-    audit.record("script:create_admin", "user.create", "user", user["id"],
-                 after={k: user[k] for k in ("username", "display_name", "role", "is_active")})
+    audit.record(
+        "script:create_admin",
+        "user.create",
+        "user",
+        user["id"],
+        after={k: user[k] for k in ("username", "display_name", "role", "is_active")},
+    )
     return user
 
 

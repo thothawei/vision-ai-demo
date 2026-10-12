@@ -1,8 +1,8 @@
 import json
 
+from core.schemas import InspectionResult, ModuleError
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult, ModuleError
 from modules.colordiff.service import DEFAULT_THRESHOLD, check_color_difference
 
 router = APIRouter(prefix="/api/color", tags=["M11 烤漆/陽極色差 ΔE"])

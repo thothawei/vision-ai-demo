@@ -6,9 +6,8 @@ import time
 import zipfile
 
 import pytest
+from core import anomaly_training, jobs
 from fastapi.testclient import TestClient
-
-from core import anomaly_training, audit, jobs
 
 
 def _zip(n=20) -> bytes:
@@ -39,6 +38,7 @@ def _wait(cond, timeout=5.0):
 
 # --- 佇列本身 ---
 
+
 def test_jobs_are_claimed_once_in_fifo_order(client):
     a, b = jobs.create_job("k", {"name": "a"}), jobs.create_job("k", {"name": "b"})
     first, second = jobs.claim_next("k"), jobs.claim_next("k")
@@ -63,7 +63,7 @@ def test_claim_is_atomic_under_concurrent_workers(client):
     claimed, lock = [], threading.Lock()
 
     def worker():
-        while (job := jobs.claim_next("k")):
+        while job := jobs.claim_next("k"):
             with lock:
                 claimed.append(job["id"])
 
@@ -102,12 +102,18 @@ def test_retry_rules(client):
 
 # --- 擬合的整合 ---
 
+
 def test_enqueue_creates_a_persistent_job_and_worker_runs_it(training, monkeypatch):
     ran = []
     monkeypatch.setattr(training, "_run_fit", lambda name: ran.append(name))
     entry = training.enqueue_category("part_a", _zip(), None, "user:admin")
     job = jobs.get_job(entry["job_id"])
-    assert (job["kind"], job["status"], job["payload"], job["created_by"]) == ("anomaly_fit", "queued", {"name": "part_a"}, "user:admin")
+    assert (job["kind"], job["status"], job["payload"], job["created_by"]) == (
+        "anomaly_fit",
+        "queued",
+        {"name": "part_a"},
+        "user:admin",
+    )
     assert entry["status"] == "queued"
     training._run_job(jobs.claim_next(training.JOB_KIND))
     assert ran == ["part_a"] and jobs.get_job(job["id"])["status"] == "done"
@@ -153,7 +159,7 @@ def test_polling_worker_thread_picks_up_queued_work_without_any_in_memory_queue(
 def test_restart_recovery_interrupts_running_keeps_queued_and_flags_orphans(training, monkeypatch):
     monkeypatch.setattr(training, "_run_fit", lambda name: training._update_entry(name, status="done"))
     queued = training.enqueue_category("waiting", _zip(), None)
-    running = training.enqueue_category("midway", _zip(), None)
+    training.enqueue_category("midway", _zip(), None)
     mid_job = jobs.claim_next(training.JOB_KIND, "midway")  # 擬合做到一半…
     training._update_entry("midway", status="fitting")
     training._update_entry("legacy", status="fitting", source="custom")  # Phase 22 之前遺留：狀態檔卡住、沒有工作紀錄
@@ -163,7 +169,10 @@ def test_restart_recovery_interrupts_running_keeps_queued_and_flags_orphans(trai
     assert result == {"interrupted": [mid_job["id"]], "orphaned": ["legacy"]}
     assert training.get_status("midway")["status"] == "interrupted" and "重啟" in training.get_status("midway")["error"]
     assert jobs.get_job(mid_job["id"])["status"] == "interrupted"
-    assert training.get_status("legacy")["status"] == "interrupted" and "重新上傳" in training.get_status("legacy")["error"]
+    assert (
+        training.get_status("legacy")["status"] == "interrupted"
+        and "重新上傳" in training.get_status("legacy")["error"]
+    )
     assert training.get_status("waiting")["status"] == "queued" and jobs.get_job(queued["job_id"])["status"] == "queued"
     assert training.get_status("finished")["status"] == "done"
     assert training.recover() == {"interrupted": [], "orphaned": []}  # 再呼叫一次沒有新的東西要處理（可重複執行）
@@ -190,6 +199,7 @@ def test_lifespan_runs_recovery_and_logs_readiness(training, client, monkeypatch
 
 # --- 重試 API ---
 
+
 def test_retry_api_requeues_reuses_stored_photos_and_audits(training, admin_client, monkeypatch):
     monkeypatch.setattr(training, "_run_fit", lambda name: training._update_entry(name, status="done"))
     entry = training.enqueue_category("part_e", _zip(), None)
@@ -205,7 +215,10 @@ def test_retry_api_requeues_reuses_stored_photos_and_audits(training, admin_clie
     training._run_job(retry_job)
     assert training.get_status("part_e")["status"] == "done"
     entry_log = admin_client.get("/api/audit", params={"action": "job.retry"}).json()[0]
-    assert entry_log["before"]["status"] == "interrupted" and entry_log["after"] == {"status": "queued", "name": "part_e"}
+    assert entry_log["before"]["status"] == "interrupted" and entry_log["after"] == {
+        "status": "queued",
+        "name": "part_e",
+    }
 
 
 def test_retry_api_errors_and_permissions(training, admin_client, qc_client, operator_client, client, monkeypatch):

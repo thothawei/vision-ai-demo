@@ -60,6 +60,7 @@ def make_blank() -> Image.Image:
 
 # ---------- M1 追溯碼 ----------
 
+
 def make_gs1_datamatrix(days_from_today: int) -> tuple[Image.Image, dict]:
     """產生一個 GS1 DataMatrix：(01)GTIN (17)效期 (10)批號 (21)序號。
 
@@ -80,6 +81,7 @@ def make_gs1_datamatrix(days_from_today: int) -> tuple[Image.Image, dict]:
 
 
 # ---------- M2 計數與量測 ----------
+
 
 def make_screws_photo() -> Image.Image:
     """白底黑色圓形零件：6 顆分開 + 2 顆相黏（測試 watershed 分離），給計數模組用。"""
@@ -111,7 +113,7 @@ def make_measure_scene(target_length_mm: float, target_width_mm: float, hole_dia
     canvas_w, canvas_h = 900, 700
     canvas = np.ones((canvas_h, canvas_w, 3), dtype=np.uint8) * 255
     mx, my = 40, 40
-    canvas[my:my + marker_px, mx:mx + marker_px] = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2BGR)
+    canvas[my : my + marker_px, mx : mx + marker_px] = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2BGR)
 
     rect_w = round(target_length_mm * TEST_PX_PER_MM)
     rect_h = round(target_width_mm * TEST_PX_PER_MM)
@@ -192,8 +194,16 @@ def make_nameplate() -> Image.Image:
 
 
 _SEVEN_SEG_MAP = {
-    "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
-    "5": "afgcd", "6": "afgecd", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+    "0": "abcdef",
+    "1": "bc",
+    "2": "abged",
+    "3": "abgcd",
+    "4": "fgbc",
+    "5": "afgcd",
+    "6": "afgecd",
+    "7": "abc",
+    "8": "abcdefg",
+    "9": "abcdfg",
 }
 
 
@@ -208,9 +218,12 @@ def make_seven_segment(digits: str = "235", bg=(10, 10, 10), color=(255, 20, 20)
         segs = _SEVEN_SEG_MAP.get(ch, "")
         y0, my = 30, digit_h // 2
         lines = {
-            "a": [(x, y0), (x + digit_w, y0)], "g": [(x, y0 + my), (x + digit_w, y0 + my)],
-            "d": [(x, y0 + digit_h), (x + digit_w, y0 + digit_h)], "f": [(x, y0), (x, y0 + my)],
-            "e": [(x, y0 + my), (x, y0 + digit_h)], "b": [(x + digit_w, y0), (x + digit_w, y0 + my)],
+            "a": [(x, y0), (x + digit_w, y0)],
+            "g": [(x, y0 + my), (x + digit_w, y0 + my)],
+            "d": [(x, y0 + digit_h), (x + digit_w, y0 + digit_h)],
+            "f": [(x, y0), (x, y0 + my)],
+            "e": [(x, y0 + my), (x, y0 + digit_h)],
+            "b": [(x + digit_w, y0), (x + digit_w, y0 + my)],
             "c": [(x + digit_w, y0 + my), (x + digit_w, y0 + digit_h)],
         }
         for s in segs:
@@ -221,8 +234,10 @@ def make_seven_segment(digits: str = "235", bg=(10, 10, 10), color=(255, 20, 20)
 
 # ---------- M8 醫療包裝檢核 ----------
 
-def make_packaging(days_from_today: int = 200, printed_batch: str | None = None,
-                    printed_expiry: date | None = None) -> Image.Image:
+
+def make_packaging(
+    days_from_today: int = 200, printed_batch: str | None = None, printed_expiry: date | None = None
+) -> Image.Image:
     """GS1 DataMatrix 條碼 + 印刷批號/效期文字。printed_batch/printed_expiry 不給就跟條碼一致，
     給不同的值可以測「條碼跟印刷文字對不上」的案例。
     """
@@ -240,8 +255,9 @@ def make_packaging(days_from_today: int = 200, printed_batch: str | None = None,
     return canvas
 
 
-def make_gauge(min_angle_deg: float = 135, max_angle_deg: float = 45,
-               needle_angle_deg: float = 270, size: int = 400) -> Image.Image:
+def make_gauge(
+    min_angle_deg: float = 135, max_angle_deg: float = 45, needle_angle_deg: float = 270, size: int = 400
+) -> Image.Image:
     """合成指針錶：白底黑框圓 + 紅色指針。角度慣例見 backend/core/gauge.py。"""
     cx, cy, r = size // 2, size // 2, int(size * 0.375)
     canvas = np.ones((size, size, 3), dtype=np.uint8) * 255
@@ -257,8 +273,7 @@ def make_gauge(min_angle_deg: float = 135, max_angle_deg: float = 45,
 
 ASSEMBLY_PART_POSITIONS = [(150, 150), (450, 150), (750, 150), (150, 350), (450, 350), (750, 350)]
 ASSEMBLY_ROIS = [
-    [(cx - 30) / 900, (cy - 30) / 500, (cx + 30) / 900, (cy + 30) / 500]
-    for cx, cy in ASSEMBLY_PART_POSITIONS
+    [(cx - 30) / 900, (cy - 30) / 500, (cx + 30) / 900, (cy + 30) / 500] for cx, cy in ASSEMBLY_PART_POSITIONS
 ]
 
 
@@ -296,6 +311,7 @@ def make_assembly_scene(missing_index: int | None = None, rotated_index: int | N
 
 # ---------- M11 烤漆/陽極色差 ΔE ----------
 
+
 def make_color_chip_scene(standard_rgb: tuple[int, int, int], measured_rgb: tuple[int, int, int]) -> Image.Image:
     """左半「標準色區」、右半「量測區」的純色色塊圖，兩邊 RGB 已知，供 ΔE 計算比對用。"""
     canvas = Image.new("RGB", (600, 300), "white")
@@ -306,6 +322,7 @@ def make_color_chip_scene(standard_rgb: tuple[int, int, int], measured_rgb: tupl
 
 
 # ---------- M12 出貨標籤 vs 工單比對 ----------
+
 
 def make_shipping_label(
     part_no: str = "SC-M6-20",
@@ -359,7 +376,10 @@ if __name__ == "__main__":
         ("packaging_match.png", make_packaging),
         ("assembly_golden.png", make_assembly_scene),
         ("color_chip.png", lambda: make_color_chip_scene((180, 60, 60), (185, 65, 62))),
-        ("shipping_label_mismatch.png", lambda: make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS")),
+        (
+            "shipping_label_mismatch.png",
+            lambda: make_shipping_label(part_no="SC-M6-20", lot_no="LOT2026A", quantity="5000 PCS"),
+        ),
     ]:
         maker().save(SAMPLES_DIR / name)
         print("已產生", SAMPLES_DIR / name)

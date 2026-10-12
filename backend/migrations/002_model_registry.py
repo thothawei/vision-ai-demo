@@ -20,7 +20,9 @@ def upgrade(conn) -> None:
             UNIQUE (model_id, version)
         )""")
     # 每個模型同時只有一個啟用版本，由資料庫保證
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_model ON model_versions(model_id) WHERE status = 'active'")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_model ON model_versions(model_id) WHERE status = 'active'"
+    )
     existing = {row[1] for row in conn.execute("PRAGMA table_info(inspections)").fetchall()}
     if "model_id" not in existing:
         conn.execute("ALTER TABLE inspections ADD COLUMN model_id TEXT")

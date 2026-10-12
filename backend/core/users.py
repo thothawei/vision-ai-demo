@@ -52,8 +52,13 @@ def create_user(username: str, display_name: str, password: str, role: str) -> d
             cur = conn.execute(
                 "INSERT INTO users (username, display_name, password_hash, role, is_active, created_at)"
                 " VALUES (?, ?, ?, ?, 1, ?)",
-                (username, display_name.strip(), _hasher.hash(password), role,
-                 datetime.now().isoformat(timespec="seconds")),
+                (
+                    username,
+                    display_name.strip(),
+                    _hasher.hash(password),
+                    role,
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f"帳號「{username}」已存在")
@@ -94,8 +99,10 @@ def set_active(user_id: int, active: bool) -> dict:
         raise LookupError(f"找不到使用者 id={user_id}")
     _guard_last_admin(user, will_remain_active_admin=active)
     with connect() as conn:
-        conn.execute("UPDATE users SET is_active = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?",
-                     (1 if active else 0, user_id))
+        conn.execute(
+            "UPDATE users SET is_active = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?",
+            (1 if active else 0, user_id),
+        )
         conn.commit()
     return get_user(user_id)
 
@@ -118,8 +125,10 @@ def set_password(user_id: int, password: str) -> None:
     if get_user(user_id) is None:
         raise LookupError(f"找不到使用者 id={user_id}")
     with connect() as conn:
-        conn.execute("UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?",
-                     (_hasher.hash(password), user_id))
+        conn.execute(
+            "UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL WHERE id = ?",
+            (_hasher.hash(password), user_id),
+        )
         conn.commit()
 
 
@@ -152,14 +161,17 @@ def authenticate(username: str, password: str) -> dict:
             if failed >= settings.login_max_failures:
                 locked_until = (now + timedelta(minutes=settings.login_lock_minutes)).isoformat(timespec="seconds")
                 failed = 0
-            conn.execute("UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?",
-                         (failed, locked_until, row["id"]))
+            conn.execute(
+                "UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?", (failed, locked_until, row["id"])
+            )
             conn.commit()
             raise AuthError(LOGIN_FAILED_MESSAGE)
 
         new_hash = _hasher.hash(password) if _hasher.check_needs_rehash(row["password_hash"]) else row["password_hash"]
-        conn.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL, password_hash = ? WHERE id = ?",
-                     (new_hash, row["id"]))
+        conn.execute(
+            "UPDATE users SET failed_attempts = 0, locked_until = NULL, password_hash = ? WHERE id = ?",
+            (new_hash, row["id"]),
+        )
         conn.commit()
     return get_user(row["id"])
 

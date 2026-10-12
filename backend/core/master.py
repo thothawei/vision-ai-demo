@@ -41,6 +41,7 @@ def _part_row(row: sqlite3.Row | None) -> dict | None:
 
 # --- 料號 ---
 
+
 def get_part(part_no: str) -> dict | None:
     with connect() as conn:
         return _part_row(conn.execute("SELECT * FROM parts WHERE part_no = ?", (part_no,)).fetchone())
@@ -52,23 +53,31 @@ def list_parts(active_only: bool = False) -> list[dict]:
         return [_part_row(r) for r in conn.execute(sql).fetchall()]
 
 
-def upsert_part(part_no: str, name: str = "", spec: str = "", customer: str = "", is_active: bool = True) -> tuple[dict, str]:
+def upsert_part(
+    part_no: str, name: str = "", spec: str = "", customer: str = "", is_active: bool = True
+) -> tuple[dict, str]:
     """新增或更新料號；回傳 (料號, 'created'|'updated')。"""
     part_no = _check_code(part_no, "料號")
     now = _now()
     with connect() as conn:
         exists = conn.execute("SELECT 1 FROM parts WHERE part_no = ?", (part_no,)).fetchone()
         if exists:
-            conn.execute("UPDATE parts SET name = ?, spec = ?, customer = ?, is_active = ?, updated_at = ? WHERE part_no = ?",
-                         (name, spec, customer, 1 if is_active else 0, now, part_no))
+            conn.execute(
+                "UPDATE parts SET name = ?, spec = ?, customer = ?, is_active = ?, updated_at = ? WHERE part_no = ?",
+                (name, spec, customer, 1 if is_active else 0, now, part_no),
+            )
         else:
-            conn.execute("INSERT INTO parts (part_no, name, spec, customer, is_active, created_at, updated_at)"
-                         " VALUES (?, ?, ?, ?, ?, ?, ?)", (part_no, name, spec, customer, 1 if is_active else 0, now, now))
+            conn.execute(
+                "INSERT INTO parts (part_no, name, spec, customer, is_active, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (part_no, name, spec, customer, 1 if is_active else 0, now, now),
+            )
         conn.commit()
     return get_part(part_no), "updated" if exists else "created"
 
 
 # --- 工單 ---
+
 
 def get_work_order(work_order_no: str) -> dict | None:
     with connect() as conn:
@@ -91,8 +100,13 @@ def list_work_orders(open_only: bool = False, part_no: str | None = None, limit:
 
 
 def upsert_work_order(
-    work_order_no: str, part_no: str, quantity: int = 0, status: str = "planned",
-    start_date: str | None = None, end_date: str | None = None, lot_no: str | None = None,
+    work_order_no: str,
+    part_no: str,
+    quantity: int = 0,
+    status: str = "planned",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lot_no: str | None = None,
 ) -> tuple[dict, str]:
     work_order_no = _check_code(work_order_no, "工單號")
     part_no = _check_code(part_no, "料號")
@@ -108,13 +122,17 @@ def upsert_work_order(
             raise ValueError(f"料號「{part_no}」不在主檔，請先建立料號")
         exists = conn.execute("SELECT 1 FROM work_orders WHERE work_order_no = ?", (work_order_no,)).fetchone()
         if exists:
-            conn.execute("UPDATE work_orders SET part_no = ?, quantity = ?, status = ?, start_date = ?, end_date = ?,"
-                         " lot_no = ?, updated_at = ? WHERE work_order_no = ?",
-                         (part_no, quantity, status, start_date, end_date, lot_no, now, work_order_no))
+            conn.execute(
+                "UPDATE work_orders SET part_no = ?, quantity = ?, status = ?, start_date = ?, end_date = ?,"
+                " lot_no = ?, updated_at = ? WHERE work_order_no = ?",
+                (part_no, quantity, status, start_date, end_date, lot_no, now, work_order_no),
+            )
         else:
-            conn.execute("INSERT INTO work_orders (work_order_no, part_no, quantity, status, start_date, end_date, lot_no,"
-                         " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                         (work_order_no, part_no, quantity, status, start_date, end_date, lot_no, now, now))
+            conn.execute(
+                "INSERT INTO work_orders (work_order_no, part_no, quantity, status, start_date, end_date, lot_no,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (work_order_no, part_no, quantity, status, start_date, end_date, lot_no, now, now),
+            )
         conn.commit()
     return get_work_order(work_order_no), "updated" if exists else "created"
 

@@ -5,7 +5,6 @@ import sys
 import types
 
 import pytest
-
 from core import model_registry
 from core.schemas import ModuleError
 
@@ -112,6 +111,7 @@ def test_versioned_cache_reloads_when_version_changes(client, registry_dir, tmp_
 
 # --- 與服務、檢驗紀錄整合：登錄第二版 → 切換 → 新紀錄的 model_version 跟著變 ---
 
+
 @pytest.fixture
 def real_defect_service(monkeypatch, registry_dir, tmp_path):
     """用真的登錄流程，只把 YOLO 載入換成假的（記錄載入了哪個檔案）。"""
@@ -145,7 +145,8 @@ def real_defect_service(monkeypatch, registry_dir, tmp_path):
 
 
 def test_switching_active_version_changes_loaded_weights_and_recorded_model_version(
-        real_defect_service, client, admin_client, tmp_path, blank_png):
+    real_defect_service, client, admin_client, tmp_path, blank_png
+):
     import sys
 
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "scripts"))
@@ -182,17 +183,23 @@ def test_models_without_a_model_leave_the_columns_empty(client, admin_client, fa
     assert record["model_id"] is None and record["model_version"] is None
 
 
-def test_batch_records_each_files_own_model_version_and_resets_between_files(client, admin_client, real_defect_service,
-                                                                            blank_png, warning_sign_png):
-    body = client.post("/api/batch/defect", files=[("files", ("a.png", blank_png, "image/png")),
-                                                    ("files", ("b.png", warning_sign_png, "image/png"))]).json()
+def test_batch_records_each_files_own_model_version_and_resets_between_files(
+    client, admin_client, real_defect_service, blank_png, warning_sign_png
+):
+    body = client.post(
+        "/api/batch/defect",
+        files=[("files", ("a.png", blank_png, "image/png")), ("files", ("b.png", warning_sign_png, "image/png"))],
+    ).json()
     for r in body["results"]:
         assert admin_client.get(f"/api/inspections/{r['result']['inspection_id']}").json()["model_version"] == 1
 
 
 # --- API 與權限 ---
 
-def test_models_api_activation_rules_and_audit(client, admin_client, qc_client, operator_client, registry_dir, tmp_path):
+
+def test_models_api_activation_rules_and_audit(
+    client, admin_client, qc_client, operator_client, registry_dir, tmp_path
+):
     a, b = _weights(tmp_path, "a.pt", b"AAA"), _weights(tmp_path, "b.pt", b"BBB")
     model_registry.register_version("m", a, {"acc": 0.9}, activate=True)
     model_registry.register_version("m", b, {"acc": 0.95})
@@ -224,6 +231,7 @@ def test_models_api_activation_rules_and_audit(client, admin_client, qc_client, 
 
 
 # --- 異常檢測：門檻與評分跟版本走 ---
+
 
 @pytest.fixture
 def anomaly_env(monkeypatch, registry_dir, tmp_path):
@@ -283,7 +291,10 @@ def test_each_fit_becomes_a_new_version_and_rollback_restores_its_threshold(anom
     assert [(v["version"], v["status"]) for v in versions] == [(2, "active"), (1, "archived")]
     assert versions[0]["metrics"]["image_auroc"] == 0.92 and versions[1]["metrics"]["image_auroc"] == 0.91
     assert service._load_threshold("cat") == 20.0 and anomaly_training.get_scores("cat")[0]["score"] == 20.0
-    assert anomaly_training.get_status("cat")["model_version"] == 2 and anomaly_training.get_status("cat")["threshold"] == 20.0
+    assert (
+        anomaly_training.get_status("cat")["model_version"] == 2
+        and anomaly_training.get_status("cat")["threshold"] == 20.0
+    )
 
     admin_client.post("/api/models/anomaly-cat/versions/1/activate")  # 回滾：權重、門檻、評分一起回到 v1
     status = admin_client.get("/api/anomaly/categories/cat/status").json()
@@ -291,7 +302,9 @@ def test_each_fit_becomes_a_new_version_and_rollback_restores_its_threshold(anom
     for shown in (status, listed):  # 管理畫面顯示的版本、AUROC、門檻都要以啟用中的 v1 為準，不是最近一次擬合的 v2
         assert (shown["model_version"], shown["image_auroc"], shown["threshold"]) == (1, 0.91, 10.0)
     assert service._load_threshold("cat") == 10.0 and anomaly_training.get_scores("cat")[0]["score"] == 10.0
-    assert (model_registry.REGISTRY_DIR / "anomaly-cat" / "v1" / "weights" / "torch" / "model.pt").read_bytes() == b"weights-1"
+    assert (
+        model_registry.REGISTRY_DIR / "anomaly-cat" / "v1" / "weights" / "torch" / "model.pt"
+    ).read_bytes() == b"weights-1"
 
 
 def test_threshold_change_applies_to_the_active_version_only(anomaly_env, admin_client, monkeypatch):
@@ -346,5 +359,7 @@ def test_legacy_category_folder_is_adopted_as_v1_and_refit_does_not_overwrite_it
 
 def test_anomaly_service_missing_weights_message_is_unchanged(anomaly_env, client, warning_sign_png, monkeypatch):
     monkeypatch.setattr("modules.anomaly.service.CATEGORIES", ["metal_nut", "screw", "tile"])
-    res = client.post("/api/anomaly/inspect", params={"category": "screw"}, files={"file": ("s.png", warning_sign_png, "image/png")})
+    res = client.post(
+        "/api/anomaly/inspect", params={"category": "screw"}, files={"file": ("s.png", warning_sign_png, "image/png")}
+    )
     assert res.status_code == 503 and "train_anomaly.py --category screw" in res.json()["detail"]

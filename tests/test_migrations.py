@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from core import migrations
 from core.inspection_log import connect, query_inspections
 
@@ -29,14 +28,21 @@ CREATE TABLE webhook_queue (
 def _make_phase15_db(path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.executescript(_PHASE15_DDL)
-    conn.execute("INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, work_order, part_no,"
-                 " image_path, review_verdict, reviewer, reviewed_at, review_note) VALUES"
-                 " ('2026-09-20T10:00:00', 'defect', 'NG', 'yolo', 12, ?, 'WO-1', 'P-1', 'images/2026-09-20/1_raw.png',"
-                 " 'OK', '王品檢', '2026-09-21T09:00:00', '誤判')", (json.dumps([{"明細": [{"瑕疵類型": "斷路 open"}]}], ensure_ascii=False),))
-    conn.execute("INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json) VALUES"
-                 " ('2026-09-22T10:00:00', 'codes', 'OK', 'zxing', 3, '[]')")
-    conn.execute("INSERT INTO webhook_queue (inspection_id, payload_json, attempts, created_at, next_retry_at) VALUES"
-                 " (1, '{\"a\": 1}', 2, '2026-09-20T10:00:01', '2026-09-20T10:05:00')")
+    conn.execute(
+        "INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json, work_order, part_no,"
+        " image_path, review_verdict, reviewer, reviewed_at, review_note) VALUES"
+        " ('2026-09-20T10:00:00', 'defect', 'NG', 'yolo', 12, ?, 'WO-1', 'P-1', 'images/2026-09-20/1_raw.png',"
+        " 'OK', '王品檢', '2026-09-21T09:00:00', '誤判')",
+        (json.dumps([{"明細": [{"瑕疵類型": "斷路 open"}]}], ensure_ascii=False),),
+    )
+    conn.execute(
+        "INSERT INTO inspections (created_at, module, verdict, engine, elapsed_ms, summary_json) VALUES"
+        " ('2026-09-22T10:00:00', 'codes', 'OK', 'zxing', 3, '[]')"
+    )
+    conn.execute(
+        "INSERT INTO webhook_queue (inspection_id, payload_json, attempts, created_at, next_retry_at) VALUES"
+        " (1, '{\"a\": 1}', 2, '2026-09-20T10:00:01', '2026-09-20T10:05:00')"
+    )
     conn.commit()
     conn.close()
 
@@ -46,8 +52,20 @@ def test_fresh_database_gets_all_migrations_and_tables(client):
         assert migrations.current_version(conn) == migrations.latest_version() >= 2
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         rows = conn.execute("SELECT version, name FROM schema_version ORDER BY version").fetchall()
-    assert {"inspections", "webhook_queue", "users", "audit_log", "parts", "work_orders", "recipes", "recipe_steps",
-            "inspection_runs", "measurements", "model_versions", "schema_version"} <= names
+    assert {
+        "inspections",
+        "webhook_queue",
+        "users",
+        "audit_log",
+        "parts",
+        "work_orders",
+        "recipes",
+        "recipe_steps",
+        "inspection_runs",
+        "measurements",
+        "model_versions",
+        "schema_version",
+    } <= names
     assert [(r[0], r[1]) for r in rows][:2] == [(1, "baseline"), (2, "model_registry")]
 
 
@@ -61,7 +79,12 @@ def test_phase15_database_migrates_with_all_data_intact(tmp_path, monkeypatch):
     assert len(rows) == 2
     first = rows[1]
     assert (first["module"], first["verdict"], first["work_order"], first["part_no"], first["image_path"]) == (
-        "defect", "NG", "WO-1", "P-1", "images/2026-09-20/1_raw.png")
+        "defect",
+        "NG",
+        "WO-1",
+        "P-1",
+        "images/2026-09-20/1_raw.png",
+    )
     assert (first["review_verdict"], first["reviewer"], first["review_note"]) == ("OK", "王品檢", "誤判")
     assert first["summary"] == [{"明細": [{"瑕疵類型": "斷路 open"}]}]
     # 之後各 Phase 新增的欄位都補上了，舊資料為空
@@ -76,7 +99,9 @@ def test_phase15_database_migrates_with_all_data_intact(tmp_path, monkeypatch):
     # 升級後可以照常寫入新紀錄與統計
     from core.inspection_log import get_stats, log_inspection
 
-    log_inspection("defect", "OK", "yolo", 5, [{"明細": []}], {"part_no": "P-1"}, model_id="pcb-defect", model_version=1)
+    log_inspection(
+        "defect", "OK", "yolo", 5, [{"明細": []}], {"part_no": "P-1"}, model_id="pcb-defect", model_version=1
+    )
     assert get_stats("module")["total"] == 3
 
 
@@ -101,7 +126,9 @@ def test_migrations_run_once_per_database_file_per_process(client, monkeypatch):
 def test_database_newer_than_the_program_is_refused(tmp_path, monkeypatch):
     db = tmp_path / "future.db"
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+    )
     conn.execute("INSERT INTO schema_version VALUES (999, 'from_the_future', '2099-01-01T00:00:00')")
     conn.commit()
     conn.close()

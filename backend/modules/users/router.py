@@ -1,10 +1,9 @@
 """使用者管理（僅 admin，不接受 API key）。所有變更寫稽核，稽核內容不含密碼或雜湊。"""
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-
 from core import audit, users
 from core.auth import Principal, require_role
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/users", tags=["使用者管理"], dependencies=[Depends(require_role("admin"))])
 _admin = require_role("admin")
@@ -53,12 +52,24 @@ def update(user_id: int, body: UpdateUserRequest, principal: Principal = Depends
     try:
         if body.role is not None and body.role != before["role"]:
             users.set_role(user_id, body.role)
-            audit.record(principal.actor, "user.role_change", "user", user_id,
-                         before={"role": before["role"]}, after={"role": body.role})
+            audit.record(
+                principal.actor,
+                "user.role_change",
+                "user",
+                user_id,
+                before={"role": before["role"]},
+                after={"role": body.role},
+            )
         if body.is_active is not None and body.is_active != before["is_active"]:
             users.set_active(user_id, body.is_active)
-            audit.record(principal.actor, "user.enable" if body.is_active else "user.disable", "user", user_id,
-                         before={"is_active": before["is_active"]}, after={"is_active": body.is_active})
+            audit.record(
+                principal.actor,
+                "user.enable" if body.is_active else "user.disable",
+                "user",
+                user_id,
+                before={"is_active": before["is_active"]},
+                after={"is_active": body.is_active},
+            )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return users.get_user(user_id)

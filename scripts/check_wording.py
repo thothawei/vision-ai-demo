@@ -1,4 +1,5 @@
 """掃描全專案是否出現不該出現的定位用語（本專案是正式產品）。有命中就列出並以非 0 結束。"""
+
 import re
 import subprocess
 import sys
@@ -20,7 +21,10 @@ def tracked_files() -> list[Path]:
     # 用 git 列出「已追蹤＋未被忽略的新檔」，自動略過 .gitignore 內容
     out = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.splitlines()
     return [ROOT / p for p in out]
 

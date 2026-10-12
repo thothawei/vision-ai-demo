@@ -3,9 +3,8 @@
 import types
 
 import pytest
-from fastapi.testclient import TestClient
-
 from core import health, model_registry
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
@@ -24,8 +23,13 @@ def weights(tmp_path, monkeypatch):
     from modules.safety import service as safety
 
     root = tmp_path / "w"
-    paths = {"pcb-defect": root / "pcb.pt", "ppe-helmet": root / "ppe.pt", "person-detector": root / "person.pt",
-             "pneumonia-cnn": root / "cnn.pt", "anomaly-screw": root / "anomaly" / "screw" / "weights" / "torch" / "model.pt"}
+    paths = {
+        "pcb-defect": root / "pcb.pt",
+        "ppe-helmet": root / "ppe.pt",
+        "person-detector": root / "person.pt",
+        "pneumonia-cnn": root / "cnn.pt",
+        "anomaly-screw": root / "anomaly" / "screw" / "weights" / "torch" / "model.pt",
+    }
     for path in paths.values():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"w")
@@ -75,15 +79,18 @@ def test_readyz_is_public_returns_only_a_summary_without_paths(client, weights, 
     assert res.status_code == 200
     body = res.json()
     assert body["ready"] is True and body["degraded"] is False and body["unavailable_features"] == 0
-    assert set(body["checks"]) == {"sqlite", "migrations", "llm", "disk", "jobs"} and set(body["checks"].values()) == {"ok"}
+    assert set(body["checks"]) == {"sqlite", "migrations", "llm", "disk", "jobs"} and set(body["checks"].values()) == {
+        "ok"
+    }
     text = res.text
     assert str(tmp_path) not in text and ".pt" not in text and "models/" not in text  # 公開端點不洩漏路徑與細節
 
 
 def test_everything_available_when_weights_and_ollama_are_present(admin_client, weights, ollama_up):
     features = _features(admin_client)
-    assert len(features) == 17 and all(f["available"] for f in features.values()), \
-        [f for f in features.values() if not f["available"]]
+    assert len(features) == 17 and all(f["available"] for f in features.values()), [
+        f for f in features.values() if not f["available"]
+    ]
 
 
 def test_removing_a_weight_file_disables_only_that_feature(admin_client, client, weights, ollama_up, tmp_path):
@@ -224,7 +231,9 @@ def test_sqlite_check_really_detects_a_locked_database(client, tmp_path, monkeyp
 
 
 def test_low_disk_is_a_warning_not_a_failure(admin_client, client, weights, ollama_up, monkeypatch):
-    monkeypatch.setattr(health.shutil, "disk_usage", lambda p: types.SimpleNamespace(total=100 << 30, used=99 << 30, free=200 << 20))
+    monkeypatch.setattr(
+        health.shutil, "disk_usage", lambda p: types.SimpleNamespace(total=100 << 30, used=99 << 30, free=200 << 20)
+    )
     status = admin_client.get("/api/system/status").json()
     assert status["checks"]["disk"]["ok"] is False and status["checks"]["disk"]["warning"] is True
     body = TestClient(client.app).get("/readyz")
@@ -250,7 +259,9 @@ def test_status_is_cached_for_a_few_seconds_and_force_bypasses_it(admin_client, 
     assert len(calls) == 2
 
 
-def test_status_requires_login_but_any_role_can_read_it(admin_client, qc_client, operator_client, client, weights, ollama_up):
+def test_status_requires_login_but_any_role_can_read_it(
+    admin_client, qc_client, operator_client, client, weights, ollama_up
+):
     assert TestClient(client.app).get("/api/system/status").status_code == 401
     for who in (admin_client, qc_client, operator_client, client):
         assert who.get("/api/system/status").status_code == 200  # 導覽灰掉每個角色都要用
@@ -266,7 +277,14 @@ def test_requires_are_expressed_as_model_ids_not_stale_paths():
     from core import registry
 
     tokens = {t for s in registry.all_actions() for t in s.requires}
-    assert tokens == {"llm", "anomaly", "model:pcb-defect", "model:person-detector", "model:ppe-helmet", "model:pneumonia-cnn"}
+    assert tokens == {
+        "llm",
+        "anomaly",
+        "model:pcb-defect",
+        "model:person-detector",
+        "model:ppe-helmet",
+        "model:pneumonia-cnn",
+    }
 
 
 def test_startup_readiness_summary_is_logged_with_reasons(weights, ollama_up, client, caplog):

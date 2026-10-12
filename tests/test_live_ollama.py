@@ -22,8 +22,9 @@ def test_live_general_describe(client, ollama_env, warning_sign_png):
 
 @pytest.mark.parametrize("mode", ["ocr", "end_to_end"])
 def test_live_docs_extract_work_order(client, ollama_env, work_order_png, mode):
-    res = client.post("/api/docs/extract", params={"mode": mode},
-                      files={"file": ("wo.png", work_order_png, "image/png")})
+    res = client.post(
+        "/api/docs/extract", params={"mode": mode}, files={"file": ("wo.png", work_order_png, "image/png")}
+    )
 
     assert res.status_code == 200, res.text
     body = res.json()

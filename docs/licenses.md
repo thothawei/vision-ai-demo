@@ -115,3 +115,10 @@
 - **相容性**：其餘相依（MIT、BSD-3-Clause、Apache-2.0、MIT-CMU）皆可併入 AGPL 專案。不建議改採 MIT／Apache-2.0 釋出，因為與 Ultralytics 的 AGPL 條款不相容；若需非 AGPL 散佈，須改買 Ultralytics Enterprise 授權（付費，本專案不採用）。
 - **權重與資料集**：`models/`、`data/` 不進版控、不隨 repo 散佈。以非商用資料集（MVTec AD：CC BY-NC-SA 4.0）擬合出的權重，**不得用於商業產線**；PneumoniaMNIST（CC BY 4.0）訓練的分類模型僅供技術展示，非醫療診斷用途。正式導入時，異常檢測與監督式模型須以自有資料重新擬合／訓練。
 - **Gemini 免費層（可選備援）**：條款頁（https://ai.google.dev/gemini-api/terms，頁面標示更新日 2026-04-28，查證日 2026-09-29）載明免費服務的輸入與輸出可能被 Google 用於改進產品並由人工審閱。**不可啟用計費帳戶，也不要送出敏感、機密或個資影像**；核心辨識（Ollama）不受影響。
+
+## Phase 23 新增元件與 CI 條款
+
+- **rapidfuzz 3.14.5**：MIT（PyPI 套件中繼資料 `License-Expression: MIT`，2026-10-12 查證）；批號／料號相似度比對。
+- **pytest-cov 7.1.0**：MIT（PyPI 標示，2026-10-12 查證）；只用於 CI 與本機的覆蓋率報告，不進 `backend/requirements.txt`。
+- **ruff 0.17.0**：開發工具（CI 與本機 lint／format），不進執行環境相依。
+- **GitHub Actions**：依 GitHub 官方計費說明（https://docs.github.com/en/billing/concepts/product-billing/github-actions ，2026-10-12 查證）「公開 repo 使用標準 GitHub-hosted runner 免費」；larger runner 另計費。本專案的 workflow 只用 `ubuntu-latest`，不用 larger／self-hosted runner，也不上傳 coverage 到外部服務（只留在 Actions log 與 artifact）。**若 repo 轉為私有，Actions 分鐘數會計入帳號方案額度**，需重新評估。

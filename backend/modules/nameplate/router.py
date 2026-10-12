@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.nameplate.service import read_gauge, read_nameplate, read_seven_segment
 
 router = APIRouter(prefix="/api/nameplate", tags=["M7 銘牌／儀表讀值"])

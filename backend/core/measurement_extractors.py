@@ -10,7 +10,14 @@
 
 
 def _measurement(characteristic, value, unit, lsl=None, usl=None, target=None) -> dict:
-    return {"characteristic": characteristic, "value": float(value), "unit": unit, "lsl": lsl, "usl": usl, "target": target}
+    return {
+        "characteristic": characteristic,
+        "value": float(value),
+        "unit": unit,
+        "lsl": lsl,
+        "usl": usl,
+        "target": target,
+    }
 
 
 def _size(item: dict, name: str, value_key: str, target_key: str) -> dict | None:

@@ -34,29 +34,61 @@ def render_card(model: dict) -> str:
     versions = model["versions"]
     active = next((v for v in versions if v["status"] == "active"), None)
     lines = [
-        f"# {info['title']}（`{model['model_id']}`）", "",
-        "> 本檔由 `scripts/gen_model_cards.py` 依模型登錄表產生，請勿手改；模型或版本異動後重新產生。", "",
-        "## 用途", "", info["task"] or "（尚無說明）", "",
-        "## 目前啟用版本", "",
+        f"# {info['title']}（`{model['model_id']}`）",
+        "",
+        "> 本檔由 `scripts/gen_model_cards.py` 依模型登錄表產生，請勿手改；模型或版本異動後重新產生。",
+        "",
+        "## 用途",
+        "",
+        info["task"] or "（尚無說明）",
+        "",
+        "## 目前啟用版本",
+        "",
     ]
     if active:
-        lines += [f"- 版本：v{active['version']}（登錄於 {active['created_at']}，登錄者 {active['registered_by']}）",
-                  f"- SHA-256：`{active['sha256']}`", f"- 大小：{active['size_bytes']:,} bytes", f"- 備註：{active['note'] or '—'}", ""]
+        lines += [
+            f"- 版本：v{active['version']}（登錄於 {active['created_at']}，登錄者 {active['registered_by']}）",
+            f"- SHA-256：`{active['sha256']}`",
+            f"- 大小：{active['size_bytes']:,} bytes",
+            f"- 備註：{active['note'] or '—'}",
+            "",
+        ]
     else:
         lines += ["沒有啟用中的版本。", ""]
-    lines += ["## 資料集與授權", "", f"- 資料集：{info['dataset'] or '—'}", f"- 授權：{info['dataset_license'] or '—'}", "",
-              "## 指標（啟用版本）", ""]
+    lines += [
+        "## 資料集與授權",
+        "",
+        f"- 資料集：{info['dataset'] or '—'}",
+        f"- 授權：{info['dataset_license'] or '—'}",
+        "",
+        "## 指標（啟用版本）",
+        "",
+    ]
     rows = _metric_rows(active["metrics"]) if active else []
     lines += (["| 指標 | 數值 |", "|---|---|", *rows] if rows else ["尚無機器可讀的指標紀錄。"]) + [""]
-    lines += ["## 版本歷史", "", "| 版本 | 狀態 | 登錄時間 | 登錄者 | SHA-256（前 12 碼） | 備註 |", "|---|---|---|---|---|---|"]
-    lines += [f"| v{v['version']} | {v['status']} | {v['created_at']} | {v['registered_by']} | `{v['sha256'][:12]}` | {v['note'] or '—'} |"
-              for v in versions]
+    lines += [
+        "## 版本歷史",
+        "",
+        "| 版本 | 狀態 | 登錄時間 | 登錄者 | SHA-256（前 12 碼） | 備註 |",
+        "|---|---|---|---|---|---|",
+    ]
+    lines += [
+        f"| v{v['version']} | {v['status']} | {v['created_at']} | {v['registered_by']} | `{v['sha256'][:12]}` | {v['note'] or '—'} |"
+        for v in versions
+    ]
     lines += ["", "## 已知限制", "", info["limitations"] or "—", "", "## 不適用情境", "", info["not_for"] or "—", ""]
     return "\n".join(lines)
 
 
 def render_index(models: list[dict]) -> str:
-    lines = ["# 模型說明卡", "", "由 `scripts/gen_model_cards.py` 產生。", "", "| 模型 | 啟用版本 | 說明卡 |", "|---|---|---|"]
+    lines = [
+        "# 模型說明卡",
+        "",
+        "由 `scripts/gen_model_cards.py` 產生。",
+        "",
+        "| 模型 | 啟用版本 | 說明卡 |",
+        "|---|---|---|",
+    ]
     lines += [f"| {m['title']} | v{m['active_version']} | [{m['model_id']}.md]({m['model_id']}.md) |" for m in models]
     return "\n".join(lines) + "\n"
 
@@ -65,7 +97,11 @@ def generate(out_dir: Path = CARDS_DIR, check: bool = False) -> list[Path]:
     models = model_registry.list_models()
     expected = {f"{m['model_id']}.md": render_card(m) for m in models}
     expected["README.md"] = render_index(models)
-    stale = [n for n, text in expected.items() if not (out_dir / n).exists() or (out_dir / n).read_text(encoding="utf-8") != text]
+    stale = [
+        n
+        for n, text in expected.items()
+        if not (out_dir / n).exists() or (out_dir / n).read_text(encoding="utf-8") != text
+    ]
     if check:
         return [out_dir / n for n in stale]
     out_dir.mkdir(parents=True, exist_ok=True)

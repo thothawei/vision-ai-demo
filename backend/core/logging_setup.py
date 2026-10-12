@@ -19,7 +19,7 @@ class KeyValueFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage().replace('"', "'")
         line = (
-            f'ts={self.formatTime(record, "%Y-%m-%dT%H:%M:%S")} level={record.levelname} '
+            f"ts={self.formatTime(record, '%Y-%m-%dT%H:%M:%S')} level={record.levelname} "
             f'logger={record.name} request_id={record.request_id} msg="{message}"'
         )
         if record.exc_info:
