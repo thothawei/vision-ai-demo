@@ -1,0 +1,24 @@
+{
+  "device": "網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機",
+  "note": "個數為人工目視；螺栓與螺帽彼此靠近但分開擺放，各算一個；two_screws_closeup.jpg 是同一張照片裁出零件區域，未做其他處理",
+  "samples": [
+    {
+      "file": "two_screws.jpg",
+      "expected": {
+        "計數結果": 2
+      }
+    },
+    {
+      "file": "bolts_and_nuts.jpg",
+      "expected": {
+        "計數結果": 10
+      }
+    },
+    {
+      "file": "two_screws_closeup.jpg",
+      "expected": {
+        "計數結果": 2
+      }
+    }
+  ]
+}
