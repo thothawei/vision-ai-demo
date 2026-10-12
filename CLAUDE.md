@@ -57,6 +57,7 @@
 - **健康檢查只做便宜的檢查**（`core/health.py`：檔案存在、Ollama `list()`、資料庫可寫），不載入模型、不重算 SHA-256；結果快取 5 秒。註冊表的 `requires` 只能是 `model:<id>`、`anomaly`、`llm`，新增類型要在 `health._feature_states` 加對應的判斷。公開的 `/readyz` 只能回摘要（不含路徑與細節），明細放在登入後的 `/api/system/status`。
 - **`/metrics` 的標籤一律用路由樣板**（`request.scope["route"].path`），不要用實際網址；測試要用前後差值（指標是整個測試程序共用的累計值）。
 - **手動除錯用的臨時腳本也會連到真實資料庫**：在專案目錄用 `python - <<EOF` 匯入 `core.*` 並呼叫會查資料庫的函式（例如 `metrics.render()`），沒設 `INSPECTION_DB` 就會對真實 `data/inspections.db` 跑 migration；臨時腳本一律先設好三個資料路徑環境變數指到暫存。
+- **七段判讀（`core/seven_segment.py`）不可加「判不出就局部重判／猜一個」的後備**：實測會把暗淡的 3、9、7 讀成 8、8、6，而讀錯比 `?` 危險（`?` 判 NG 交人工，讀錯可能判 OK）。判讀流程假設顯示器近拍、單列、大致直立；回歸測試在 `tests/test_seven_segment_real.py`（含真實照片、深字亮底、線段不相連）。
 - **會刪資料或覆寫資料的腳本預設只預覽**（`cleanup_images.py`、`restore.py` 要 `--apply`／`--yes`；還原不刪舊資料而是改名保留）；備份不含 `.env`，但含密碼雜湊。
 - **量測值抽取在 `core/measurement_extractors.py`**（依 module 的字典，與缺陷抽取規則同型），由 `log_inspection` 在同一個連線寫入 `measurements`；新增可做 SPC 的特性就在那裡加，不要在各模組 service 裡寫。規格上下限只在結果有存目標與公差時才有（舊紀錄沒有公差 → 無規格）；多孔的孔徑刻意不收。
 - **SPC 的數學都在 `core/spc.py`（純 numpy、標準係數表）**，資料存取在 `core/spc_service.py`，測試用手算數值（A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。Western Electric 規則 4 預設 8 點（原始定義；規劃書寫 7 已與使用者確認改 8），`run_length` 可調。

@@ -22,6 +22,17 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # 規劃書 23.1 列出的評估模組；M12 = shipping
 MODULES = ["count", "measure", "seven_segment", "gauge", "assembly", "colordiff", "shipping"]
 PENDING = "待補真實照片"
+# 演算法改動前後的數字（改完重跑要保留前後，不覆蓋）
+HISTORY = [
+    (
+        "2026-10-12",
+        "seven_segment",
+        "0/8",
+        "5/8",
+        "重寫判讀流程：兩種極性都試、分組（線段不相連）、覆蓋率判斷、較嚴格的門檻對付光暈。仍失敗的 3 張：計數器近拍"
+        "（3 個暗淡數字標成 ?，整體判 NG 交人工，沒有讀錯）、兩張完整場景照（顯示器只占畫面一小塊，須近拍）。",
+    ),
+]
 
 
 def _isolate_data(tmp: Path) -> None:
@@ -110,6 +121,8 @@ def render(results: dict[str, dict]) -> str:
         lines.append(
             f"| {action} | 真實照片實測 | {r['total']} | {r['passed']} | {r['passed'] / r['total']:.0%} | {err} | {sec} | {r['device']} |"
         )
+    lines += ["", "## 演算法改動紀錄", "", "| 日期 | 模組 | 改動前 | 改動後 | 說明 |", "|---|---|---|---|---|"]
+    lines += [f"| {d} | {m} | {b} | {a} | {note} |" for d, m, b, a, note in HISTORY]
     for action in MODULES:
         r = results[action]
         if r["status"] == "done":
