@@ -4,6 +4,7 @@
     python tests/samples/make_samples.py
 """
 
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -13,7 +14,15 @@ import zxingcpp
 from PIL import Image, ImageDraw, ImageFont
 
 SAMPLES_DIR = Path(__file__).resolve().parent
-CJK_FONT = Path("/System/Library/Fonts/STHeiti Medium.ttc")
+# 中文字型：環境變數 CJK_FONT 優先，其次 macOS，再其次 Linux 的 Noto CJK（CI 安裝 fonts-noto-cjk）
+CJK_FONT_CANDIDATES = [
+    Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+]
+if os.environ.get("CJK_FONT"):
+    CJK_FONT_CANDIDATES.insert(0, Path(os.environ["CJK_FONT"]))
+CJK_FONT = next((p for p in CJK_FONT_CANDIDATES if p.exists()), CJK_FONT_CANDIDATES[0])
 
 WORK_ORDER_LINES = [
     "工單 WORK ORDER",
