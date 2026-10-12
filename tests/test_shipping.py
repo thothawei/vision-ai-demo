@@ -114,3 +114,18 @@ def test_schema_validation_error_is_ng(client, fake_llm_queue):
 def test_empty_file_rejected(client):
     res = client.post("/api/shipping/check-label", files={"file": ("e.png", b"", "image/png")})
     assert res.status_code == 400
+
+
+def test_confusable_lot_no_is_info_for_review_and_different_lot_is_ng(client, fake_llm_queue):
+    # 標籤上 OCR/LLM 讀到 LOT2O26A（字母 O），預期 LOT2026A：疑似 → INFO；完全不同 → NG
+    fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "LOT2O26A"}, "fake:model"))
+    img = make_samples.make_shipping_label(part_no="SC-M6-20", lot_no="LOT2O26A", quantity="5000 PCS")
+    body = _post(client, img, params={"expected_lot_no": "LOT2026A"}).json()
+    item = body["items"][0]
+    assert body["verdict"] == "INFO"
+    assert (item["批號比對"], item["批號一致"], item["待人工確認"], item["問題"]) == ("疑似", None, ["批號"], None)
+
+    fake_llm_queue[0].append(({"料號": "SC-M6-20", "數量": "5000 PCS", "批號": "XYZ-777"}, "fake:model"))
+    img = make_samples.make_shipping_label(part_no="SC-M6-20", lot_no="XYZ-777", quantity="5000 PCS")
+    body = _post(client, img, params={"expected_lot_no": "LOT2026A"}).json()
+    assert (body["verdict"], body["items"][0]["批號比對"]) == ("NG", "不一致")

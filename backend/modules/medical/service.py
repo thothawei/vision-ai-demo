@@ -19,7 +19,7 @@ import torch.nn.functional as F
 import zxingcpp
 from PIL import Image
 
-from core import llm
+from core import code_match, llm
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core import model_registry
@@ -73,27 +73,29 @@ def check_packaging(image_bytes: bytes) -> InspectionResult:
         printed_expiry_raw = (raw.get("效期") or "").strip() or None
         engine = f"zxing-cpp+rapidocr+{llm_engine}"
 
-    batch_match = _compare_batch(barcode_batch, printed_batch)
+    batch_level = code_match.compare_codes(barcode_batch, printed_batch)
+    batch_match = code_match.as_flag(batch_level)
     expiry_match = _compare_expiry(barcode_expiry, printed_expiry_raw)
 
     mismatches = [name for name, ok in [("批號", batch_match), ("效期", expiry_match)] if ok is False]
     if barcode_item["效期狀態"] == "已過期":
         mismatches.append("條碼效期已過期")
+    needs_review = ["批號"] if batch_level == code_match.SUSPECT else []
 
-    verdict = "NG" if mismatches else ("OK" if batch_match and expiry_match else "INFO")
+    if mismatches:
+        verdict = "NG"
+    elif needs_review or batch_match is None or expiry_match is None:
+        verdict = "INFO"
+    else:
+        verdict = "OK"
     item = {
-        "條碼批號": barcode_batch, "印刷批號": printed_batch, "批號一致": batch_match,
+        "條碼批號": barcode_batch, "印刷批號": printed_batch, "批號一致": batch_match, "批號比對": batch_level,
+        "待人工確認": needs_review or None,
         "條碼效期": barcode_expiry, "印刷效期": printed_expiry_raw, "效期一致": expiry_match,
         "條碼效期狀態": barcode_item["效期狀態"],
         "問題": mismatches if mismatches else None,
     }
     return record_result(PACKAGING_MODULE, verdict, [item], engine, started, bgr_to_data_url(bgr))
-
-
-def _compare_batch(barcode_batch: str | None, printed_batch: str | None) -> bool | None:
-    if not barcode_batch or not printed_batch:
-        return None  # 兩邊有一邊沒讀到，沒辦法比對，不是「不一致」
-    return barcode_batch.strip().upper() == printed_batch.strip().upper()
 
 
 def _compare_expiry(barcode_expiry_iso: str | None, printed_expiry_raw: str | None) -> bool | None:

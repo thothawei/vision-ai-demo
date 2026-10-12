@@ -14,7 +14,7 @@ import time
 import zxingcpp
 from pydantic import ValidationError
 
-from core import llm, request_scope
+from core import code_match, llm, request_scope
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
@@ -99,27 +99,31 @@ def check_shipping_label(
     actual_part_no = _normalize_code(label.料號)
     actual_quantity = _extract_int(label.數量)
 
-    part_no_match = _compare(_normalize_code(expected_part_no), actual_part_no)
-    lot_no_match = _compare(_normalize_code(expected_lot_no), actual_lot_no)
+    part_level = code_match.compare_codes(expected_part_no, actual_part_no)
+    lot_level = code_match.compare_codes(expected_lot_no, actual_lot_no)
+    part_no_match, lot_no_match = code_match.as_flag(part_level), code_match.as_flag(lot_level)
     quantity_match = _compare(expected_quantity, actual_quantity)
 
     checks = [("料號", part_no_match), ("批號", lot_no_match), ("數量", quantity_match)]
     mismatches = [name for name, ok in checks if ok is False]
-    any_compared = any(ok is not None for _, ok in checks)
+    needs_review = [name for name, level in [("料號", part_level), ("批號", lot_level)] if level == code_match.SUSPECT]
+    any_compared = any(level is not None for level in (part_level, lot_level, quantity_match))
 
     if mismatches:
         verdict = "NG"
+    elif needs_review:
+        verdict = "INFO"  # 只差在容易混淆的字元，需人工確認
     elif any_compared:
         verdict = "OK"
     else:
         verdict = "INFO"  # 沒有任何預期值可比對（沒帶追溯資訊也沒手動輸入），純粹讀出標籤內容
 
     item = {
-        "標籤料號": label.料號 or None, "預期料號": expected_part_no, "料號一致": part_no_match,
+        "標籤料號": label.料號 or None, "預期料號": expected_part_no, "料號一致": part_no_match, "料號比對": part_level,
         "標籤批號": actual_lot_no, "批號來源": "條碼" if barcode_lot_no else ("OCR" if label.批號 else None),
-        "預期批號": expected_lot_no, "批號一致": lot_no_match,
+        "預期批號": expected_lot_no, "批號一致": lot_no_match, "批號比對": lot_level,
         "標籤數量": actual_quantity, "預期數量": expected_quantity, "數量一致": quantity_match,
-        "問題": mismatches if mismatches else None,
+        "問題": mismatches if mismatches else None, "待人工確認": needs_review or None,
         "_ocr原始文字": ocr_text,
     }
     engine = f"zxing-cpp+rapidocr+{llm_engine}"
