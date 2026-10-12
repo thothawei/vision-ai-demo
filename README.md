@@ -1,8 +1,11 @@
 # 製造業視覺品檢平台（Vision Inspection Platform）
 
 [![CI](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/thothawei/vision-ai-demo)](https://github.com/thothawei/vision-ai-demo/releases/latest)
 
 適用於台中／中科製造業常見產線情境：工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
+
+**目前版本：[v1.0.1](https://github.com/thothawei/vision-ai-demo/releases/tag/v1.0.1)**（[所有版本](https://github.com/thothawei/vision-ai-demo/releases)、[CHANGELOG](CHANGELOG.md)）。請使用 v1.0.1 以上：v1.0.0 的七段顯示器、指針錶、零件計數只用合成圖驗證，真實照片上表現很差，已在 v1.0.1 修正。
 
 ## 核心能力
 
@@ -80,12 +83,12 @@ flowchart LR
 | 製造文件結構化（工單／出貨單／進料檢驗報告有嚴格 schema + 數字來源核對，其餘文件類型自由格式） | RapidOCR + RapidTable + Ollama／Gemini（Tesseract 保留當比較選項） | — |
 | 外觀瑕疵異常檢測（非監督式，只需良品照片） | Anomalib PatchCore | AUROC 0.965-0.999（三類別） |
 | 追溯碼辨識（QR / 條碼 / DataMatrix / GS1 UDI，效期檢核） | zxing-cpp | — |
-| 零件計數（含相黏分離）與尺寸量測（ArUco 透視校正） | OpenCV | 誤差約 1% |
+| 零件計數（含相黏分離）與尺寸量測（ArUco 透視校正） | OpenCV | 量測誤差約 1%（合成場景）；計數在 12 張真實照片上 7 張數對、1 張明確拒絕（見 docs/evaluation.md） |
 | 危險區域入侵偵測（人員偵測 + 前端畫多邊形） | YOLO11n（COCO 預訓練） | — |
 | 安全帽偵測（helmet／head 兩類，無反光背心類別） | YOLO11n（監督式訓練） | mAP50 0.977 |
 | PCB 瑕疵偵測（6 種瑕疵：斷路/短路/缺口/毛刺/多餘銅箔/針孔） | YOLO11n（監督式訓練） | mAP50 0.978 |
 | 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
-| LED/LCD 七段顯示器數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
+| LED/LCD 七段顯示器數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對；真實照片 5/8（須近拍顯示器） |
 | 指針錶讀值（指針角度偵測 → 讀值換算） | OpenCV（HoughCircles + 局部色差前景 + HoughLinesP） | 6 個測試角度誤差 <5%；真實照片 6/6（見 docs/evaluation.md） |
 | 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，批號三級容錯：一致/疑似/不一致） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
@@ -326,7 +329,7 @@ python scripts/evaluate.py --all        # 真實照片評估集（tests/real_sam
 - **M5 PPE 只有兩類（helmet/head）**：Hard Hat Workers 資料集本身沒有反光背心類別，是資料集限制。
 - **M5 危險區域入侵短影片抽幀**：只做逐幀「抽樣」偵測，不是每一幀都跑；抽樣間隔跟人員移動速度沒配合校準，快速移動的人可能剛好避開取樣時間點沒被抓到。
 - **YOLO 監督式訓練耗時差異大**：M6（1000 張）32 分鐘，M5 PPE（5297 張）在 MPS 上要 4.15 小時；`project` 參數務必用絕對路徑，否則權重會存到意外的位置（見上方安裝步驟）。
-- **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；只在合成測試圖驗證過，真實照片的反光/模糊/歪斜可能影響準確度。
+- **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；v1.0.1 起針對真實照片重寫（LCD、線段不相連的 LED、光暈），真實照片 5/8，顯示器須近拍，反光/模糊/明顯傾斜仍會影響準確度。
 - **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
 - **M8-2 分類準確度**：測試集 ACC=0.8862、AUC=0.9346，normal 召回率只有 74.8%（約每 4 張正常片有 1 張被誤判），這是小型教學用 CNN 的真實表現，不是接近完美的模型——這正是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
 - **M8-1 包裝與 M12 出貨標籤的批號／料號比對是三級判定**：只差在容易混淆的字元（O↔0、I↔1↔L、S↔5、B↔8、Z↔2）或相似度 ≥ 90 判「疑似」（INFO，需人工確認），其餘不同判 NG。相似度門檻是經驗值，長度 10 的代碼差一個字元剛好落在邊界，導入時請用自家批號格式檢視；短代碼差一個字元（如 LOT001／LOT002）一律判 NG。
@@ -344,7 +347,7 @@ python scripts/evaluate.py --all        # 真實照片評估集（tests/real_sam
 - **`export_reviewed.py` 匯出的標註是 AI 當時的預測，不是保證正確的標註**：一定要經過人工在 Label Studio／CVAT 校正過才能拿去重訓，直接拿去訓練會讓模型學到自己的錯誤。
 - **M10 組裝防呆的 ROI 比對是 SSIM，只看「有沒有差異」不看「差異是什麼」**：能分辨「缺件」跟「零件裝反」，但沒辦法講出具體是哪種異常；對齊失敗（特徵配對不足或 RANSAC inlier 比例太低）會誠實回傳 `INFO`，不會硬猜 OK/NG。
 - **M11 色差 ΔE 的門檻預設 3.0**：CIEDE2000 業界常見「肉眼可辨但不算嚴重」的邊界，實際產線公差需要依材質/客戶要求調整；同一張照片的標準色區與量測區要在相近光源下拍攝，光源色溫差異會讓 ΔE 失真。
-- **七段顯示器、指針錶、零件計數用真實照片實測表現很差**：Wikimedia Commons 的公開照片（七段 8 張、計數 3 張、指針錶 3 張）上，七段 5/8（須近拍顯示器，重寫前 0/8）、指針錶 6/6（重寫前 2/6，留出照片 3/3）、零件計數 7/12 另有 1 張明確拒絕（重寫前 1/12；疊壓的零件堆、近似色背景、嵌套的環仍會數錯）（見 `docs/evaluation.md`）；合成圖上的好結果不代表真實準確度，導入前請用自家設備的照片評估。M2 尺寸量測、M10、M11、M12 找不到合用的公開照片，仍是「待補真實照片」。
+- **七段顯示器、指針錶、零件計數的真實照片評估（v1.0.1 已改善，仍不穩定）**：Wikimedia Commons 的公開照片（七段 8 張、計數 3 張、指針錶 3 張）上，七段 5/8（須近拍顯示器，重寫前 0/8）、指針錶 6/6（重寫前 2/6，留出照片 3/3）、零件計數 7/12 另有 1 張明確拒絕（重寫前 1/12；疊壓的零件堆、近似色背景、嵌套的環仍會數錯）（見 `docs/evaluation.md`）；合成圖上的好結果不代表真實準確度，導入前請用自家設備的照片評估。M2 尺寸量測、M10、M11、M12 找不到合用的公開照片，仍是「待補真實照片」。
 - **M12 出貨標籤比對只信任條碼的批號欄位**：料號/數量沒有 GS1 標準對應欄位可以從條碼可靠讀出，一律用 OCR+LLM 讀印刷文字，如果印刷字模糊/字體特殊可能讀錯，需要人工核對「問題」欄位。
 
 ## 專案結構
