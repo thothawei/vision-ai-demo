@@ -22,6 +22,22 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # 規劃書 23.1 列出的評估模組；M12 = shipping
 MODULES = ["count", "measure", "seven_segment", "gauge", "assembly", "colordiff", "shipping"]
 PENDING = "待補真實照片"
+PENDING_NOTES = {
+    "measure": "公開網路上找不到「ArUco 標記＋已知尺寸工件」的照片；拍攝與標註流程見 tests/real_samples/measure/README.md",
+}
+# 合成壓力測試（不是真實照片）：改動前後的數字，見 tests/test_measure_stress.py
+STRESS = {
+    "measure": [
+        ("光照漸變（左暗右亮）", "130.1×128.0（錯）", "50.6×20.3"),
+        ("灰色背景＋淺灰工件", "130.0×130.0（錯）", "50.6×20.3"),
+        ("灰色背景＋亮工件", "130.1×130.1（錯）", "50.6×20.3"),
+        ("大工件 150×40 mm（標記 30 mm）", "59.5×40.5（無聲截斷）", "150.3×40.2"),
+        ("大工件 100×60 mm", "60.7×59.5（無聲截斷）", "100.2×60.2"),
+        ("整張旋轉 15°", "52.5×20.8", "50.8×20.4"),
+        ("基準（正視、白底）", "50.6×20.3", "50.2×20.2"),
+        ("工件被畫面截掉一部分", "回報偏小的數字", "422 拒絕並說明"),
+    ],
+}
 # 演算法改動前後的數字（改完重跑要保留前後，不覆蓋）
 HISTORY = [
     (
@@ -123,13 +139,27 @@ def render(results: dict[str, dict]) -> str:
     for action in MODULES:
         r = results[action]
         if r["status"] == "pending":
-            lines.append(f"| {action} | {PENDING}（{r['reason']}） | — | — | — | — | — | — |")
+            reason = PENDING_NOTES.get(action, r["reason"])
+            lines.append(f"| {action} | {PENDING}（{reason}） | — | — | — | — | — | — |")
             continue
         err = f"{r['mean_abs_error']:.3f}" if r["mean_abs_error"] is not None else "—"
         sec = f"{r['mean_seconds']:.2f} 秒" if r["mean_seconds"] is not None else "—"
         lines.append(
             f"| {action} | 真實照片實測 | {r['total']} | {r['passed']} | {r['passed'] / r['total']:.0%} | {err} | {sec} | {r['device']} |"
         )
+    lines += [
+        "",
+        "## 合成壓力測試（**不是真實照片**）",
+        "",
+        "沒有真實照片的模組，用合成場景加上真實拍攝常見的退化（透視、旋轉、噪點、模糊、JPEG、光照漸變、灰色背景、"
+        "大工件）檢查會不會出大錯；這只能抓出明顯的缺陷，**不能代表真實照片的準確度**。",
+        "",
+        "### measure（尺寸量測，標記 30 mm，真值 50×20 mm／150×40 mm／100×60 mm）",
+        "",
+        "| 情境 | 改動前 長×寬 mm | 改動後 長×寬 mm |",
+        "|---|---|---|",
+    ]
+    lines += [f"| {c} | {b} | {a} |" for c, b, a in STRESS["measure"]]
     lines += ["", "## 演算法改動紀錄", "", "| 日期 | 模組 | 改動前 | 改動後 | 說明 |", "|---|---|---|---|---|"]
     lines += [f"| {d} | {m} | {b} | {a} | {note} |" for d, m, b, a, note in HISTORY]
     for action in MODULES:

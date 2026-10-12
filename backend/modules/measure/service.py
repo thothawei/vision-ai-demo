@@ -246,6 +246,13 @@ def _binarize_foreground_minority(gray: np.ndarray) -> np.ndarray:
 # ---------- M2-2 量測 ----------
 
 
+def _marker_detector() -> "cv2.aruco.ArucoDetector":
+    """角點做子像素細化：預設只有整數像素精度，標記只有一百多像素寬時，單一角點差 1 像素就會讓比例尺偏約 1%。"""
+    params = cv2.aruco.DetectorParameters()
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    return cv2.aruco.ArucoDetector(ARUCO_DICT, params)
+
+
 def measure_part(
     image_bytes: bytes,
     marker_size_mm: float,
@@ -257,22 +264,27 @@ def measure_part(
     image = load_image(image_bytes)
     bgr = to_bgr(image)
 
-    corners_list, ids, _ = cv2.aruco.ArucoDetector(ARUCO_DICT).detectMarkers(bgr)
+    corners_list, ids, _ = _marker_detector().detectMarkers(bgr)
     if ids is None or len(ids) == 0:
         raise ModuleError("畫面中找不到 ArUco 標記，請用 scripts/make_aruco.py 產生的標記並放進畫面", 422)
 
     marker_corners = corners_list[0][0]  # 只用偵測到的第一個標記當比例尺
-    warped = _rectify_by_marker(bgr, marker_corners, marker_size_mm)
+    warped, valid, px_per_mm, marker_box = _rectify_by_marker(bgr, marker_corners, marker_size_mm)
 
-    contour = _find_workpiece_contour(warped, marker_size_mm)
+    mask = _workpiece_mask(warped, valid, marker_box)
+    contour = _largest_contour(mask)
     if contour is None:
         raise ModuleError("透視校正後找不到標記以外的待測物輪廓，請確認待測物與標記都在畫面中且對比明顯", 422)
+    if _touches_edge(contour, valid):
+        raise ModuleError(
+            "待測物碰到畫面邊緣（只拍到一部分），量到的尺寸會偏小；請讓整個待測物與標記都完整入鏡、四周留一點空白", 422
+        )
 
     rect = cv2.minAreaRect(contour)
     (_, _), (w_px, h_px), _ = rect
-    length_mm, width_mm = sorted((w_px / PX_PER_MM, h_px / PX_PER_MM), reverse=True)
+    length_mm, width_mm = sorted((w_px / px_per_mm, h_px / px_per_mm), reverse=True)
 
-    holes_mm = _measure_holes(warped, contour)
+    holes_mm = _measure_holes(mask, contour, px_per_mm)
 
     item = {
         "長度mm": round(length_mm, 2),
@@ -317,43 +329,115 @@ def measure_part(
     return record_result(MODULE, verdict, [item], "opencv-aruco", started, bgr_to_data_url(annotated))
 
 
+_MAX_CANVAS_PX = 5000  # 校正後畫布的最大邊長（像素）；視野更大時降低解析度
+_MAX_FIELD_MM = 1000.0  # 視野超過這個範圍（極端斜拍，遠處的點被拉到無限遠）就只取標記周圍
+_MIN_COLOR_DIFF = 12.0  # 與背景的 Lab 色差低於這個值不算工件
+
+
 def _rectify_by_marker(bgr: np.ndarray, marker_corners: np.ndarray, marker_size_mm: float):
-    """用標記四角做透視轉換，把整張圖攤平成「PX_PER_MM 像素/mm」的正視圖。"""
-    s = marker_size_mm * PX_PER_MM
-    margin = s * 3  # 標記以外要留夠空間放待測物
-    dst = np.array(
-        [[margin, margin], [margin + s, margin], [margin + s, margin + s], [margin, margin + s]], dtype=np.float32
-    )
-    h_mat = cv2.getPerspectiveTransform(marker_corners.astype(np.float32), dst)
-    canvas_size = round(margin * 2 + s)
-    warped = cv2.warpPerspective(bgr, h_mat, (canvas_size, canvas_size), borderValue=(255, 255, 255))
-    return warped
+    """用標記四角做透視轉換，把整張圖攤平成約 PX_PER_MM 像素/mm 的正視圖。
+
+    畫布依「整張照片攤平後的範圍」決定，不再只涵蓋標記周圍固定幾倍的範圍：舊做法只取標記四周 ±3 個標記邊長，
+    工件比這大時會被無聲截斷，回報一個偏小的尺寸。回傳 (正視圖, 有效區域遮罩, 實際像素/mm, 標記方框)。"""
+    h, w = bgr.shape[:2]
+    image_corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32).reshape(-1, 1, 2)
+
+    def homography(scale: float) -> np.ndarray:
+        s = marker_size_mm * scale
+        dst = np.array([[0, 0], [s, 0], [s, s], [0, s]], dtype=np.float32)
+        return cv2.getPerspectiveTransform(marker_corners.astype(np.float32), dst)
+
+    h0 = homography(1.0)  # 1 像素 = 1 mm 的座標，只用來量範圍
+    pts = cv2.perspectiveTransform(image_corners, h0).reshape(-1, 2)
+    marker_mm = cv2.perspectiveTransform(marker_corners.astype(np.float32).reshape(-1, 1, 2), h0).reshape(-1, 2)
+    if not np.isfinite(pts).all() or np.ptp(pts, axis=0).max() > _MAX_FIELD_MM:
+        center = marker_mm.mean(axis=0)
+        lo, hi = center - _MAX_FIELD_MM / 2, center + _MAX_FIELD_MM / 2
+    else:
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+    extent_mm = float((hi - lo).max())
+    scale = min(float(PX_PER_MM), _MAX_CANVAS_PX / max(extent_mm, 1.0))
+
+    shift = np.array([[1, 0, -lo[0] * scale], [0, 1, -lo[1] * scale], [0, 0, 1]], dtype=np.float64)
+    h_mat = shift @ homography(scale)
+    size = (int(np.ceil((hi[0] - lo[0]) * scale)), int(np.ceil((hi[1] - lo[1]) * scale)))
+    warped = cv2.warpPerspective(bgr, h_mat, size, borderValue=(0, 0, 0))
+    valid = cv2.warpPerspective(np.full((h, w), 255, np.uint8), h_mat, size, flags=cv2.INTER_NEAREST)
+    valid = cv2.erode(valid, np.ones((5, 5), np.uint8)) > 0  # 邊緣的內插像素不算
+
+    box = cv2.perspectiveTransform(marker_corners.astype(np.float32).reshape(-1, 1, 2), h_mat).reshape(-1, 2)
+    marker_box = (int(box[:, 0].min()), int(box[:, 1].min()), int(box[:, 0].max()), int(box[:, 1].max()))
+    return warped, valid, scale, marker_box
 
 
-def _find_workpiece_contour(warped: np.ndarray, marker_size_mm: float):
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    binary = _binarize_foreground_minority(gray)
+def _background_plane(lab: np.ndarray, band: np.ndarray) -> np.ndarray:
+    """背景顏色的平滑模型：用有效區域邊緣帶的像素擬合每個 Lab 通道的平面（一次函數）。照片常有光照漸變（一側較暗），
+    單一背景色會把暗的那一半整片當成工件。只用一次函數：高次曲面外推到沒有樣本的地方會失控。
+    擬合兩輪，第二輪丟掉殘差大的點（碰到邊緣的工件）。"""
+    h, w = band.shape
+    ys, xs = np.nonzero(band)
+    if len(xs) > 6000:
+        pick = np.random.default_rng(0).choice(len(xs), 6000, replace=False)
+        ys, xs = ys[pick], xs[pick]
 
-    # 挖掉標記本身所在區域（黑白格紋會被誤判成前景），只留下標記外的東西
-    s = marker_size_mm * PX_PER_MM
-    margin = s * 3
-    mask = np.ones(binary.shape, dtype=np.uint8) * 255
-    cv2.rectangle(mask, (round(margin) - 5, round(margin) - 5), (round(margin + s) + 5, round(margin + s) + 5), 0, -1)
-    binary = cv2.bitwise_and(binary, mask)
+    def design(x, y):
+        return np.stack([np.ones_like(x), x / w - 0.5, y / h - 0.5], axis=-1)
 
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-    return max(contours, key=cv2.contourArea)
+    a = design(xs.astype(np.float32), ys.astype(np.float32))
+    target = lab[ys, xs]
+    keep = np.ones(len(xs), bool)
+    coef = np.zeros((3, 3))
+    for _ in range(2):
+        coef, *_ = np.linalg.lstsq(a[keep], target[keep], rcond=None)
+        residual = np.linalg.norm(a @ coef - target, axis=1)
+        keep = residual < max(8.0, 3 * float(np.median(residual)))
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    return (design(xx, yy) @ coef).astype(np.float32)
 
 
-def _measure_holes(warped: np.ndarray, workpiece_contour) -> list[float]:
+def _workpiece_mask(warped: np.ndarray, valid: np.ndarray, marker_box: tuple[int, int, int, int]) -> np.ndarray:
+    """標記以外、與背景有明顯色差的前景。背景用有效區域邊緣帶擬合的平面（見 _background_plane），不是灰階 Otsu：
+    灰階 Otsu 假設工件比背景暗，遇到灰色背景、亮工件、光照漸變都會抓錯。畫面外的區域（攤平後的空白）不參與。"""
+    lab = cv2.cvtColor(cv2.GaussianBlur(warped, (5, 5), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+    ys, xs = np.nonzero(valid)
+    margin = max(5, int(0.03 * min(np.ptp(xs), np.ptp(ys))))
+    band = valid & ~cv2.erode(valid.astype(np.uint8), np.ones((2 * margin + 1,) * 2, np.uint8)).astype(bool)
+    band = band & ~_box_mask(valid.shape, marker_box, 0)
+    if band.sum() < 100:
+        band = valid.copy()
+    diff = np.linalg.norm(lab - _background_plane(lab, band), axis=2)
+    exclude = ~valid | _box_mask(valid.shape, marker_box, max(10, int(0.1 * (marker_box[2] - marker_box[0]))))
+    diff[exclude] = 0
+    scaled = np.clip(diff * (255.0 / max(float(diff.max()), 1.0)), 0, 255).astype(np.uint8)
+    otsu, _ = cv2.threshold(scaled[valid & ~exclude].reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    floor = _MIN_COLOR_DIFF * 255.0 / max(float(diff.max()), 1.0)
+    mask = (scaled > max(otsu, floor)).astype(np.uint8) * 255
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+
+def _box_mask(shape: tuple[int, int], box: tuple[int, int, int, int], pad: int) -> np.ndarray:
+    mask = np.zeros(shape, bool)
+    mask[max(0, box[1] - pad) : box[3] + pad + 1, max(0, box[0] - pad) : box[2] + pad + 1] = True
+    return mask
+
+
+def _largest_contour(mask: np.ndarray):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return max(contours, key=cv2.contourArea) if contours else None
+
+
+def _touches_edge(contour, valid: np.ndarray) -> bool:
+    """工件輪廓貼著有效區域（照片範圍攤平後）的邊緣，代表只拍到一部分。"""
+    edge = valid & ~cv2.erode(valid.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
+    pts = contour_points = contour.reshape(-1, 2)
+    del contour_points
+    return bool(edge[pts[:, 1], pts[:, 0]].any())
+
+
+def _measure_holes(mask: np.ndarray, workpiece_contour, px_per_mm: float) -> list[float]:
     """待測物輪廓內部的孔洞（用 RETR_CCOMP 的 hierarchy 找子輪廓），回傳每個孔的直徑 mm。"""
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    binary = _binarize_foreground_minority(gray)
     x, y, w, h = cv2.boundingRect(workpiece_contour)
-    roi = binary[y : y + h, x : x + w]
+    roi = mask[y : y + h, x : x + w]
     contours, hierarchy = cv2.findContours(roi, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return []
@@ -367,5 +451,5 @@ def _measure_holes(warped: np.ndarray, workpiece_contour) -> list[float]:
         if area < 20:
             continue
         _, radius = cv2.minEnclosingCircle(contours[i])
-        diameters.append(radius * 2 / PX_PER_MM)
+        diameters.append(radius * 2 / px_per_mm)
     return diameters
