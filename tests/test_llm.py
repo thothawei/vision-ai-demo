@@ -1,10 +1,9 @@
 """LLM 抽象層：引擎切換、JSON 解析、連線失敗時的錯誤訊息（不需要真的有模型）。"""
 
 import pytest
-from PIL import Image
-
 from core import llm
 from core.schemas import ModuleError
+from PIL import Image
 
 
 def test_parse_json_strips_code_fence():
@@ -33,15 +32,18 @@ def test_ollama_unreachable_gives_clear_message(monkeypatch):
 
 
 def test_ollama_missing_model_gives_pull_hint(monkeypatch):
+    """Ollama 回 404（模型沒下載）要提示 pull 指令。用假 client，不依賴本機有沒有開 Ollama（CI 上沒有）。"""
+    import ollama
+
+    def fake_chat(self, *args, **kwargs):
+        raise ollama.ResponseError("model not found", 404)
+
     monkeypatch.setenv("LLM_ENGINE", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "no-such-model-xyz:1b")
-    try:
-        with pytest.raises(ModuleError, match="ollama pull no-such-model-xyz:1b"):
-            llm.generate_json("hi")
-    except ModuleError as e:
-        if "ollama serve" in e.message:
-            pytest.skip("本機 Ollama 沒有啟動")
-        raise
+    monkeypatch.setattr(ollama.Client, "chat", fake_chat)
+    with pytest.raises(ModuleError, match="ollama pull no-such-model-xyz:1b") as e:
+        llm.generate_json("hi")
+    assert e.value.status_code == 503
 
 
 def test_gemini_without_key(monkeypatch):

@@ -11,17 +11,18 @@ Phase 11：單張圖片與短影片共用「純偵測（吃 BGR ndarray）」的
 """
 
 import json
-import os
 import tempfile
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
-
+from core import model_registry
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
+from core.logging_setup import log_model_load
 from core.schemas import InspectionResult, ModuleError
+from core.settings import get_settings
 
 MODULE = "safety"
 PPE_MODULE = "ppe"
@@ -35,25 +36,29 @@ DEFAULT_SAMPLE_INTERVAL_S = 1.0
 DEFAULT_MAX_DURATION_S = 60.0
 VIDEO_THUMBNAIL_MAX_SIDE = 320
 
-_model = None
-_ppe_model = None
+PERSON_MODEL_ID = "person-detector"
+PPE_MODEL_ID = "ppe-helmet"
+_person_cache = model_registry.VersionedCache()
+_ppe_cache = model_registry.VersionedCache()
+
+
+def _load_person_yolo(path):
+    from ultralytics import YOLO
+
+    with log_model_load("person-yolo11n"):
+        return YOLO(str(path))
 
 
 def _get_model():
     """延遲載入，缺權重時回傳清楚錯誤。"""
-    global _model
-    if _model is None:
-        if not WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到 YOLO 權重 {WEIGHTS_PATH}，請先執行："
-                "`python -c \"from ultralytics import YOLO; YOLO('yolo11n.pt')\"` "
-                f"再把下載到的 yolo11n.pt 搬到 {WEIGHTS_PATH}",
-                503,
-            )
-        from ultralytics import YOLO
-
-        _model = YOLO(str(WEIGHTS_PATH))
-    return _model
+    resolved = model_registry.resolve(
+        PERSON_MODEL_ID,
+        WEIGHTS_PATH,
+        f"找不到 YOLO 權重 {WEIGHTS_PATH}，請先執行："
+        "`python -c \"from ultralytics import YOLO; YOLO('yolo11n.pt')\"` "
+        f"再把下載到的 yolo11n.pt 搬到 {WEIGHTS_PATH}",
+    )
+    return _person_cache.get(resolved, _load_person_yolo)
 
 
 def _detect_intrusion_on_bgr(bgr: np.ndarray, zone_px: np.ndarray | None) -> tuple[list[dict], bool, np.ndarray]:
@@ -83,7 +88,7 @@ def detect_intrusion(image_bytes: bytes, zone_json: str | None) -> InspectionRes
 
 
 def _max_video_mb() -> int:
-    return int(os.environ.get("MAX_VIDEO_MB", "200"))
+    return get_settings().max_video_mb
 
 
 def _sample_video_frames(video_bytes: bytes, sample_interval_s: float, max_duration_s: float):
@@ -140,9 +145,13 @@ def detect_intrusion_video(
         persons, any_intrusion, annotated = _detect_intrusion_on_bgr(frame, zone_px)
         representative_annotated = annotated
         if any_intrusion:
-            violations.append({
-                "時間秒": round(t, 1), "偵測到人數": len(persons), "標註圖": _thumbnail_data_url(annotated),
-            })
+            violations.append(
+                {
+                    "時間秒": round(t, 1),
+                    "偵測到人數": len(persons),
+                    "標註圖": _thumbnail_data_url(annotated),
+                }
+            )
             if first_violation_annotated is None:
                 first_violation_annotated = annotated
 
@@ -151,8 +160,11 @@ def detect_intrusion_video(
 
     verdict = "NG" if violations else ("INFO" if zone_px is None else "OK")
     item = {
-        "取樣幀數": n_frames, "取樣間隔秒": sample_interval_s, "影片秒數上限": max_duration_s,
-        "危險區域": zone_px is not None, "違規時間點": violations,
+        "取樣幀數": n_frames,
+        "取樣間隔秒": sample_interval_s,
+        "影片秒數上限": max_duration_s,
+        "危險區域": zone_px is not None,
+        "違規時間點": violations,
     }
     final_annotated = first_violation_annotated if first_violation_annotated is not None else representative_annotated
     return record_result(MODULE, verdict, [item], "yolo11n-coco-video", started, bgr_to_data_url(final_annotated))
@@ -165,28 +177,33 @@ def _detect_persons(bgr: np.ndarray) -> list[dict]:
     persons = []
     for box in results[0].boxes:
         x1, y1, x2, y2 = box.xyxy[0].tolist()
-        persons.append({
-            "信心度": round(float(box.conf[0]), 3),
-            "邊界框": [round(x1), round(y1), round(x2), round(y2)],
-            "腳底參考點": [round((x1 + x2) / 2), round(y2)],
-        })
+        persons.append(
+            {
+                "信心度": round(float(box.conf[0]), 3),
+                "邊界框": [round(x1), round(y1), round(x2), round(y2)],
+                "腳底參考點": [round((x1 + x2) / 2), round(y2)],
+            }
+        )
     return persons
 
 
-def _get_ppe_model():
-    global _ppe_model
-    if _ppe_model is None:
-        if not PPE_WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到 PPE 安全帽偵測權重 {PPE_WEIGHTS_PATH}，請先執行 "
-                "`python scripts/prepare_hardhat.py` 準備資料，再訓練 "
-                "`YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', ...)`（見 CLAUDE.md）",
-                503,
-            )
-        from ultralytics import YOLO
+def _load_ppe_yolo(path):
+    from ultralytics import YOLO
 
-        _ppe_model = YOLO(str(PPE_WEIGHTS_PATH))
-    return _ppe_model
+    with log_model_load("ppe-yolo11n"):
+        return YOLO(str(path))
+
+
+def _get_ppe_model():
+    resolved = model_registry.resolve(
+        PPE_MODEL_ID,
+        PPE_WEIGHTS_PATH,
+        f"找不到 PPE 安全帽偵測權重 {PPE_WEIGHTS_PATH}，請先執行 "
+        "`python scripts/prepare_hardhat.py` 準備資料，再訓練 "
+        "`YOLO('yolo11n.pt').train(data='data/hardhat_yolo/data.yaml', ...)`（見 docs/dev/decisions.md），"
+        "訓練完用 `python scripts/register_model.py` 登錄",
+    )
+    return _ppe_cache.get(resolved, _load_ppe_yolo)
 
 
 def _detect_ppe_on_bgr(bgr: np.ndarray) -> tuple[list[dict], int, np.ndarray]:
@@ -198,11 +215,13 @@ def _detect_ppe_on_bgr(bgr: np.ndarray) -> tuple[list[dict], int, np.ndarray]:
     for box in results[0].boxes:
         cls_name = model.names[int(box.cls[0])]  # "helmet" 或 "head"
         x1, y1, x2, y2 = box.xyxy[0].tolist()
-        detections.append({
-            "類型": "已戴安全帽" if cls_name == "helmet" else "未戴安全帽",
-            "信心度": round(float(box.conf[0]), 3),
-            "邊界框": [round(x1), round(y1), round(x2), round(y2)],
-        })
+        detections.append(
+            {
+                "類型": "已戴安全帽" if cls_name == "helmet" else "未戴安全帽",
+                "信心度": round(float(box.conf[0]), 3),
+                "邊界框": [round(x1), round(y1), round(x2), round(y2)],
+            }
+        )
     n_no_helmet = sum(1 for d in detections if d["類型"] == "未戴安全帽")
     annotated = _draw_ppe_annotations(bgr, detections)
     return detections, n_no_helmet, annotated
@@ -236,9 +255,13 @@ def detect_ppe_video(
         detections, n_no_helmet, annotated = _detect_ppe_on_bgr(frame)
         representative_annotated = annotated
         if n_no_helmet > 0:
-            violations.append({
-                "時間秒": round(t, 1), "未戴安全帽數": n_no_helmet, "標註圖": _thumbnail_data_url(annotated),
-            })
+            violations.append(
+                {
+                    "時間秒": round(t, 1),
+                    "未戴安全帽數": n_no_helmet,
+                    "標註圖": _thumbnail_data_url(annotated),
+                }
+            )
             if first_violation_annotated is None:
                 first_violation_annotated = annotated
 
@@ -247,11 +270,15 @@ def detect_ppe_video(
 
     verdict = "NG" if violations else "OK"
     item = {
-        "取樣幀數": n_frames, "取樣間隔秒": sample_interval_s, "影片秒數上限": max_duration_s,
+        "取樣幀數": n_frames,
+        "取樣間隔秒": sample_interval_s,
+        "影片秒數上限": max_duration_s,
         "違規時間點": violations,
     }
     final_annotated = first_violation_annotated if first_violation_annotated is not None else representative_annotated
-    return record_result(PPE_MODULE, verdict, [item], "yolo11n-hardhat-video", started, bgr_to_data_url(final_annotated))
+    return record_result(
+        PPE_MODULE, verdict, [item], "yolo11n-hardhat-video", started, bgr_to_data_url(final_annotated)
+    )
 
 
 def _draw_ppe_annotations(bgr: np.ndarray, detections: list[dict]) -> np.ndarray:
@@ -260,8 +287,16 @@ def _draw_ppe_annotations(bgr: np.ndarray, detections: list[dict]) -> np.ndarray
         color = (0, 200, 0) if d["類型"] == "已戴安全帽" else (0, 0, 255)
         x1, y1, x2, y2 = d["邊界框"]
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(canvas, f"{d['類型']} {d['信心度']:.2f}", (x1, max(y1 - 8, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+        cv2.putText(
+            canvas,
+            f"{d['類型']} {d['信心度']:.2f}",
+            (x1, max(y1 - 8, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
     return canvas
 
 

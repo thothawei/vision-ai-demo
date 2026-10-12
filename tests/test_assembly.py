@@ -3,7 +3,14 @@
 import io
 import json
 
+import pytest
 from samples import make_samples
+
+
+@pytest.fixture
+def client(admin_client):
+    """建立黃金樣本需要 admin，整個檔案都用 admin 登入的 client。"""
+    return admin_client
 
 
 def _png_bytes(image) -> bytes:
@@ -66,16 +73,20 @@ def test_no_rois_rejected(client):
 
 def test_inspect_unknown_part_404(client):
     golden = make_samples.make_assembly_scene()
-    res = client.post("/api/assembly/inspect", params={"part_no": "no_such_part"},
-                      files={"file": ("t.png", _png_bytes(golden), "image/png")})
+    res = client.post(
+        "/api/assembly/inspect",
+        params={"part_no": "no_such_part"},
+        files={"file": ("t.png", _png_bytes(golden), "image/png")},
+    )
     assert res.status_code == 404
 
 
 def test_inspect_full_scene_is_ok(client):
     _save_golden(client)
     target = make_samples.make_assembly_scene()
-    res = client.post("/api/assembly/inspect?part_no=test_part",
-                      files={"file": ("t.png", _png_bytes(target), "image/png")})
+    res = client.post(
+        "/api/assembly/inspect?part_no=test_part", files={"file": ("t.png", _png_bytes(target), "image/png")}
+    )
     assert res.status_code == 200
     body = res.json()
     assert body["verdict"] == "OK"
@@ -85,8 +96,9 @@ def test_inspect_full_scene_is_ok(client):
 def test_inspect_missing_component_is_ng(client):
     _save_golden(client)
     target = make_samples.make_assembly_scene(missing_index=2)
-    res = client.post("/api/assembly/inspect?part_no=test_part",
-                      files={"file": ("t.png", _png_bytes(target), "image/png")})
+    res = client.post(
+        "/api/assembly/inspect?part_no=test_part", files={"file": ("t.png", _png_bytes(target), "image/png")}
+    )
     body = res.json()
     assert body["verdict"] == "NG"
     ng_rois = [r["ROI編號"] for r in body["items"][0]["明細"] if r["判定"] == "NG"]
@@ -98,8 +110,9 @@ def test_inspect_rotated_component_is_ng(client):
     純圓形零件旋轉 180 度會完全看不出差異。"""
     _save_golden(client)
     target = make_samples.make_assembly_scene(rotated_index=3)
-    res = client.post("/api/assembly/inspect?part_no=test_part",
-                      files={"file": ("t.png", _png_bytes(target), "image/png")})
+    res = client.post(
+        "/api/assembly/inspect?part_no=test_part", files={"file": ("t.png", _png_bytes(target), "image/png")}
+    )
     body = res.json()
     assert body["verdict"] == "NG"
     ng_rois = [r["ROI編號"] for r in body["items"][0]["明細"] if r["判定"] == "NG"]
@@ -118,8 +131,9 @@ def test_alignment_robust_to_rotation_and_scale(client):
         "放大120%": base.resize((1080, 600)),
     }
     for label, img in variants.items():
-        res = client.post("/api/assembly/inspect?part_no=test_part",
-                          files={"file": ("t.png", _png_bytes(img), "image/png")})
+        res = client.post(
+            "/api/assembly/inspect?part_no=test_part", files={"file": ("t.png", _png_bytes(img), "image/png")}
+        )
         body = res.json()
         assert body["verdict"] == "OK", f"{label} 應該判 OK，實際 {body['verdict']}：{body['items']}"
         item = body["items"][0]
@@ -134,8 +148,9 @@ def test_alignment_failure_returns_info_not_a_guess(client):
 
     rng = np.random.default_rng(42)
     noise = Image.fromarray(rng.integers(0, 255, (500, 900, 3), dtype=np.uint8))
-    res = client.post("/api/assembly/inspect?part_no=test_part",
-                      files={"file": ("noise.png", _png_bytes(noise), "image/png")})
+    res = client.post(
+        "/api/assembly/inspect?part_no=test_part", files={"file": ("noise.png", _png_bytes(noise), "image/png")}
+    )
     body = res.json()
     assert body["verdict"] == "INFO"
     assert body["items"][0]["原因"] is not None

@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 
 # 大檔：模型權重、資料集、訓練輸出、SQLite 檢驗紀錄
-models/
+/models/
 data/
 runs/
 .pytest_cache/
@@ -19,3 +19,9 @@ tests/live_samples/*.jpg
 # Phase 10：docs/erp-integration.md 的 C# 範例編譯驗證用專案，建置產物不進版控
 docs/erp-integration-sample/bin/
 docs/erp-integration-sample/obj/
+/reports/
+backups/
+
+# 覆蓋率報告
+.coverage
+coverage.xml

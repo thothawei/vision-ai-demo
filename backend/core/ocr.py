@@ -8,6 +8,8 @@ Tesseract 保留當比較選項（core/tesseract_ocr.py）。
 import numpy as np
 from PIL import Image
 
+from core.logging_setup import log_model_load
+
 _ocr_engine = None
 _table_engine = None
 
@@ -17,7 +19,8 @@ def _get_ocr_engine():
     if _ocr_engine is None:
         from rapidocr import RapidOCR
 
-        _ocr_engine = RapidOCR()
+        with log_model_load("rapidocr"):
+            _ocr_engine = RapidOCR()
     return _ocr_engine
 
 
@@ -26,7 +29,8 @@ def _get_table_engine():
     if _table_engine is None:
         from rapid_table import RapidTable
 
-        _table_engine = RapidTable()
+        with log_model_load("rapidtable"):
+            _table_engine = RapidTable()
     return _table_engine
 
 

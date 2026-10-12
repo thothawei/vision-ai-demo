@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.general.service import describe_image
 
 router = APIRouter(prefix="/api/general", tags=["M9 開放式辨識"])

@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.shipping.service import check_shipping_label
 
 router = APIRouter(prefix="/api/shipping", tags=["M12 出貨標籤 vs 工單比對"])

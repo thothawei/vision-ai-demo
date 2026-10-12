@@ -23,8 +23,9 @@ def test_general_describe_returns_common_format_and_logs(client, fake_llm, warni
 
 
 def test_invalid_mode_empty_file_and_non_image(client, fake_llm, work_order_png):
-    bad_mode = client.post("/api/docs/extract", params={"mode": "xyz"},
-                           files={"file": ("wo.png", work_order_png, "image/png")})
+    bad_mode = client.post(
+        "/api/docs/extract", params={"mode": "xyz"}, files={"file": ("wo.png", work_order_png, "image/png")}
+    )
     empty = client.post("/api/general/describe", files={"file": ("e.png", b"", "image/png")})
     not_image = client.post("/api/general/describe", files={"file": ("a.txt", b"hello", "text/plain")})
 

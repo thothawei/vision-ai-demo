@@ -6,12 +6,11 @@ zxing-cpp 對 GS1 條碼會自動輸出 (AI)值 的人類可讀格式（TextMode
 
 import re
 import time
-from datetime import date, datetime
+from datetime import date
 
 import cv2
 import numpy as np
 import zxingcpp
-
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult
@@ -51,10 +50,15 @@ def describe_barcode(barcode: zxingcpp.Barcode) -> dict:
         "類型": str(barcode.format),
         "內容": barcode.text,
         "是否為GS1": is_gs1,
-        "四角座標": [[p.x, p.y] for p in (
-            barcode.position.top_left, barcode.position.top_right,
-            barcode.position.bottom_right, barcode.position.bottom_left,
-        )],
+        "四角座標": [
+            [p.x, p.y]
+            for p in (
+                barcode.position.top_left,
+                barcode.position.top_right,
+                barcode.position.bottom_right,
+                barcode.position.bottom_left,
+            )
+        ],
         "效期狀態": expiry_status,
     }
     if gs1_fields:
@@ -112,6 +116,7 @@ def _draw_annotations(bgr: np.ndarray, items: list[dict]) -> np.ndarray:
         label = item["類型"]
         if item["效期狀態"] not in ("不適用",):
             label += f" / {item['效期狀態']}"
-        cv2.putText(canvas, label, (pts[0][0], max(pts[0][1] - 10, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+        cv2.putText(
+            canvas, label, (pts[0][0], max(pts[0][1] - 10, 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA
+        )
     return canvas

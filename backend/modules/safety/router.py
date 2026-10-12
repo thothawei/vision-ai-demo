@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, Form, UploadFile
 
-from core.schemas import InspectionResult
 from modules.safety.service import (
     DEFAULT_MAX_DURATION_S,
     DEFAULT_SAMPLE_INTERVAL_S,

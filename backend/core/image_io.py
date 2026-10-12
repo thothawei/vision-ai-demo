@@ -2,26 +2,27 @@
 
 import base64
 import io
-import os
 
 import numpy as np
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
-from core import context
+from core import request_scope
 from core.schemas import ModuleError
+from core.settings import get_settings
 
 _FORMAT_EXT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "BMP": "bmp", "GIF": "gif"}
 
 
 def _max_upload_mb() -> int:
-    return int(os.environ.get("MAX_UPLOAD_MB", "20"))
+    return get_settings().max_upload_mb
 
 
-def load_image(image_bytes: bytes) -> Image.Image:
+def load_image(image_bytes: bytes, role: str = "raw") -> Image.Image:
     """讀取上傳的圖片並依 EXIF 轉正（手機直拍照片常見方向錯誤）。
 
     大小上限（`MAX_UPLOAD_MB`，預設 20）在這裡檢查，是所有模組讀圖的唯一入口；
-    不信任副檔名/Content-Type，一律靠 Pillow 實際開檔驗證是不是真的圖片。"""
+    不信任副檔名/Content-Type，一律靠 Pillow 實際開檔驗證是不是真的圖片。
+    `role` 決定存圖時的檔名（`<id>_<role>.<ext>`），預設 raw＝使用者上傳的原圖。"""
     if not image_bytes:
         raise ModuleError("檔案是空的", 400)
     max_mb = _max_upload_mb()
@@ -39,7 +40,7 @@ def load_image(image_bytes: bytes) -> Image.Image:
         # 都不該讓使用者看到 500（實測踩到：M5/M6 用過 YOLO 後，上傳壞檔會變成未攔截的 500）。
         raise ModuleError(f"無法讀取圖片：{e}", 400)
     ext = _FORMAT_EXT.get(image.format, "jpg")
-    context.set_raw_image(image_bytes, ext)
+    request_scope.add_image(role, image_bytes, ext)
     return ImageOps.exif_transpose(image).convert("RGB")
 
 

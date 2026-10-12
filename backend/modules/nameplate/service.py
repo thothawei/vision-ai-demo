@@ -3,14 +3,13 @@
 import time
 
 import cv2
-from pydantic import ValidationError
-
 from core import llm
 from core.gauge import angle_to_value, detect_needle_angle, find_center
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
 from core.seven_segment import decode as decode_seven_segment
+from pydantic import ValidationError
 from schemas.nameplate import Nameplate
 
 MODULE = "nameplate"
@@ -47,8 +46,10 @@ def read_nameplate(image_bytes: bytes) -> InspectionResult:
         item = model.model_dump()
         verdict = "OK"
     except ValidationError as e:
-        item = {"_驗證錯誤": [{"欄位": ".".join(str(p) for p in err["loc"]), "問題": err["msg"]} for err in e.errors()],
-                "LLM原始回傳": raw}
+        item = {
+            "_驗證錯誤": [{"欄位": ".".join(str(p) for p in err["loc"]), "問題": err["msg"]} for err in e.errors()],
+            "LLM原始回傳": raw,
+        }
         verdict = "NG"
     item["_ocr原始文字"] = ocr_text
 
@@ -104,9 +105,7 @@ def read_gauge(
     else:
         found = find_center(gray)
         if found is None:
-            raise ModuleError(
-                "自動找不到錶面圓心，請用 center_x/center_y 參數手動指定（正規化座標 0~1）", 422
-            )
+            raise ModuleError("自動找不到錶面圓心，請用 center_x/center_y 參數手動指定（正規化座標 0~1）", 422)
         cx, cy, r = found
 
     angle, needle_len = detect_needle_angle(bgr, cx, cy, r)

@@ -18,12 +18,25 @@ import numpy as np
 
 # 七段 a~g 在數字緊致邊界框內的取樣位置（比例座標），數值來自實測合成測試圖校準
 _SEG_POINTS = {
-    "a": (0.5, 0.04), "b": (0.93, 0.27), "c": (0.93, 0.73),
-    "d": (0.5, 0.96), "e": (0.07, 0.73), "f": (0.07, 0.27), "g": (0.5, 0.5),
+    "a": (0.5, 0.04),
+    "b": (0.93, 0.27),
+    "c": (0.93, 0.73),
+    "d": (0.5, 0.96),
+    "e": (0.07, 0.73),
+    "f": (0.07, 0.27),
+    "g": (0.5, 0.5),
 }
 _SEGMENTS_ON = {
-    "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
-    "5": "afgcd", "6": "afgecd", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+    "0": "abcdef",
+    "1": "bc",
+    "2": "abged",
+    "3": "abgcd",
+    "4": "fgbc",
+    "5": "afgcd",
+    "6": "afgecd",
+    "7": "abc",
+    "8": "abcdefg",
+    "9": "abcdfg",
 }
 _PATTERN_TO_DIGIT = {"".join(sorted(segs)): digit for digit, segs in _SEGMENTS_ON.items()}
 
@@ -84,5 +97,5 @@ def decode(bgr: np.ndarray) -> tuple[str, list[dict]]:
 
 def _is_segment_on(binary: np.ndarray, x: int, y: int, w: int, h: int, fx: float, fy: float) -> bool:
     px, py = int(x + fx * w), int(y + fy * h)
-    patch = binary[max(0, py - 4):py + 5, max(0, px - 4):px + 5]
+    patch = binary[max(0, py - 4) : py + 5, max(0, px - 4) : px + 5]
     return patch.size > 0 and bool((patch > 0).mean() > _ON_THRESHOLD)

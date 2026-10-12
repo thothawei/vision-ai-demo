@@ -1,6 +1,6 @@
+from core.schemas import InspectionResult
 from fastapi import APIRouter, File, UploadFile
 
-from core.schemas import InspectionResult
 from modules.defect.service import detect_pcb_defects
 
 router = APIRouter(prefix="/api/defect", tags=["M6 監督式瑕疵偵測"])

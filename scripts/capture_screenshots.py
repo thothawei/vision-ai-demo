@@ -1,10 +1,10 @@
 """Phase 8 收尾：用 Playwright 自動跑過每個分頁，實際上傳測試圖、點擊、等結果，截圖存到 docs/screenshots/。
 
 這是一次性文件用腳本（不進 requirements.txt，只在 venv 額外裝 playwright）：
-    python scripts/capture_screenshots.py
+    CAPTURE_USERNAME=... CAPTURE_PASSWORD=... [BASE_URL=http://127.0.0.1:8001] python scripts/capture_screenshots.py
 """
 
-import time
+import os
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = PROJECT_ROOT / "tests" / "samples"
 OUT_DIR = PROJECT_ROOT / "docs" / "screenshots"
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 
 # (tab_index_1based, 截圖檔名, 檔案input選擇器, 上傳的圖, 按鈕文字, 等待秒數, 上傳前的額外設定)
 STEPS = [
@@ -36,8 +36,30 @@ STEPS = [
 ]
 
 
+# 步驟編號 → 前端分頁 id（左側導覽由 /api/modules 產生，按鈕帶 data-tab）
+TAB_IDS = {
+    1: "general",
+    2: "docs",
+    3: "anomaly",
+    4: "codes",
+    5: "measure",
+    6: "safety",
+    7: "ppe",
+    8: "defect",
+    9: "nameplate",
+    10: "sevenseg",
+    11: "gauge",
+    12: "packaging",
+    13: "pneumonia",
+    14: "assembly",
+    15: "colordiff",
+    16: "shipping",
+    17: "dashboard",
+}
+
+
 def click_tab(page, n: int):
-    page.locator(".tab-btn").nth(n - 1).click()
+    page.locator(f'.side-nav .tab-btn[data-tab="{TAB_IDS[n]}"]').click()
     page.wait_for_timeout(300)
 
 
@@ -46,7 +68,19 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
-        page.goto(BASE_URL, wait_until="networkidle")
+        console_errors = []
+        page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        page.on("pageerror", lambda e: console_errors.append(str(e)))
+        # 需要登入：帳密由環境變數提供（建議對暫存資料庫的伺服器執行，不要把截圖用帳號建在正式資料庫）
+        username, password = os.environ.get("CAPTURE_USERNAME"), os.environ.get("CAPTURE_PASSWORD")
+        if not username or not password:
+            raise SystemExit("請設定環境變數 CAPTURE_USERNAME 與 CAPTURE_PASSWORD（admin 或 qc 帳號）")
+        page.goto(BASE_URL + "/login.html", wait_until="networkidle")
+        page.fill("#login-username", username)
+        page.fill("#login-password", password)
+        page.click("#login-btn")
+        page.wait_for_url(BASE_URL + "/", timeout=10000)
+        page.wait_for_selector(".side-nav .tab-btn", timeout=10000)
         page.wait_for_timeout(500)
 
         for tab_index, filename, file_selector, image_name, btn_selector, wait_s, special in STEPS:
@@ -94,6 +128,9 @@ def main():
             print(f"[{tab_index}] 已存 {out_path.relative_to(PROJECT_ROOT)}")
 
         browser.close()
+        print(f"瀏覽器 console／頁面錯誤：{len(console_errors)} 筆")
+        for err in console_errors:
+            print("  -", err)
 
 
 def capture_safety(page):
@@ -107,9 +144,7 @@ def capture_safety(page):
     canvas = page.locator("#safety-canvas")
     canvas.wait_for(state="visible", timeout=10000)
     # canvas 的實際寬高要等圖片 onload 後才會設定，用輪詢確認尺寸穩定再讀 bounding_box
-    page.wait_for_function(
-        "document.querySelector('#safety-canvas').width > 0", timeout=10000
-    )
+    page.wait_for_function("document.querySelector('#safety-canvas').width > 0", timeout=10000)
     page.wait_for_timeout(500)
     box = canvas.bounding_box()
     if not box:
@@ -122,8 +157,7 @@ def capture_safety(page):
     # y 下緣要到 1.0（畫布底部）：人員的「腳底參考點」在原圖裡非常接近下緣（fraction≈0.989），
     # 之前用 0.98 只差一點點就沒蓋到，畫出來像是涵蓋人物，但 pointPolygonTest 其實判定沒入侵。
     w, h = box["width"], box["height"]
-    points = [(w * 0.03, h * 0.05), (w * 0.45, h * 0.05),
-              (w * 0.45, h * 0.995), (w * 0.03, h * 0.995)]
+    points = [(w * 0.03, h * 0.05), (w * 0.45, h * 0.05), (w * 0.45, h * 0.995), (w * 0.03, h * 0.995)]
     for x, y in points:
         canvas.click(position={"x": x, "y": y})
         page.wait_for_timeout(150)
@@ -172,8 +206,10 @@ def capture_assembly(page):
     missing_photo = SAMPLES / "assembly_missing_demo.png"
     if not missing_photo.exists():
         import sys as _sys
+
         _sys.path.insert(0, str(SAMPLES))
         import make_samples as _ms
+
         _ms.make_assembly_scene(missing_index=2).save(missing_photo)
 
     page.set_input_files("#assembly-inspect-file", str(missing_photo))

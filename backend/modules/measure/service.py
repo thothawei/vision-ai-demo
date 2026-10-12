@@ -10,7 +10,6 @@ import time
 
 import cv2
 import numpy as np
-
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
@@ -67,8 +66,16 @@ def count_parts(image_bytes: bytes, expected_count: int | None, min_area_ratio: 
         (cx, cy), radius = cv2.minEnclosingCircle(contour)
         items.append({"編號": len(items) + 1, "面積px": area, "中心點": [round(cx), round(cy)]})
         cv2.drawContours(annotated, [contour], -1, (0, 200, 0), 2)
-        cv2.putText(annotated, str(items[-1]["編號"]), (round(cx) - 10, round(cy)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+        cv2.putText(
+            annotated,
+            str(items[-1]["編號"]),
+            (round(cx) - 10, round(cy)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
     verdict = "INFO"
     if expected_count is not None:
@@ -125,22 +132,39 @@ def measure_part(
         "孔徑mm": [round(d, 2) for d in holes_mm],
     }
     verdict = "INFO"
+    out_of_tolerance = []
     if target_length_mm is not None:
         item["目標長度mm"] = target_length_mm
         item["長度誤差mm"] = round(length_mm - target_length_mm, 2)
         length_ok = abs(length_mm - target_length_mm) <= tolerance_mm
         verdict = "OK" if length_ok else "NG"
+        if not length_ok:
+            out_of_tolerance.append("長度")
     if target_width_mm is not None:
         item["目標寬度mm"] = target_width_mm
         item["寬度誤差mm"] = round(width_mm - target_width_mm, 2)
         width_ok = abs(width_mm - target_width_mm) <= tolerance_mm
         verdict = "OK" if verdict != "NG" and width_ok else "NG"
+        if not width_ok:
+            out_of_tolerance.append("寬度")
+    if out_of_tolerance:
+        item["超差項目"] = out_of_tolerance
+    if target_length_mm is not None or target_width_mm is not None:
+        item["公差mm"] = tolerance_mm  # 存下來，量測值的規格上下限（目標 ± 公差）才算得出來
 
     annotated = warped.copy()
     box = cv2.boxPoints(rect).astype(np.int32)
     cv2.drawContours(annotated, [box], 0, (0, 200, 0), 2)
-    cv2.putText(annotated, f"{length_mm:.1f} x {width_mm:.1f} mm", (box[0][0], max(box[0][1] - 10, 15)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 0), 2, cv2.LINE_AA)
+    cv2.putText(
+        annotated,
+        f"{length_mm:.1f} x {width_mm:.1f} mm",
+        (box[0][0], max(box[0][1] - 10, 15)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0, 200, 0),
+        2,
+        cv2.LINE_AA,
+    )
 
     return record_result(MODULE, verdict, [item], "opencv-aruco", started, bgr_to_data_url(annotated))
 
@@ -149,8 +173,9 @@ def _rectify_by_marker(bgr: np.ndarray, marker_corners: np.ndarray, marker_size_
     """用標記四角做透視轉換，把整張圖攤平成「PX_PER_MM 像素/mm」的正視圖。"""
     s = marker_size_mm * PX_PER_MM
     margin = s * 3  # 標記以外要留夠空間放待測物
-    dst = np.array([[margin, margin], [margin + s, margin], [margin + s, margin + s], [margin, margin + s]],
-                   dtype=np.float32)
+    dst = np.array(
+        [[margin, margin], [margin + s, margin], [margin + s, margin + s], [margin, margin + s]], dtype=np.float32
+    )
     h_mat = cv2.getPerspectiveTransform(marker_corners.astype(np.float32), dst)
     canvas_size = round(margin * 2 + s)
     warped = cv2.warpPerspective(bgr, h_mat, (canvas_size, canvas_size), borderValue=(255, 255, 255))
@@ -180,7 +205,7 @@ def _measure_holes(warped: np.ndarray, workpiece_contour) -> list[float]:
     gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     binary = _binarize_foreground_minority(gray)
     x, y, w, h = cv2.boundingRect(workpiece_contour)
-    roi = binary[y:y + h, x:x + w]
+    roi = binary[y : y + h, x : x + w]
     contours, hierarchy = cv2.findContours(roi, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return []

@@ -8,19 +8,20 @@ SSIM 比對每個 ROI（有沒有零件、零件方向對不對），任一 ROI 
 不是資料庫表——跟 M3 自訂類別的 registry 風格一致，這個規模用不到資料庫。
 """
 
+import io
 import json
-import os
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
-from skimage.metrics import structural_similarity
-
+from core import request_scope
 from core.image_io import bgr_to_data_url, load_image, to_bgr, to_data_url
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
+from core.settings import get_settings
+from PIL import Image
+from skimage.metrics import structural_similarity
 
 MODULE = "assembly"
 
@@ -30,15 +31,16 @@ _DEFAULT_GOLDEN_DIR = Path(__file__).resolve().parents[3] / "data" / "golden_sam
 def _golden_dir() -> Path:
     """每次呼叫都重讀 env（跟 INSPECTION_DB/INSPECTION_IMAGES_DIR 同一個模式），
     測試才能用 monkeypatch.setenv 隔離，不會寫進專案真實的 data/golden_samples/。"""
-    return Path(os.environ.get("GOLDEN_SAMPLES_DIR", _DEFAULT_GOLDEN_DIR))
+    return get_settings().golden_samples_dir or _DEFAULT_GOLDEN_DIR
 
-MIN_GOOD_MATCHES = 8    # 至少要有這麼多好的特徵配對才嘗試算 homography
+
+MIN_GOOD_MATCHES = 8  # 至少要有這麼多好的特徵配對才嘗試算 homography
 MIN_INLIER_RATIO = 0.5  # RANSAC inlier 比例低於這個就當對齊失敗，不硬判 OK/NG
-SSIM_THRESHOLD = 0.85   # 低於這個相似度該 ROI 判 NG。實測校準過程：一開始沒做高斯模糊，
-                         # warpPerspective 對齊後（尤其 ±15 度旋轉）的插值誤差會讓正確零件的 ROI
-                         # 掉到 0.75-0.83，跟「裝反」的 0.708 太接近，門檻很難兩邊都顧到。
-                         # 對兩邊 ROI 先做 5x5 高斯模糊再比較後，旋轉/縮放情境的最差分數回升到 0.92
-                         # 以上，跟「裝反」(0.71) 之間有足夠安全邊界，0.85 剛好卡在中間。
+SSIM_THRESHOLD = 0.85  # 低於這個相似度該 ROI 判 NG。實測校準過程：一開始沒做高斯模糊，
+# warpPerspective 對齊後（尤其 ±15 度旋轉）的插值誤差會讓正確零件的 ROI
+# 掉到 0.75-0.83，跟「裝反」的 0.708 太接近，門檻很難兩邊都顧到。
+# 對兩邊 ROI 先做 5x5 高斯模糊再比較後，旋轉/縮放情境的最差分數回升到 0.92
+# 以上，跟「裝反」(0.71) 之間有足夠安全邊界，0.85 剛好卡在中間。
 
 
 def _validate_part_no(part_no: str) -> None:
@@ -142,7 +144,9 @@ def inspect_assembly(part_no: str, image_bytes: bytes) -> InspectionResult:
         raise ModuleError(f"找不到料號「{part_no}」的黃金樣本設定，請先建立", 404)
 
     rois = json.loads(rois_path.read_text())["rois"]
-    golden_image = Image.open(part_dir / "golden.png").convert("RGB")
+    golden_bytes = (part_dir / "golden.png").read_bytes()
+    request_scope.add_image("golden", golden_bytes, "png")
+    golden_image = Image.open(io.BytesIO(golden_bytes)).convert("RGB")
     golden_bgr = to_bgr(golden_image)
 
     target_image = load_image(image_bytes)
@@ -172,12 +176,22 @@ def inspect_assembly(part_no: str, image_bytes: bytes) -> InspectionResult:
         results.append({"ROI編號": i + 1, "相似度": round(score, 4), "判定": "OK" if ok else "NG"})
         color = (0, 200, 0) if ok else (0, 0, 255)
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(annotated, f"{i + 1}:{score:.2f}", (x1, max(y1 - 6, 12)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+        cv2.putText(
+            annotated,
+            f"{i + 1}:{score:.2f}",
+            (x1, max(y1 - 6, 12)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
 
     verdict = "NG" if any(r["判定"] == "NG" for r in results) else "OK"
     item = {
-        "料號": part_no, "對齊配對數": debug["配對數"], "對齊inlier比例": debug["inlier比例"],
+        "料號": part_no,
+        "對齊配對數": debug["配對數"],
+        "對齊inlier比例": debug["inlier比例"],
         "明細": results,
     }
     return record_result(MODULE, verdict, [item], "orb-homography-ssim", started, bgr_to_data_url(annotated))

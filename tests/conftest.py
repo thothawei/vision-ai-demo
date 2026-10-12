@@ -1,8 +1,8 @@
 import io
+import os
 
 import pytest
 from fastapi.testclient import TestClient
-
 from samples import make_samples
 
 
@@ -34,10 +34,42 @@ def make_video_bytes(n_frames: int, width: int = 100, height: int = 100, fps: fl
 
 
 TEST_API_KEY = "test-key"
+TEST_PASSWORD = "password-1234"
+# 登入 session 需要簽章密鑰，沒有的話 main.py 會拒絕啟動；必須在任何 `import main` 之前設好
+os.environ.setdefault("SESSION_SECRET", "test-session-secret-" + "x" * 32)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data_paths(tmp_path, monkeypatch):
+    """所有測試（不只用 client 的）都預設使用暫存的資料庫、圖片與黃金樣本目錄。
+    任何函式只要會間接連到資料庫（例如模型登錄查詢），忘記隔離就會寫進真的 data/inspections.db；
+    Phase 21 寫測試時就真的踩到（junk 的模型版本被寫進真實資料庫），所以改成一律預設隔離。"""
+    monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
+    monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
+    monkeypatch.setenv("GOLDEN_SAMPLES_DIR", str(tmp_path / "golden_samples"))
+
+
+@pytest.fixture(autouse=True)
+def _cheap_password_hashing(monkeypatch):
+    """argon2id 正式參數刻意很慢（雜湊與驗證各約 40ms），約 300 個測試要建帳號登入，占了整套測試近一半時間。
+    測試只需要「雜湊可驗證」，所以降到最低成本；正式程式碼的參數不動。"""
+    from argon2 import PasswordHasher
+    from core import users
+
+    monkeypatch.setattr(users, "_hasher", PasswordHasher(time_cost=1, memory_cost=8, parallelism=1))
+
+
+@pytest.fixture(autouse=True)
+def _ignore_real_dotenv(monkeypatch):
+    """設定會讀專案根目錄的 .env（含真實的 Gemini key 等）；測試一律只看環境變數，
+    不然 `monkeypatch.delenv` 蓋不住 .env 裡的值，測試可能拿真 key 打外部服務。"""
+    from core.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def api_client(tmp_path, monkeypatch):
     # 每個測試用獨立的 SQLite 與圖片目錄，不污染 data/inspections.db、data/images/
     monkeypatch.setenv("INSPECTION_DB", str(tmp_path / "inspections.db"))
     monkeypatch.setenv("INSPECTION_IMAGES_DIR", str(tmp_path / "images"))
@@ -45,10 +77,49 @@ def client(tmp_path, monkeypatch):
     # Phase 10：/api/inspections* 需要 X-API-Key，預設帶好測試 key，
     # 這樣既有測試（呼叫 /api/inspections*）不用逐一加 header；
     # 專門測「沒帶/帶錯 key」行為的測試改用不帶預設 header 的 client。
-    monkeypatch.setenv("API_KEYS", f"erp:{TEST_API_KEY},frontend:{TEST_API_KEY}")
+    monkeypatch.setenv("API_KEYS", f"erp:{TEST_API_KEY}")
     from main import app
 
     return TestClient(app, headers={"X-API-Key": TEST_API_KEY})
+
+
+@pytest.fixture
+def client(api_client):
+    """預設：帶 API key 的系統呼叫（辨識與唯讀）。需要使用者身分的測試改用 admin_client／qc_client／operator_client。"""
+    return api_client
+
+
+@pytest.fixture
+def make_session_client(api_client):
+    """建立指定角色的使用者並登入，回傳帶 session cookie 的 TestClient（不帶 API key）。
+    依賴 `api_client` 是為了沿用它設好的暫存資料庫與圖片目錄。"""
+    from core import users
+    from main import app
+
+    def _make(role: str = "admin", username: str | None = None, display_name: str | None = None):
+        username = username or f"{role}_test"
+        users.create_user(username, display_name or f"{role}測試", TEST_PASSWORD, role)
+        session = TestClient(app)
+        res = session.post("/api/auth/login", json={"username": username, "password": TEST_PASSWORD})
+        assert res.status_code == 200, res.text
+        return session
+
+    return _make
+
+
+@pytest.fixture
+def admin_client(make_session_client):
+    return make_session_client("admin")
+
+
+@pytest.fixture
+def qc_client(make_session_client):
+    return make_session_client("qc")
+
+
+@pytest.fixture
+def operator_client(make_session_client):
+    return make_session_client("operator")
 
 
 @pytest.fixture
@@ -153,9 +224,11 @@ def seven_segment_png() -> bytes:
 @pytest.fixture
 def gauge_png_factory():
     """回傳一個 function(needle_angle_deg) -> png bytes，測試不同指針角度用。"""
+
     def _make(needle_angle_deg: float, min_angle_deg: float = 135, max_angle_deg: float = 45):
         image = make_samples.make_gauge(min_angle_deg, max_angle_deg, needle_angle_deg)
         return png_bytes(image)
+
     return _make
 
 
@@ -167,8 +240,10 @@ def packaging_match_png() -> bytes:
 @pytest.fixture
 def packaging_mismatch_png_factory():
     """回傳 function(printed_batch=None, printed_expiry=None) -> png bytes。"""
+
     def _make(**kwargs):
         return png_bytes(make_samples.make_packaging(days_from_today=200, **kwargs))
+
     return _make
 
 
@@ -190,6 +265,7 @@ def fake_pneumonia_model(monkeypatch):
 @pytest.fixture
 def fake_person_detector(monkeypatch):
     """把 YOLO 換成假函式，回傳固定的偵測框（單位 px，對應 800x600 測試圖）。"""
+
     def _fake(bgr):
         return [{"信心度": 0.9, "邊界框": [100, 100, 200, 500], "腳底參考點": [150, 500]}]
 
@@ -199,6 +275,7 @@ def fake_person_detector(monkeypatch):
 @pytest.fixture
 def fake_pcb_detector(monkeypatch):
     """把 M6 PCB 瑕疵偵測換成假函式，回傳固定的偵測框。"""
+
     class _FakeBox:
         def __init__(self, cls, conf, xyxy):
             import torch
@@ -236,6 +313,7 @@ def fake_pcb_detector_no_defect(monkeypatch):
 @pytest.fixture
 def fake_ppe_detector(monkeypatch):
     """回傳 1 個 helmet + 1 個 head（未戴安全帽），驗證 NG 判定。"""
+
     class _FakeBox:
         def __init__(self, cls, conf, xyxy):
             import torch

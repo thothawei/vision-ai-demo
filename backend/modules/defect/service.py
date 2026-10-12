@@ -11,17 +11,19 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-
+from core import model_registry
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
-from core.schemas import InspectionResult, ModuleError
+from core.logging_setup import log_model_load
+from core.schemas import InspectionResult
 
 MODULE = "defect"
+MODEL_ID = "pcb-defect"
 
 WEIGHTS_PATH = Path(__file__).resolve().parents[3] / "models" / "defect" / "pcb_yolo11n" / "weights" / "best.pt"
 CONF_THRESHOLD = 0.4
 
-_model = None
+_cache = model_registry.VersionedCache()
 
 # DeepPCB 官方類別（英文代號 → 中文說明），對應 scripts/prepare_deeppcb.py 的 CLASS_NAMES 順序
 CLASS_NAMES_ZH = {
@@ -34,20 +36,23 @@ CLASS_NAMES_ZH = {
 }
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        if not WEIGHTS_PATH.exists():
-            raise ModuleError(
-                f"找不到 PCB 瑕疵偵測權重 {WEIGHTS_PATH}，請先執行 "
-                "`python scripts/prepare_deeppcb.py` 準備資料，再訓練 "
-                "`YOLO('yolo11n.pt').train(data='data/deeppcb_yolo/data.yaml', ...)`（見 CLAUDE.md）",
-                503,
-            )
-        from ultralytics import YOLO
+def _load_yolo(path):
+    from ultralytics import YOLO
 
-        _model = YOLO(str(WEIGHTS_PATH))
-    return _model
+    with log_model_load("defect-yolo11n"):
+        return YOLO(str(path))
+
+
+def _get_model():
+    resolved = model_registry.resolve(
+        MODEL_ID,
+        WEIGHTS_PATH,
+        f"找不到 PCB 瑕疵偵測權重 {WEIGHTS_PATH}，請先執行 "
+        "`python scripts/prepare_deeppcb.py` 準備資料，再訓練 "
+        "`YOLO('yolo11n.pt').train(data='data/deeppcb_yolo/data.yaml', ...)`（見 docs/dev/decisions.md），"
+        "訓練完用 `python scripts/register_model.py` 登錄",
+    )
+    return _cache.get(resolved, _load_yolo)
 
 
 def detect_pcb_defects(image_bytes: bytes) -> InspectionResult:
@@ -62,11 +67,13 @@ def detect_pcb_defects(image_bytes: bytes) -> InspectionResult:
     for box in results[0].boxes:
         cls_name = model.names[int(box.cls[0])]
         x1, y1, x2, y2 = box.xyxy[0].tolist()
-        defects.append({
-            "瑕疵類型": CLASS_NAMES_ZH.get(cls_name, cls_name),
-            "信心度": round(float(box.conf[0]), 3),
-            "邊界框": [round(x1), round(y1), round(x2), round(y2)],
-        })
+        defects.append(
+            {
+                "瑕疵類型": CLASS_NAMES_ZH.get(cls_name, cls_name),
+                "信心度": round(float(box.conf[0]), 3),
+                "邊界框": [round(x1), round(y1), round(x2), round(y2)],
+            }
+        )
 
     annotated = _draw_annotations(bgr, defects)
     verdict = "NG" if defects else "OK"

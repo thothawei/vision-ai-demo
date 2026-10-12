@@ -2,8 +2,11 @@
 
 
 def test_ok_when_not_anomalous(client, fake_anomaly_inferencer, warning_sign_png):
-    res = client.post("/api/anomaly/inspect", params={"category": "metal_nut"},
-                      files={"file": ("i.png", warning_sign_png, "image/png")})
+    res = client.post(
+        "/api/anomaly/inspect",
+        params={"category": "metal_nut"},
+        files={"file": ("i.png", warning_sign_png, "image/png")},
+    )
 
     assert res.status_code == 200
     body = res.json()
@@ -16,8 +19,11 @@ def test_ok_when_not_anomalous(client, fake_anomaly_inferencer, warning_sign_png
 
 
 def test_ng_when_anomalous(client, fake_anomaly_inferencer, warning_sign_png):
-    res = client.post("/api/anomaly/inspect", params={"category": "metal_nut_ng"},
-                      files={"file": ("i.png", warning_sign_png, "image/png")})
+    res = client.post(
+        "/api/anomaly/inspect",
+        params={"category": "metal_nut_ng"},
+        files={"file": ("i.png", warning_sign_png, "image/png")},
+    )
 
     body = res.json()
     assert body["verdict"] == "NG"
@@ -26,16 +32,22 @@ def test_ng_when_anomalous(client, fake_anomaly_inferencer, warning_sign_png):
 
 
 def test_invalid_category_rejected(client, fake_anomaly_inferencer, warning_sign_png):
-    res = client.post("/api/anomaly/inspect", params={"category": "no_such_thing"},
-                      files={"file": ("i.png", warning_sign_png, "image/png")})
+    res = client.post(
+        "/api/anomaly/inspect",
+        params={"category": "no_such_thing"},
+        files={"file": ("i.png", warning_sign_png, "image/png")},
+    )
     assert res.status_code == 400
 
 
 def test_missing_weights_gives_clear_error(client, warning_sign_png, monkeypatch, tmp_path):
     # 沒有 fake_anomaly_inferencer：走真實的 _get_inferencer，指向不存在的權重路徑
     monkeypatch.setattr("modules.anomaly.service.MODELS_DIR", tmp_path)
-    res = client.post("/api/anomaly/inspect", params={"category": "metal_nut"},
-                      files={"file": ("i.png", warning_sign_png, "image/png")})
+    res = client.post(
+        "/api/anomaly/inspect",
+        params={"category": "metal_nut"},
+        files={"file": ("i.png", warning_sign_png, "image/png")},
+    )
 
     assert res.status_code == 503
     assert "train_anomaly.py" in res.json()["detail"]

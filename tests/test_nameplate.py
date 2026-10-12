@@ -7,10 +7,18 @@
 
 def test_nameplate_valid_extraction(client, fake_llm_queue, nameplate_png):
     responses, calls = fake_llm_queue
-    responses.append(({
-        "廠牌": "中科精機", "型號": "CK-850V", "序號": "SN-20260088",
-        "製造日期": "2026-03", "電壓": "220V",
-    }, "fake:model"))
+    responses.append(
+        (
+            {
+                "廠牌": "中科精機",
+                "型號": "CK-850V",
+                "序號": "SN-20260088",
+                "製造日期": "2026-03",
+                "電壓": "220V",
+            },
+            "fake:model",
+        )
+    )
 
     res = client.post("/api/nameplate/read", files={"file": ("np.png", nameplate_png, "image/png")})
 
@@ -77,9 +85,11 @@ def test_gauge_reads_min_mid_max(client, gauge_png_factory):
     cases = [(135, 0), (270, 50), (45, 100)]  # (指針角度, 預期讀值)
     for needle_angle, expected in cases:
         png = gauge_png_factory(needle_angle)
-        res = client.post("/api/nameplate/gauge",
-                          params={"min_value": 0, "max_value": 100, "min_angle": 135, "max_angle": 45},
-                          files={"file": ("g.png", png, "image/png")})
+        res = client.post(
+            "/api/nameplate/gauge",
+            params={"min_value": 0, "max_value": 100, "min_angle": 135, "max_angle": 45},
+            files={"file": ("g.png", png, "image/png")},
+        )
         assert res.status_code == 200, res.text
         value = res.json()["items"][0]["讀值"]
         assert abs(value - expected) < 5, f"needle={needle_angle} 預期約 {expected} 實際 {value}"
@@ -88,14 +98,18 @@ def test_gauge_reads_min_mid_max(client, gauge_png_factory):
 def test_gauge_boundary_noise_does_not_wrap_to_opposite_end(client, gauge_png_factory):
     """指針幾乎剛好在 min_angle，量測雜訊不該讓讀值跳到 max（真的踩過的 bug，見 CLAUDE.md）。"""
     png = gauge_png_factory(needle_angle_deg=135, min_angle_deg=135, max_angle_deg=45)
-    res = client.post("/api/nameplate/gauge",
-                      params={"min_value": 0, "max_value": 100, "min_angle": 135, "max_angle": 45},
-                      files={"file": ("g.png", png, "image/png")})
+    res = client.post(
+        "/api/nameplate/gauge",
+        params={"min_value": 0, "max_value": 100, "min_angle": 135, "max_angle": 45},
+        files={"file": ("g.png", png, "image/png")},
+    )
     assert res.json()["items"][0]["讀值"] < 10
 
 
 def test_gauge_no_needle_found(client, blank_png):
-    res = client.post("/api/nameplate/gauge",
-                      params={"center_x": 0.5, "center_y": 0.5},
-                      files={"file": ("b.png", blank_png, "image/png")})
+    res = client.post(
+        "/api/nameplate/gauge",
+        params={"center_x": 0.5, "center_y": 0.5},
+        files={"file": ("b.png", blank_png, "image/png")},
+    )
     assert res.status_code == 422

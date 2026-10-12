@@ -4,7 +4,8 @@
     python scripts/watch_folder.py --action general --in ./inbox \
         --station AOI-01 --work-order WO-2026-0001
 
-辨識端點不用 X-API-Key（Phase 10 只保護 /api/inspections*），所以這支腳本不用帶 key。
+辨識端點需要驗證：用 `--api-key`（或環境變數 `WATCH_API_KEY`）帶系統對系統的 API key，
+對應伺服器 `.env` 的 `API_KEYS`（格式 名稱:key）。這把 key 只能辨識與唯讀，不能複判或做管理。
 
 核心邏輯（`process_one`）刻意跟 CLI 的 watchdog 迴圈分開，吃一個 httpx.Client 相容物件
 （本機正式執行是 `httpx.Client(base_url=...)`，測試用 FastAPI 的 TestClient——兩者介面
@@ -12,6 +13,7 @@
 """
 
 import argparse
+import os
 import shutil
 import sys
 import time
@@ -23,7 +25,7 @@ import httpx
 
 SUPPORTED_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
-# 跟 backend/core/batch_dispatch.py 的 ACTIONS 用同一組代號，兩邊要保持一致。
+# 跟 backend/core/registry.py 的批次動作用同一組代號，兩邊要保持一致。
 ACTION_URLS = {
     "general": "/api/general/describe",
     "docs": "/api/docs/extract",
@@ -43,8 +45,11 @@ ACTION_URLS = {
 }
 
 TRACE_HEADER_MAP = {
-    "work_order": "X-Work-Order", "part_no": "X-Part-No", "lot_no": "X-Lot-No",
-    "station": "X-Station", "operator": "X-Operator",
+    "work_order": "X-Work-Order",
+    "part_no": "X-Part-No",
+    "lot_no": "X-Lot-No",
+    "station": "X-Station",
+    "operator": "X-Operator",
 }
 
 
@@ -104,8 +109,12 @@ def process_one(
     try:
         with open(path, "rb") as f:
             res = client.post(
-                url, params=params, data=data, headers=headers,
-                files={"file": (path.name, f.read(), content_type)}, timeout=60,
+                url,
+                params=params,
+                data=data,
+                headers=headers,
+                files={"file": (path.name, f.read(), content_type)},
+                timeout=60,
             )
     except httpx.HTTPError as e:
         _move_with_log(path, error_dir, f"連線失敗：{e}", ok=False)
@@ -117,7 +126,8 @@ def process_one(
 
     body = res.json()
     _move_with_log(
-        path, done_dir,
+        path,
+        done_dir,
         f"OK inspection_id={body.get('inspection_id')} verdict={body.get('verdict')}",
         ok=True,
     )
@@ -130,8 +140,17 @@ def build_request_context(args) -> tuple[dict, dict, dict]:
         value = getattr(args, key, None)
         if value:
             params[key] = value
-    for key in ("expected_count", "marker_size_mm", "target_length_mm", "target_width_mm",
-                "tolerance_mm", "min_value", "max_value", "min_angle", "max_angle"):
+    for key in (
+        "expected_count",
+        "marker_size_mm",
+        "target_length_mm",
+        "target_width_mm",
+        "tolerance_mm",
+        "min_value",
+        "max_value",
+        "min_angle",
+        "max_angle",
+    ):
         value = getattr(args, key, None)
         if value is not None:
             params[key] = value
@@ -146,6 +165,10 @@ def build_request_context(args) -> tuple[dict, dict, dict]:
         if value:
             headers[header_name] = quote(value)
 
+    api_key = getattr(args, "api_key", None)
+    if api_key:
+        headers["X-API-Key"] = api_key
+
     return params, data, headers
 
 
@@ -153,8 +176,18 @@ def scan_existing(client, args, in_dir: Path, done_dir: Path, error_dir: Path) -
     params, data, headers = build_request_context(args)
     for path in sorted(in_dir.iterdir()):
         if path.is_file():
-            process_one(client, args.action, path, done_dir, error_dir, params, data, headers,
-                        args.poll_interval, args.stable_checks)
+            process_one(
+                client,
+                args.action,
+                path,
+                done_dir,
+                error_dir,
+                params,
+                data,
+                headers,
+                args.poll_interval,
+                args.stable_checks,
+            )
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -162,6 +195,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action", required=True, choices=sorted(ACTION_URLS), help="要呼叫的辨識動作")
     parser.add_argument("--in", dest="in_dir", required=True, help="監看的資料夾")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=os.environ.get("WATCH_API_KEY"),
+        help="X-API-Key（預設讀環境變數 WATCH_API_KEY）",
+    )
     parser.add_argument("--station")
     parser.add_argument("--work-order", dest="work_order")
     parser.add_argument("--part-no", dest="part_no")
@@ -181,12 +220,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-angle", dest="max_angle", type=float)
     parser.add_argument("--poll-interval", type=float, default=0.5, help="檢查檔案大小是否穩定的間隔秒數")
     parser.add_argument("--stable-checks", type=int, default=2, help="連續幾次大小不變才算寫完")
-    parser.add_argument("--once", action="store_true", help="只處理一次目前資料夾裡的檔案，不繼續監看（測試/單次批次用）")
+    parser.add_argument(
+        "--once", action="store_true", help="只處理一次目前資料夾裡的檔案，不繼續監看（測試/單次批次用）"
+    )
     return parser
 
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
+    if not args.api_key:
+        sys.exit("缺少 API key：請用 --api-key 或設定環境變數 WATCH_API_KEY（值為 .env 的 API_KEYS 裡某組 key）")
     in_dir = Path(args.in_dir)
     in_dir.mkdir(parents=True, exist_ok=True)
     done_dir = in_dir / "done"
@@ -207,8 +250,18 @@ def main() -> None:
         def on_created(self, event):
             if event.is_directory:
                 return
-            process_one(client, args.action, Path(event.src_path), done_dir, error_dir,
-                        params, data, headers, args.poll_interval, args.stable_checks)
+            process_one(
+                client,
+                args.action,
+                Path(event.src_path),
+                done_dir,
+                error_dir,
+                params,
+                data,
+                headers,
+                args.poll_interval,
+                args.stable_checks,
+            )
 
     observer = Observer()
     observer.schedule(InboxHandler(), str(in_dir), recursive=False)

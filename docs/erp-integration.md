@@ -5,11 +5,11 @@ API 契約見 [openapi.json](openapi.json)（`GET /openapi.json` 即時匯出，
 
 ## 1. 認證方式
 
-`/api/inspections*` 下的所有端點都需要 `X-API-Key`；本系統其餘 13 個辨識端點（`/api/general/*` 等）不需要，理由見 [CLAUDE.md](../CLAUDE.md)「技術決策與理由（Phase 10）」。
+本系統所有端點都需要驗證：瀏覽器使用者用帳號登入，**系統對系統（ERP、資料夾監控腳本）用 `X-API-Key`**。API key 只能做辨識與**唯讀**（`/api/inspections*` 的清單、單筆、圖片、統計、匯出、`reviews`），**不能複判**，也不能做使用者、門檻、黃金樣本等管理操作（回 403）——複判需要具名的人，稽核才有意義。
 
-- key 存在 `.env` 的 `API_KEYS=erp:<key>,frontend:<key>`，逗號分隔多組 `名稱:key`。
-- 帶法：HTTP header `X-API-Key: <key>`（推薦）；或 URL query `?api_key=<key>`（只給 `<img>`/純連結這種沒辦法帶自訂 header 的情境用，`manufacturing-erp` 走後端輪詢應該一律用 header）。
-- 沒帶、帶錯都回 `401 {"detail": "缺少或無效的 X-API-Key"}`。
+- key 存在 `.env` 的 `API_KEYS=erp:<key>,watcher:<key>`，逗號分隔多組 `名稱:key`；用該 key 建立的檢驗紀錄，`created_by` 會是 `api-key:<名稱>`。
+- 帶法：只接受 HTTP header `X-API-Key: <key>`。**`?api_key=` 網址參數已於 0.18.0 移除**（key 會留在網址與日誌裡）。
+- 沒帶、帶錯都回 `401`；帶了有效 key 但操作不被允許回 `403`。
 - **正式導入前務必把 `.env` 的預設 key（`dev-erp-key-change-me`）換成隨機字串**，`API_KEYS` 不進版控（`.gitignore` 已排除 `.env`）。
 
 ## 2. 增量輪詢流程（`since_id`）
@@ -52,6 +52,29 @@ sequenceDiagram
 | `GET /api/inspections/{id}` | 取單筆完整紀錄 | — |
 | `GET /api/inspections/{id}/image?kind=raw\|annotated` | 取原圖／標註圖 | — |
 | `GET /api/inspections/export.csv` | 一次性批次匯出 CSV | — |
+| `GET /api/runs?since_id=<n>&limit=<m>` | 增量拉取「整次配方檢驗」（合併判定與各步驟的 `inspection_id`） | id **升冪** |
+| `GET /api/runs/{id}` | 取單次配方檢驗 | — |
+| `POST /api/master/parts:bulk-upsert` | ERP 推送料號 | — |
+| `POST /api/master/work-orders:bulk-upsert` | ERP 推送工單（料號要先在主檔） | — |
+
+### 推送主檔（bulk-upsert）
+
+只有名為 `erp` 的 API key（或 admin 登入）可以寫入主檔；其他 key（例如 `watcher`）回 403。請求範例：
+
+```json
+POST /api/master/work-orders:bulk-upsert
+{"work_orders": [
+  {"work_order_no": "WO-2026-0001", "part_no": "SC-M6-20", "quantity": 500,
+   "status": "in_progress", "start_date": "2026-09-29", "end_date": null, "lot_no": "LOT-A1"}
+]}
+```
+
+- `status`：`planned`／`in_progress`／`done`／`cancelled`；日期 `YYYY-MM-DD`；`lot_no` 選填（有的話前端選工單會自動帶入批號）。
+- 依主鍵（工單號、料號）upsert，**重複推送不會重複建立**。
+- **每一列各自成功或失敗**：回應 `{"created": [...], "updated": [...], "errors": [{"index", "key", "error"}]}`，某列有誤（例如料號不在主檔）不影響其他列；欄位名稱拼錯（未知欄位）整批 422。單次最多 2000 列。
+- 每次推送寫一筆稽核（新增／更新筆數與工單號清單，最多列 200 個）。
+
+檢驗紀錄新增欄位（皆為選填、只增不改）：`run_id`（屬於哪次配方檢驗）、`adhoc`（1＝臨時檢驗：沒有工單或工單不在主檔）、`created_by`、`request_id`、`images`、`model_id`／`model_version`（這次檢驗用的模型與版本；沒有模型的功能為空。CSV 匯出把這兩欄追加在最後）。
 
 ## 3. 欄位對照表
 

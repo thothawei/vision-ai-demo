@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登入 · 製造業 AI 辨識系統</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="card login-card">
+  <h2>製造業 AI 辨識系統</h2>
+  <form id="login-form">
+    <input type="text" id="login-username" placeholder="帳號" autocomplete="username" required autofocus>
+    <input type="password" id="login-password" placeholder="密碼" autocomplete="current-password" required>
+    <button type="submit" id="login-btn">登入</button>
+    <div class="status error" id="login-status"></div>
+  </form>
+  <p class="hint">尚未有帳號？請管理員在「管理 → 使用者」建立；第一個管理員由 <code>scripts/create_admin.py</code> 建立。</p>
+</div>
+<script type="module" src="js/login.js"></script>
+</body>
+</html>

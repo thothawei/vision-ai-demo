@@ -6,9 +6,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-from fastapi.testclient import TestClient
-
 from conftest import TEST_API_KEY
+from fastapi.testclient import TestClient
 
 
 def test_api_key_missing_or_wrong_is_401_correct_key_is_200(client):
@@ -20,12 +19,22 @@ def test_api_key_missing_or_wrong_is_401_correct_key_is_200(client):
     assert bare.get("/api/inspections", headers={"X-API-Key": TEST_API_KEY}).status_code == 200
 
 
-def test_recognition_endpoints_do_not_need_api_key(client, fake_llm, warning_sign_png):
+def test_recognition_endpoints_need_login_or_api_key(client, fake_llm, warning_sign_png):
+    """Phase 18 起辨識端點也要驗證：沒帶身分 401，API key 或登入 session 都可以。"""
     from main import app
 
-    bare = TestClient(app)  # 辨識端點刻意不用 key，見 core/api_auth.py
-    res = bare.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")})
-    assert res.status_code == 200
+    bare = TestClient(app)
+    files = {"file": ("s.png", warning_sign_png, "image/png")}
+    assert bare.post("/api/general/describe", files=files).status_code == 401
+    assert bare.post("/api/general/describe", files=files, headers={"X-API-Key": "wrong"}).status_code == 401
+    assert bare.post("/api/general/describe", files=files, headers={"X-API-Key": TEST_API_KEY}).status_code == 200
+
+
+def test_api_key_query_parameter_is_no_longer_accepted(client):
+    from main import app
+
+    bare = TestClient(app)
+    assert bare.get("/api/inspections", params={"api_key": TEST_API_KEY}).status_code == 401
 
 
 def test_since_id_ascending_no_duplicate_no_miss(client):
@@ -38,12 +47,12 @@ def test_since_id_ascending_no_duplicate_no_miss(client):
     assert page == sorted(page, key=lambda r: r["id"])
 
 
-def test_reviews_endpoint_returns_records_reviewed_after_since(client, fake_llm, warning_sign_png):
+def test_reviews_endpoint_returns_records_reviewed_after_since(client, qc_client, fake_llm, warning_sign_png):
     res = client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")})
     inspection_id = res.json()["inspection_id"]
 
     before_review = "2000-01-01T00:00:00"
-    client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "OK", "reviewer": "王"})
+    qc_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "OK"})  # 複判需要具名使用者
 
     reviewed = client.get("/api/inspections/reviews", params={"since": before_review}).json()
     assert [r["id"] for r in reviewed] == [inspection_id]
@@ -114,7 +123,9 @@ def _wait_until(predicate, timeout=3.0, interval=0.05):
     return False
 
 
-def test_ok_verdict_does_not_trigger_webhook(client, fake_pcb_detector_no_defect, webhook_server, monkeypatch, warning_sign_png):
+def test_ok_verdict_does_not_trigger_webhook(
+    client, fake_pcb_detector_no_defect, webhook_server, monkeypatch, warning_sign_png
+):
     url, received = webhook_server
     monkeypatch.setenv("ERP_WEBHOOK_URL", url)
 
@@ -136,7 +147,9 @@ def test_ng_verdict_triggers_webhook(client, fake_pcb_detector, webhook_server, 
     assert received[0]["module"] == "defect"
 
 
-def test_ng_webhook_receiver_down_response_still_ok_and_queued(client, fake_pcb_detector, monkeypatch, warning_sign_png):
+def test_ng_webhook_receiver_down_response_still_ok_and_queued(
+    client, fake_pcb_detector, monkeypatch, warning_sign_png
+):
     # 先開一個 server 拿到一個「保證沒人聽」的 port，再關掉，確保連線失敗
     dead_server = ThreadingHTTPServer(("127.0.0.1", 0), _CapturingHandler)
     dead_port = dead_server.server_address[1]
@@ -165,9 +178,10 @@ def test_webhook_retry_succeeds_once_receiver_is_back(client, fake_pcb_detector,
     dead_server.server_close()
     monkeypatch.setenv("ERP_WEBHOOK_URL", f"http://127.0.0.1:{dead_port}")
 
-    res = client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")})
+    client.post("/api/defect/pcb", files={"file": ("p.png", warning_sign_png, "image/png")})
 
     from core.inspection_log import list_pending_webhooks
+
     assert _wait_until(lambda: len(list_pending_webhooks()) == 1)
 
     _CapturingHandler.received = []

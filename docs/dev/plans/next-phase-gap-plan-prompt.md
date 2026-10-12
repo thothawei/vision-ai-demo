@@ -55,7 +55,7 @@
 | G8 | 只能在 Mac 跑；無 ONNX/OpenVINO、Docker、CI、CPU-only 效能數據；上傳無防護 | 10, 14 |
 | G9 | M7 七段顯示器/指針錶、M2 計數只驗證過合成圖 | 14 |
 | G10 | AGPL-3.0／非商用資料集的「導入公司」風險沒寫清楚 | 14 |
-| G11 | 缺架構圖與面試 Demo 腳本 | 15 |
+| G11 | 缺架構圖與系統導覽 | 15 |
 
 優先順序：**P0 = Phase 9、10**（最能證明「AI + ERP」）→ P1 = 11、12 → P2 = 13、14 → P3 = 15。
 
@@ -234,15 +234,15 @@
 
 ---
 
-## 10. Phase 15：作品集呈現（P3）
+## 10. Phase 15：產品文件收尾（P3）
 
 - README 開頭加 **Mermaid 系統架構圖**：相機/資料夾/手機拍照 → FastAPI 辨識模組 → SQLite 檢驗紀錄（含原圖）→ 品檢看板 / ERP 輪詢 / Webhook。
-- `docs/demo-script.md`：**5 分鐘面試 Demo 腳本**
+- `docs/walkthrough.md`：**系統導覽文件**
   1. 輸入工單號 → M1 掃零件條碼 → M3 外觀檢測判 NG
   2. 品檢員在看板複判 → 良率與柏拉圖即時變化
   3. 切到 `manufacturing-erp` 品檢查詢頁，看到剛才那筆（證明串接）
   4. 說明「換成貴公司零件怎麼導入」（Phase 12 流程）
-  5. 預想面試追問與回答（AGPL、誤判怎麼處理、沒 GPU 怎麼辦、NG 樣本少怎麼辦）
+  5. 預想對外說明追問與回答（AGPL、誤判怎麼處理、沒 GPU 怎麼辦、NG 樣本少怎麼辦）
 - 更新 `scripts/capture_screenshots.py` 涵蓋新分頁；錄 Demo GIF（ffmpeg 轉檔）。
 - 把截圖腳本改成可選的 e2e 測試：`pytest -m e2e`（`pytest.ini` 註冊 marker，預設不跑）。
 

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from core import anomaly_training, audit
+from core.auth import Principal, require_role
+from core.schemas import InspectionResult, ModuleError
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from core import anomaly_training
-from core.schemas import InspectionResult, ModuleError
 from modules.anomaly.service import inspect_part, list_all_categories
 
 router = APIRouter(prefix="/api/anomaly", tags=["M3 外觀瑕疵異常檢測"])
@@ -24,20 +25,32 @@ def create_category(
     name: str,
     good_zip: UploadFile = File(...),
     defect_zip: UploadFile | None = File(None),
+    principal: Principal = Depends(require_role("admin")),
 ):
     """上傳良品照片 zip（必要，>=15 張）+ NG 照片 zip（可選），排隊背景擬合。
     同時只允許一個擬合工作，其餘排隊；用 GET /categories/{name}/status 查進度。"""
     try:
-        return anomaly_training.enqueue_category(
-            name, good_zip.file.read(), defect_zip.file.read() if defect_zip else None,
+        result = anomaly_training.enqueue_category(
+            name,
+            good_zip.file.read(),
+            defect_zip.file.read() if defect_zip else None,
+            principal.actor,
         )
     except ModuleError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    audit.record(
+        principal.actor,
+        "anomaly_category.create",
+        "anomaly_category",
+        name,
+        after={"with_defect_samples": defect_zip is not None},
+    )
+    return result
 
 
 @router.get("/categories")
 def list_categories():
-    return anomaly_training.list_custom_categories()
+    return anomaly_training.list_custom_categories(overlay=True)
 
 
 @router.get("/categories/{name}/status")
@@ -61,8 +74,18 @@ class ThresholdRequest(BaseModel):
 
 
 @router.patch("/categories/{name}/threshold")
-def update_threshold(name: str, body: ThresholdRequest):
+def update_threshold(name: str, body: ThresholdRequest, principal: Principal = Depends(require_role("admin"))):
+    old = (anomaly_training.get_status(name) or {}).get("threshold")
     try:
-        return anomaly_training.set_threshold(name, body.threshold)
+        result = anomaly_training.set_threshold(name, body.threshold)
     except ModuleError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
+    audit.record(
+        principal.actor,
+        "anomaly_threshold.update",
+        "anomaly_category",
+        name,
+        before={"threshold": old},
+        after={"threshold": body.threshold},
+    )
+    return result

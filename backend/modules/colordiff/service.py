@@ -8,11 +8,10 @@ import time
 
 import cv2
 import numpy as np
-from skimage.color import deltaE_ciede2000, rgb2lab
-
 from core.image_io import bgr_to_data_url, load_image, to_bgr
 from core.inspection_log import record_result
 from core.schemas import InspectionResult, ModuleError
+from skimage.color import deltaE_ciede2000, rgb2lab
 
 MODULE = "colordiff"
 DEFAULT_THRESHOLD = 3.0  # ΔE00：業界常見「肉眼可辨但不算嚴重瑕疵」的邊界，可調整
@@ -75,12 +74,15 @@ def check_color_difference(
     if ref_rect:
         rx1, ry1, rx2, ry2 = _rect_to_px(ref_rect, w, h)
         cv2.rectangle(annotated, (rx1, ry1), (rx2, ry2), (255, 140, 0), 2)
-        cv2.putText(annotated, "標準", (rx1, max(ry1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 140, 0), 2, cv2.LINE_AA)
+        cv2.putText(
+            annotated, "標準", (rx1, max(ry1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 140, 0), 2, cv2.LINE_AA
+        )
     mx1, my1, mx2, my2 = _rect_to_px(measure_rect, w, h)
     color = (0, 140, 255) if verdict == "OK" else (0, 0, 255)
     cv2.rectangle(annotated, (mx1, my1), (mx2, my2), color, 2)
-    cv2.putText(annotated, f"dE={delta_e:.2f}", (mx1, max(my1 - 8, 15)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+    cv2.putText(
+        annotated, f"dE={delta_e:.2f}", (mx1, max(my1 - 8, 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA
+    )
 
     item = {
         "標準來源": ref_source,

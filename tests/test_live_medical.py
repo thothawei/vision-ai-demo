@@ -1,7 +1,5 @@
 """M8 真的打本機 Ollama（包裝檢核）與真的載入訓練好的肺炎分類權重：pytest -m live"""
 
-from datetime import date
-
 import pytest
 
 pytestmark = pytest.mark.live

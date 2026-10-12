@@ -6,7 +6,7 @@ from conftest import make_video_bytes
 def test_intrusion_video_detects_violation_in_zone(client, fake_person_detector):
     # 800x600 對應 fake_person_detector 固定回傳的腳底參考點 [150,500]
     video = make_video_bytes(5, width=800, height=600, fps=1.0)
-    zone = '[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]'  # 整張圖都是危險區域
+    zone = "[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]"  # 整張圖都是危險區域
 
     res = client.post(
         "/api/safety/video",

@@ -116,7 +116,9 @@ def main():
         "pos_weight_used": round(float(pos_weight.item()), 4),
     }
     (MODELS_DIR / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
-    print(f"\n測試集 ACC={result['test_acc']} AUC={result['test_auc']}（{len(test_ds)} 張，訓練耗時 {result['fit_seconds']} 秒）")
+    print(
+        f"\n測試集 ACC={result['test_acc']} AUC={result['test_auc']}（{len(test_ds)} 張，訓練耗時 {result['fit_seconds']} 秒）"
+    )
     print(f"normal 召回率={result['normal_recall']}　pneumonia 召回率={result['pneumonia_recall']}")
 
 

@@ -12,12 +12,29 @@ import watch_folder  # noqa: E402
 
 def _args(**overrides):
     base = dict(
-        action="general", in_dir=None, base_url="http://testserver",
-        station=None, work_order=None, part_no=None, lot_no=None, operator=None,
-        mode=None, category=None, zone=None, expected_count=None, marker_size_mm=None,
-        target_length_mm=None, target_width_mm=None, tolerance_mm=None,
-        min_value=None, max_value=None, min_angle=None, max_angle=None,
-        poll_interval=0.02, stable_checks=2, once=True,
+        action="general",
+        in_dir=None,
+        base_url="http://testserver",
+        station=None,
+        work_order=None,
+        part_no=None,
+        lot_no=None,
+        operator=None,
+        mode=None,
+        category=None,
+        zone=None,
+        expected_count=None,
+        marker_size_mm=None,
+        target_length_mm=None,
+        target_width_mm=None,
+        tolerance_mm=None,
+        min_value=None,
+        max_value=None,
+        min_angle=None,
+        max_angle=None,
+        poll_interval=0.02,
+        stable_checks=2,
+        once=True,
     )
     base.update(overrides)
     return SimpleNamespace(**base)

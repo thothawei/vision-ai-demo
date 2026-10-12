@@ -4,9 +4,8 @@ import io
 import json
 
 import numpy as np
-from skimage.color import deltaE_ciede2000, rgb2lab
-
 from samples import make_samples
+from skimage.color import deltaE_ciede2000, rgb2lab
 
 REF_RECT = [40 / 600, 40 / 300, 280 / 600, 260 / 300]
 MEASURE_RECT = [320 / 600, 40 / 300, 560 / 600, 260 / 300]

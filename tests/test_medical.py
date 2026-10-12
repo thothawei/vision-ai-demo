@@ -8,8 +8,7 @@ from datetime import date, timedelta
 
 def test_packaging_match_gives_ok(client, fake_llm_queue, packaging_match_png):
     responses, calls = fake_llm_queue
-    responses.append(({"批號": "LOT2026A", "效期": (date.today() + timedelta(days=200)).isoformat()},
-                      "fake:model"))
+    responses.append(({"批號": "LOT2026A", "效期": (date.today() + timedelta(days=200)).isoformat()}, "fake:model"))
 
     res = client.post("/api/medical/packaging-check", files={"file": ("p.png", packaging_match_png, "image/png")})
 
@@ -26,8 +25,7 @@ def test_packaging_match_gives_ok(client, fake_llm_queue, packaging_match_png):
 
 def test_packaging_batch_mismatch_gives_ng(client, fake_llm_queue, packaging_match_png):
     responses, _ = fake_llm_queue
-    responses.append(({"批號": "LOT9999X", "效期": (date.today() + timedelta(days=200)).isoformat()},
-                      "fake:model"))
+    responses.append(({"批號": "LOT9999X", "效期": (date.today() + timedelta(days=200)).isoformat()}, "fake:model"))
 
     res = client.post("/api/medical/packaging-check", files={"file": ("p.png", packaging_match_png, "image/png")})
 
@@ -41,8 +39,7 @@ def test_packaging_batch_mismatch_gives_ng(client, fake_llm_queue, packaging_mat
 
 def test_packaging_expiry_mismatch_gives_ng(client, fake_llm_queue, packaging_match_png):
     responses, _ = fake_llm_queue
-    responses.append(({"批號": "LOT2026A", "效期": (date.today() + timedelta(days=999)).isoformat()},
-                      "fake:model"))
+    responses.append(({"批號": "LOT2026A", "效期": (date.today() + timedelta(days=999)).isoformat()}, "fake:model"))
 
     res = client.post("/api/medical/packaging-check", files={"file": ("p.png", packaging_match_png, "image/png")})
 
@@ -87,3 +84,17 @@ def test_pneumonia_demo_missing_weights_gives_clear_error(client, warning_sign_p
 
     assert res.status_code == 503
     assert "train_medmnist.py" in res.json()["detail"]
+
+
+def test_packaging_ocr_confusable_batch_gives_info_for_review(client, fake_llm_queue, packaging_match_png):
+    # 條碼批號 LOT2026A，OCR 把 0 讀成字母 O：只差混淆字元 → 疑似，整體 INFO 交人工確認（不是 NG）
+    responses, _ = fake_llm_queue
+    responses.append(({"批號": "LOT2O26A", "效期": (date.today() + timedelta(days=200)).isoformat()}, "fake:model"))
+
+    body = client.post(
+        "/api/medical/packaging-check", files={"file": ("p.png", packaging_match_png, "image/png")}
+    ).json()
+
+    item = body["items"][0]
+    assert body["verdict"] == "INFO"
+    assert (item["批號比對"], item["批號一致"], item["待人工確認"], item["問題"]) == ("疑似", None, ["批號"], None)

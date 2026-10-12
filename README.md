@@ -1,8 +1,37 @@
-# 台中製造業 AI 辨識系統
+# 製造業視覺品檢平台（Vision Inspection Platform）
 
-本機執行的視覺辨識系統，對應台中／中科製造業常見情境（工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝）。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
+[![CI](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/thothawei/vision-ai-demo/actions/workflows/ci.yml)
 
-技術決策、每個開發階段的實測數字與踩過的坑，見 [CLAUDE.md](CLAUDE.md)；套件/模型/資料集授權查證見 [docs/licenses.md](docs/licenses.md)；5 分鐘面試 Demo 腳本見 [docs/demo-script.md](docs/demo-script.md)。
+適用於台中／中科製造業常見產線情境：工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
+
+## 核心能力
+
+- **16 個辨識功能**：追溯碼、計數與尺寸量測、外觀異常檢測、PCB 瑕疵、組裝防呆、色差 ΔE、出貨標籤比對、銘牌／七段顯示器／指針錶、製造文件結構化、危險區域入侵、安全帽偵測、包裝追溯碼檢核等。
+- **檢驗配方**：每個料號一份多步驟配方（版本不可變、可回滾），依配方一次檢驗並給合併判定；料號與工單主檔（ERP 可推送）。
+- **模型與資料治理**：模型多版本登錄與一鍵回滾（檢驗紀錄記下用了哪個版本）、權重完整性驗證、模型說明卡、圖片保存期限清理、備份與還原、正式的資料庫 migration。
+- **SPC 與品質報表**：X̄-R／I-MR 管制圖、Cp／Cpk、Western Electric 規則；日報／週報（Excel、可列印 PDF）。
+- **品檢紀錄與看板**：追溯欄位（工單／料號／批號／站別／操作員）、原圖與標註圖存檔、人工複判、良率與 NG 柏拉圖。
+- **ERP 串接**：API Key 保護的增量輪詢、NG webhook 通知。
+- **產線化輸入**：批次上傳、資料夾監控、短影片抽幀、瀏覽器拍照。
+- **自有資料導入**：自訂異常檢測類別、複判資料回流、門檻調校。
+
+## 快速開始
+
+```bash
+cd ~/Documents/vision-ai-demo
+source venv/bin/activate
+ollama serve &                 # 若尚未執行
+cd backend && uvicorn main:app --reload
+```
+
+瀏覽器開 http://127.0.0.1:8000。完整安裝（系統套件、模型權重、資料集）見下方「安裝」；操作流程見 [docs/walkthrough.md](docs/walkthrough.md)，功能說明見 [docs/user-guide.md](docs/user-guide.md)，設定與維運見 [docs/admin-guide.md](docs/admin-guide.md)。
+
+## 文件
+
+- 使用者：[user-guide.md](docs/user-guide.md)、[walkthrough.md](docs/walkthrough.md)、[known-limitations.md](docs/known-limitations.md)
+- 管理者：[admin-guide.md](docs/admin-guide.md)、[erp-integration.md](docs/erp-integration.md)
+- 授權：[LICENSE](LICENSE)（AGPL-3.0）、[docs/licenses.md](docs/licenses.md)
+- 開發：[CLAUDE.md](CLAUDE.md)（開發規則與陷阱）、[docs/dev/](docs/dev/)（技術決策、測試紀錄）、[CHANGELOG.md](CHANGELOG.md)
 
 ## 系統架構
 
@@ -50,7 +79,7 @@ flowchart LR
 | 出貨標籤 vs 工單比對（料號/數量/批號） | zxing-cpp（條碼優先）+ RapidOCR + Ollama/Gemini | 真打 Ollama 驗證全對/料號不符/條碼優先三種情境 |
 | 品檢紀錄與看板（工單/料號/批號追溯、原圖與標註圖存檔、人工複判、良率/NG 原因柏拉圖） | SQLite + Chart.js | — |
 
-各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [CLAUDE.md](CLAUDE.md)。
+各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [docs/dev/](docs/dev/)。
 
 ## 實際辨識畫面
 
@@ -86,7 +115,7 @@ venv/bin/python scripts/capture_screenshots.py
 
 ## 未納入功能
 
-依規劃文件 [docs/manufacturing-ai-plan-prompt.md](docs/manufacturing-ai-plan-prompt.md) 的硬性規則「找不到免費方案的功能直接跳過，不寫假的 stub」，以下功能未實作：
+依規劃文件 [docs/dev/plans/manufacturing-ai-plan-prompt.md](docs/dev/plans/manufacturing-ai-plan-prompt.md) 的硬性規則「找不到免費方案的功能直接跳過，不寫假的 stub」，以下功能未實作：
 
 - **商用 AOI／機器視覺軟體**（Cognex VisionPro、MVTec HALCON、Keyence）：付費軟體，無免費替代。
 - **3D 量測、雷射輪廓、熱影像檢測**：需要專用硬體（3D 掃描儀、雷射輪廓儀、熱像儀），非純軟體可解決。
@@ -95,10 +124,10 @@ venv/bin/python scripts/capture_screenshots.py
 - **振動／聲音預測保養**：不屬於影像辨識範疇，且需要感測器硬體，不在本專案規劃範圍內。
 - **Google Cloud Vision／Azure AI Vision**：免費額度有限且需綁信用卡，改用完全免費的本機 Ollama + Gemini 免費層方案。
 - **NEU-DET 鋼材表面瑕疵資料集（M6 原規劃選項）**：官方頁面未附任何授權條款（只要求引用論文），查證後授權狀態不明，改用授權明確為 MIT 的 DeepPCB 資料集。
-- **M5+ 人員跌倒偵測**：`docs/next-phase-gap-plan-prompt.md` 規劃項目，使用者確認作品集展示範圍已足夠，本輪停在 Phase 13 的 M10/M11/M12，這項不做——跟上面幾項不同，這不是授權/硬體卡關，是主動收斂範圍的決定。
+- **M5+ 人員跌倒偵測**：`docs/dev/plans/next-phase-gap-plan-prompt.md` 規劃項目，使用者確認目前範圍已足夠，本輪停在 Phase 13 的 M10/M11/M12，這項不做——跟上面幾項不同，這不是授權/硬體卡關，是主動收斂範圍的決定。
 - **M8-1+ 包裝比對容錯（字元混淆正規化 + rapidfuzz 相似度、三級判定）**：同上，規劃項目但這輪不做，M8-1 現行的「完全字串相等」比對邏輯維持不變（見已知限制）。
 - **鋼材表面瑕疵資料集重新查證（KolektorSDD2、Magnetic Tile Defect 等）**：同上，這輪不做，M6 沿用既有的 DeepPCB 資料集。
-- **Phase 14：部署、效能、工程品質**（ONNX/OpenVINO 匯出與 benchmark、Dockerfile/docker-compose、GitHub Actions CI、Windows 相容性驗證、`tests/real_samples/` 真實照片驗證集）：規劃內容需要額外硬體/環境（Intel CPU 測 OpenVINO、Windows 機器、GitHub Actions 額度）與明顯更大的工程投入，作為單人作品集 demo 這輪選擇不做，使用者已確認。
+- **Phase 14：部署、效能、工程品質**（ONNX/OpenVINO 匯出與 benchmark、Dockerfile/docker-compose、GitHub Actions CI、Windows 相容性驗證、`tests/real_samples/` 真實照片驗證集）：規劃內容需要額外硬體/環境（Intel CPU 測 OpenVINO、Windows 機器、GitHub Actions 額度）與明顯更大的工程投入，作為單人專案 demo 這輪選擇不做，使用者已確認。
 
 ## 安裝
 
@@ -143,7 +172,7 @@ curl -sL -o metal_nut.tar.xz "https://www.mydrive.ch/shares/150459/c68856a21dca5
 curl -sL -o screw.tar.xz "https://www.mydrive.ch/shares/150461/242f454cc6385e5693c4fd4b94567d1e/download/420938130-1629960389/screw.tar.xz" && tar xf screw.tar.xz
 curl -sL -o tile.tar.xz "https://www.mydrive.ch/shares/150462/5479f0fdc97bc6fa16eab0cb0cf0109f/download/420938133-1629960456/tile.tar.xz" && tar xf tile.tar.xz
 cd ../..
-venv/bin/python scripts/train_anomaly.py --category all   # CPU，約 22 分鐘，實測 AUROC 見 CLAUDE.md
+venv/bin/python scripts/train_anomaly.py --category all   # CPU，約 22 分鐘，實測 AUROC 見 docs/dev/test-log.md
 ```
 
 （連結來自 MVTec 官方下載頁 https://www.mvtec.com/research-teaching/datasets/mvtec-ad/downloads 轉址後的真實網址，若失效請重新到官方頁面查詢。）
@@ -214,7 +243,7 @@ uvicorn main:app --reload
 
 ## ERP 串接（`/api/inspections*`）
 
-`/api/inspections*` 需要 `X-API-Key`（`.env` 的 `API_KEYS`，格式 `名稱:key,名稱:key`），13 個辨識端點不用。首次啟動請把 `.env.example` 裡的預設 key（`dev-erp-key-change-me`）換成隨機字串，並同步更新 `frontend/index.html` 的 `FRONTEND_API_KEY` 常數（兩邊要一致，見已知限制）。
+所有端點都需要驗證：瀏覽器用帳號登入（角色 operator／qc／admin），ERP 與資料夾監控用 `X-API-Key`（`.env` 的 `API_KEYS`，格式 `名稱:key,名稱:key`，只能辨識與唯讀）。首次啟動前必須在 `.env` 設定 `SESSION_SECRET`（至少 32 字元，沒設定服務拒絕啟動），並用 `python scripts/create_admin.py --username admin --display-name 系統管理員` 建立第一個管理員；預設 API key 請換成隨機字串。
 
 完整認證方式、`since_id` 增量輪詢流程（含時序圖）、欄位對照表、C# `HttpClient` 範例，見 [docs/erp-integration.md](docs/erp-integration.md)；即時 API 契約見 `GET /openapi.json`（快照存在 [docs/openapi.json](docs/openapi.json)）。
 
@@ -252,14 +281,14 @@ python scripts/export_reviewed.py --module anomaly --out ./export_anomaly --cate
 3. 人工校正框的位置/類別是否正確（AI 預標註只是起點，省下從零框的時間）
 4. Export 成 YOLO 格式覆蓋回 `labels/`，重新訓練（`YOLO('yolo11n.pt').train(data=data.yaml, ...)`）並比較新舊 mAP/AUROC 再決定要不要上線
 
-現場誤判 → 人工複判 → 匯出 → 標註校正 → 重訓 → 比較新舊指標 → 上線 的完整流程圖見 [CLAUDE.md](CLAUDE.md)。
+現場誤判 → 人工複判 → 匯出 → 標註校正 → 重訓 → 比較新舊指標 → 上線 的完整流程圖見 [docs/dev/decisions.md](docs/dev/decisions.md)。
 
 ## 補齊台中常見辨識（Phase 13-14）
 
 - **組裝防呆／黃金樣本比對**：「建立黃金樣本設定」卡片上傳一張正確的組裝照片，在圖上拖曳畫出多個 ROI（零件應該在的位置）存成料號設定；「比對檢測」選料號上傳待測照片，會用 ORB 特徵 + homography 自動對齊到黃金樣本的角度，逐一比對每個 ROI（SSIM），任一 ROI 沒過就整體判 NG。API：`POST /api/assembly/golden-samples`、`GET /api/assembly/golden-samples`、`POST /api/assembly/inspect?part_no=`。
 - **烤漆/陽極色差 ΔE**：上傳照片後按「畫標準色區」拖曳框一塊標準色（或勾選改用手動輸入標準 Lab 值），再按「畫量測區」框待測區域，計算 CIEDE2000 色差 ΔE00，超過門檻（預設 3.0，可調）判不合格。API：`POST /api/color/check`。
 - **出貨標籤 vs 工單比對**：上傳出貨標籤照片，OCR+AI 讀出標籤上的料號/數量/批號（標籤上如果也有 GS1 條碼，批號優先信任條碼），跟「預期值」比對——預期值優先順序：手動輸入 > 畫面最上方的追溯資訊（料號/批號）；三項都沒填只會讀出標籤內容，不判 OK/NG。API：`POST /api/shipping/check-label`。
-- **M5+（跌倒偵測）、M8-1+（包裝比對容錯）、鋼材表面瑕疵資料集查證、Phase 14（ONNX/OpenVINO 效能評測、Docker、CI、Windows 相容性驗證）：使用者確認作品集展示範圍已足夠，本輪不做**，不是查證後發現不可行——跟前面「未納入功能」的授權/硬體限制不同，這批是刻意收斂範圍的決定，詳見下方「未納入功能」。
+- **M5+（跌倒偵測）、M8-1+（包裝比對容錯）、鋼材表面瑕疵資料集查證、Phase 14（ONNX/OpenVINO 效能評測、Docker、CI、Windows 相容性驗證）：使用者確認目前範圍已足夠，本輪不做**，不是查證後發現不可行——跟前面「未納入功能」的授權/硬體限制不同，這批是刻意收斂範圍的決定，詳見下方「未納入功能」。
 
 ## 測試
 
@@ -286,7 +315,7 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **追溯資訊是自由文字，沒有輸入驗證**：工單號/料號等欄位不檢查格式、不比對任何工單主檔（還沒接 ERP），同一工單打錯字會被當成不同工單，篩選查不到。
 - **品檢看板的 NG 原因柏拉圖是白名單制**：只有 defect/ppe/anomaly/safety/medical_packaging 五個模組定義了「怎麼抽出缺陷類別」，之後新增模組要記得補上，不然不會出現在柏拉圖。
 - **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在啟動時讀死進中介層，不是每個請求動態重讀。
-- **API Key 可以用 `?api_key=` query 參數帶**（給 `<img>`／CSV 下載連結用，瀏覽器沒辦法幫這兩種情境帶自訂 header），代價是 key 可能留在瀏覽器歷史紀錄或伺服器 access log，單機無公開網路曝露情境下可接受。
+- **API key 只接受 `X-API-Key` header**（`?api_key=` 已移除）；瀏覽器下載 CSV 與看圖走登入 cookie。uvicorn 的 access log 仍會印完整網址。
 - **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 送出失敗會重試最多 5 次後放棄，ERP 端仍需要自己跑 `since_id` 輪詢當保底。
 - **`watch_folder.py` 是單執行緒、逐檔處理**：檔案量大或模型推論慢時會排隊，不是平行處理；長駐監看用 `watchdog`，處理中的行程被中斷（例如 Ctrl+C）時該筆檔案不會自動搬移，需要重新丟回 inbox。
 - **批次上傳整批共用同一組額外參數**：例如批次跑 M3 異常檢測，整批圖片必須是同一個 `category`；批次跑危險區域入侵，整批共用同一個 `zone`，沒有辦法每張各自設定。
@@ -318,5 +347,5 @@ vision-ai-demo/
 ├── models/                     # 權重，gitignore
 ├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore
 ├── tests/                      # pytest：單元測試（假模型）+ live 測試（真模型，-m live）
-└── docs/                       # 規劃文件、授權查證紀錄、erp-integration.md、openapi.json
+└── docs/                       # 使用者/管理者文件、授權查證紀錄、erp-integration.md、openapi.json、dev/（決策與測試紀錄）
 ```

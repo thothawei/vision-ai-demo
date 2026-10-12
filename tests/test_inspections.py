@@ -39,8 +39,19 @@ def test_legacy_db_auto_migrates_and_old_data_still_queryable(tmp_path, monkeypa
     row = rows[0]
     assert row["summary"] == [{"score": 0.9}]
     # 新欄位補上但是 NULL，不影響舊資料可查詢
-    for col in ("work_order", "part_no", "lot_no", "station", "operator",
-                "image_path", "annotated_path", "review_verdict", "reviewer", "reviewed_at", "review_note"):
+    for col in (
+        "work_order",
+        "part_no",
+        "lot_no",
+        "station",
+        "operator",
+        "image_path",
+        "annotated_path",
+        "review_verdict",
+        "reviewer",
+        "reviewed_at",
+        "review_note",
+    ):
         assert col in row
         assert row[col] is None
 
@@ -80,17 +91,25 @@ def test_trace_headers_recorded_and_optional(client, fake_llm, warning_sign_png)
 
 
 def test_filter_by_trace_fields(client, fake_llm, warning_sign_png):
-    client.post("/api/general/describe", files={"file": ("a.png", warning_sign_png, "image/png")},
-                headers={"X-Work-Order": "WO-1"})
-    client.post("/api/general/describe", files={"file": ("b.png", warning_sign_png, "image/png")},
-                headers={"X-Work-Order": "WO-2"})
+    client.post(
+        "/api/general/describe",
+        files={"file": ("a.png", warning_sign_png, "image/png")},
+        headers={"X-Work-Order": "WO-1"},
+    )
+    client.post(
+        "/api/general/describe",
+        files={"file": ("b.png", warning_sign_png, "image/png")},
+        headers={"X-Work-Order": "WO-2"},
+    )
 
     results = client.get("/api/inspections", params={"work_order": "WO-1"}).json()
     assert len(results) == 1
     assert results[0]["work_order"] == "WO-1"
 
 
-def test_save_images_true_stores_raw_and_annotated_and_image_api_serves_them(client, fake_llm, warning_sign_png, monkeypatch):
+def test_save_images_true_stores_raw_and_annotated_and_image_api_serves_them(
+    client, fake_llm, warning_sign_png, monkeypatch
+):
     monkeypatch.setenv("SAVE_IMAGES", "true")
     res = client.post("/api/general/describe", files={"file": ("sign.png", warning_sign_png, "image/png")})
     inspection_id = res.json()["inspection_id"]
@@ -133,25 +152,26 @@ def test_save_images_stores_annotated_when_module_provides_one(client, fake_pcb_
     assert annotated_res.headers["content-type"] == "image/png"
 
 
-def test_review_endpoint_updates_and_rejects_invalid_verdict(client, fake_llm, warning_sign_png):
+def test_review_endpoint_updates_and_rejects_invalid_verdict(client, qc_client, fake_llm, warning_sign_png):
     res = client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")})
     inspection_id = res.json()["inspection_id"]
 
-    patched = client.patch(
+    # body 裡的 reviewer 會被忽略，複判人一律是登入者（qc_test）
+    patched = qc_client.patch(
         f"/api/inspections/{inspection_id}/review",
         json={"review_verdict": "NG", "reviewer": "李品檢", "review_note": "實際有瑕疵"},
     )
     assert patched.status_code == 200
     body = patched.json()
     assert body["review_verdict"] == "NG"
-    assert body["reviewer"] == "李品檢"
+    assert body["reviewer"] == "qc_test"
     assert body["review_note"] == "實際有瑕疵"
     assert body["reviewed_at"] is not None
 
-    invalid = client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "MAYBE"})
+    invalid = qc_client.patch(f"/api/inspections/{inspection_id}/review", json={"review_verdict": "MAYBE"})
     assert invalid.status_code == 422
 
-    not_found = client.patch("/api/inspections/999999/review", json={"review_verdict": "OK"})
+    not_found = qc_client.patch("/api/inspections/999999/review", json={"review_verdict": "OK"})
     assert not_found.status_code == 404
 
 
@@ -160,8 +180,11 @@ def test_stats_yield_pareto_and_consistency(client):
 
     id_ok1 = log_inspection("anomaly", "OK", "e", 10, [{"類別": "screw", "判定": "正常"}])
     id_ng1 = log_inspection("anomaly", "NG", "e", 10, [{"類別": "screw", "判定": "異常"}])
-    id_ng2 = log_inspection(
-        "defect", "NG", "e", 10,
+    log_inspection(
+        "defect",
+        "NG",
+        "e",
+        10,
         [{"偵測到瑕疵數": 2, "明細": [{"瑕疵類型": "斷路 open"}, {"瑕疵類型": "短路 short"}]}],
     )
     log_inspection("defect", "NG", "e", 10, [{"偵測到瑕疵數": 1, "明細": [{"瑕疵類型": "斷路 open"}]}])
@@ -200,8 +223,11 @@ def test_stats_yield_pareto_and_consistency(client):
 
 
 def test_csv_export_includes_new_columns(client, fake_llm, warning_sign_png):
-    client.post("/api/general/describe", files={"file": ("s.png", warning_sign_png, "image/png")},
-                headers={"X-Work-Order": "WO-9"})
+    client.post(
+        "/api/general/describe",
+        files={"file": ("s.png", warning_sign_png, "image/png")},
+        headers={"X-Work-Order": "WO-9"},
+    )
     csv_res = client.get("/api/inspections/export.csv")
     lines = csv_res.content.decode("utf-8").splitlines()
     header = lines[0].lstrip("﻿")
