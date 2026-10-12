@@ -76,7 +76,16 @@ def evaluate_module(action: str) -> dict:
         try:
             item = spec.handler((folder / s["file"]).read_bytes(), params).items[0]
         except Exception as e:  # noqa: BLE001 — 單張失敗要記錄，不能讓整批評估中斷
-            rows.append((s["file"], False, f"執行失敗：{e}"))
+            refused = getattr(e, "status_code", None) == 422
+            if s.get("expect_refusal"):
+                rows.append(
+                    (s["file"], refused, f"明確拒絕（設計內的行為）：{e}" if refused else f"預期要拒絕，但是：{e}")
+                )
+            else:
+                rows.append((s["file"], False, f"執行失敗：{e}"))
+            continue
+        if s.get("expect_refusal"):
+            rows.append((s["file"], False, "預期要拒絕（沒有可參考的背景），但回報了數字"))
             continue
         times.append(time.perf_counter() - started)
         ok_all, detail = True, []

@@ -6,10 +6,10 @@
 
 | 模組 | 狀態 | 張數 | 正確 | 準確率 | 平均絕對誤差 | 平均耗時 | 拍攝裝置 |
 |---|---|---|---|---|---|---|---|
-| count | 真實照片實測 | 3 | 0 | 0% | 26.333 | 0.12 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
+| count | 真實照片實測 | 12 | 8 | 67% | 2.273 | 0.41 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
 | measure | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | seven_segment | 真實照片實測 | 8 | 5 | 62% | — | 0.21 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
-| gauge | 真實照片實測 | 6 | 6 | 100% | 1.077 | 0.36 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
+| gauge | 真實照片實測 | 6 | 6 | 100% | 1.077 | 0.34 秒 | 網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機 |
 | assembly | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | colordiff | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
 | shipping | 待補真實照片（沒有 labels.json） | — | — | — | — | — | — |
@@ -24,9 +24,18 @@
 
 | 照片 | 結果 | 明細 |
 |---|---|---|
-| two_screws.jpg | 未通過 | 計數結果: 預期 2／實際 15 |
-| bolts_and_nuts.jpg | 未通過 | 計數結果: 預期 10／實際 63 |
-| two_screws_closeup.jpg | 未通過 | 計數結果: 預期 2／實際 15 |
+| two_screws.jpg | 通過 | 計數結果: 預期 2／實際 2 |
+| bolts_and_nuts.jpg | 未通過 | 計數結果: 預期 9／實際 3 |
+| two_screws_closeup.jpg | 通過 | 計數結果: 預期 2／實際 2 |
+| four_screws_4.jpg | 通過 | 計數結果: 預期 4／實際 4 |
+| wood_screw_1.jpg | 通過 | 計數結果: 預期 1／實際 1 |
+| resistors_6.jpg | 通過 | 計數結果: 預期 6／實際 6 |
+| resistors_3.jpg | 未通過 | 計數結果: 預期 3／實際 4 |
+| gaskets_5.jpg | 通過 | 計數結果: 預期 5／實際 5 |
+| ceramic_balls_5.jpg | 通過 | 計數結果: 預期 5／實際 5 |
+| nut_hardware_7.jpg | 未通過 | 計數結果: 預期 7／實際 21 |
+| orings_5.jpg | 未通過 | 計數結果: 預期 5／實際 1 |
+| bottle_cap_1.jpg | 通過 | 明確拒絕（設計內的行為）：畫面邊緣沒有可參考的背景（零件占滿畫面，或背景雜亂），無法計數；請把零件放在素色背景上、四周留一點空白 |
 
 ## seven_segment
 

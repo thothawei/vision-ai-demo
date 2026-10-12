@@ -17,6 +17,15 @@
 | `gauge/india_gauge_21psi.jpg` | https://commons.wikimedia.org/wiki/File:Pressure_Gauge.jpg | In Transit | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
 | `count/two_screws.jpg` | https://commons.wikimedia.org/wiki/File:Screws_EXP_054.JPG | Tomasz Sienicki（Commons 使用者 tsca） | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0) |
 | `count/bolts_and_nuts.jpg` | https://commons.wikimedia.org/wiki/File:18-03-16-Schrauben-M6x20_RRK3198.jpg | Ralf Roletschek | [GFDL 1.2](http://www.gnu.org/licenses/old-licenses/fdl-1.2.html) |
+| `count/four_screws_4.jpg` | https://commons.wikimedia.org/wiki/File:4_SPAX_screws_with_partial_and_full_thread.jpg | Unknown author | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0) |
+| `count/wood_screw_1.jpg` | https://commons.wikimedia.org/wiki/File:Wood_screws.jpg | Dmitry Makeev | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0) |
+| `count/resistors_6.jpg` | https://commons.wikimedia.org/wiki/File:Electronic-Axial-Lead-Resistors-Array.jpg | Evan-Amos | Public domain |
+| `count/resistors_3.jpg` | https://commons.wikimedia.org/wiki/File:3_Resistors.jpg | Afrank99 | [CC BY-SA 2.5](https://creativecommons.org/licenses/by-sa/2.5) |
+| `count/gaskets_5.jpg` | https://commons.wikimedia.org/wiki/File:Gaskets.jpg | Sonett72 at English Wikipedia | Public domain |
+| `count/ceramic_balls_5.jpg` | https://commons.wikimedia.org/wiki/File:Silicon_nitride_Si3N4_bearing_balls_1%E2%80%9320_mm.jpg | Lucasbosch | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+| `count/nut_hardware_7.jpg` | https://commons.wikimedia.org/wiki/File:Nut-hardware.jpg | MH | Public domain |
+| `count/orings_5.jpg` | https://commons.wikimedia.org/wiki/File:O-ring_collection.jpg | Ahellwig | [CC BY 2.5](https://creativecommons.org/licenses/by/2.5) |
+| `count/bottle_cap_1.jpg` | https://commons.wikimedia.org/wiki/File:Tui_beer_bottle_cap.jpg | Sarang | Public domain |
 
 ## 讀值與個數是怎麼來的
 
@@ -25,6 +34,10 @@
 ## 留出照片
 
 指針錶的 `hygrometer_33`、`boiler_gauge_175`、`india_gauge_21psi` 是 2026-10-12 重寫指針偵測**之後**才加入的（標註在跑工具之前定好，不依結果調整）；前三張（`pool_gauge_0bar`、`manometer_104026`、`round_thermometer`）是開發時用來調整的，通過率不代表泛化。
+
+## 零件計數的照片
+
+`count/two_screws*`、`count/bolts_and_nuts` 是開發時用的（零件彼此接觸或重疊）。`four_screws_4`、`wood_screw_1`、`resistors_6`、`resistors_3`、`gaskets_5` 原本是留出照片，但我之後看著它們的失敗結果調整了分割規則，所以**已不是乾淨的留出集**；`ceramic_balls_5`、`nut_hardware_7`、`orings_5`、`bottle_cap_1` 是調完規則後才加入的（標註在跑工具之前定好），但我也看過它們的結果並加了「邊緣輪廓並入」「沒有背景就拒絕」，所以同樣只能當作參考。`bolts_and_nuts` 的標註更正過一次（原標 10，實為 9：右下角彩虹色的是螺栓的頭，不是第四顆螺帽）。
 
 ## 為什麼只有三個模組
 

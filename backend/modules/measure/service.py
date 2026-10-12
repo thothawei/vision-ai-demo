@@ -1,6 +1,6 @@
 """M2 零件計數與尺寸量測。
 
-計數：Otsu 二值化 → 開運算去雜訊 → distance transform + watershed 分離相黏零件。
+計數：與背景的 Lab 色差取前景 → 閉運算填洞 → distance transform 的 h-maxima + watershed 分離相黏零件。
 量測：畫面需放一個 ArUco 標記（scripts/make_aruco.py 產生可列印 PDF）當比例尺，
 用標記四角做透視校正（homography），把整張圖攤平成「每 mm 固定像素數」的正視圖再量測，
 降低手機拍攝角度造成的透視誤差；仍假設待測物與標記共平面，非共平面時誤差會變大，見 README 精度限制。
@@ -27,35 +27,14 @@ def count_parts(image_bytes: bytes, expected_count: int | None, min_area_ratio: 
     started = time.perf_counter()
     image = load_image(image_bytes)
     bgr = to_bgr(image)
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    binary = _binarize_foreground_minority(gray)
-
-    kernel = np.ones((3, 3), np.uint8)
-    opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
-    sure_bg = cv2.dilate(opened, kernel, iterations=3)
-
-    dist = cv2.distanceTransform(opened, cv2.DIST_L2, 5)
-    # 用「距離變換的局部極大值」當種子點，而不是整塊閾值：
-    # 整塊閾值對相黏零件會把兩顆的前景合成同一塊連通區域，分不開；
-    # 局部極大值抓的是每顆零件自己的中心峰值，即使邊緣相黏也能各自成一個種子。
-    # local_kernel 大小＝能分辨的最小零件間距，零件中心距離小於這個值時仍會被視為同一顆。
-    local_kernel = np.ones((25, 25), np.uint8)
-    local_max = cv2.dilate(dist, local_kernel)
-    sure_fg = ((dist == local_max) & (dist > 0.3 * dist.max())).astype(np.uint8) * 255
-    unknown = cv2.subtract(sure_bg, sure_fg)
-
-    _, markers = cv2.connectedComponents(sure_fg)
-    markers = markers + 1
-    markers[unknown == 255] = 0
-    cv2.watershed(bgr, markers)
+    labels = _segment_parts(bgr)
 
     min_area = image.width * image.height * min_area_ratio
     items = []
     annotated = bgr.copy()
-    for label in range(2, markers.max() + 1):
-        mask = (markers == label).astype(np.uint8) * 255
+    for label in range(1, int(labels.max()) + 1):
+        mask = (labels == label).astype(np.uint8) * 255
         area = int(cv2.countNonZero(mask))
         if area < min_area:
             continue
@@ -83,6 +62,175 @@ def count_parts(image_bytes: bytes, expected_count: int | None, min_area_ratio: 
 
     result = [{"計數結果": len(items), "預期數量": expected_count, "明細": items}]
     return record_result(MODULE, verdict, result, "opencv-watershed", started, bgr_to_data_url(annotated))
+
+
+_MIN_COLOR_DIFF = 12.0  # 與背景的 Lab 色差低於這個值不算前景（避免空畫面被雜訊切出一堆東西）
+_PEAK_MIN_RATIO = (
+    0.7  # 候選種子（距離變換的峰）至少要有「最大內切圓半徑」的這個比例；螺紋牙齒、凸起比零件本體小很多，會被排除
+)
+_MIN_PIECE_RATIO = 0.3  # 相鄰兩個區域中較小的面積低於較大的這個比例，視為附屬的凸起（端帽、被反光切斷的一截），併回去
+_NECK_MAX_RATIO = 0.7  # 兩個相鄰區域之間的頸部要比「較小的峰」窄到這個比例以下，才當作兩個零件；否則合併回去
+_WORK_SIZE = 800  # 分割的工作解析度（最長邊）
+
+
+_BACKGROUND_MIN_FRACTION = (
+    0.5  # 畫面邊緣帶中「像背景」的像素比例低於這個值，代表沒有可參考的背景（零件占滿畫面、背景雜亂）
+)
+
+
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """把外輪廓圍起來的區域全部填滿：高光、反光造成的缺口、螺絲孔都算零件的一部分。
+    限制：O 形環、墊圈這類中空零件，嵌在裡面的另一個環會被一起填掉，併成同一個零件。"""
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(mask)
+    cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
+    return filled
+
+
+def _foreground(bgr: np.ndarray) -> np.ndarray:
+    """零件的前景遮罩。以畫面邊緣的中位數顏色當背景，用 Lab 色差取前景（而不是灰階 Otsu：金屬零件的高光會
+    被當成背景，前景因此破碎，每顆零件被切成十幾塊）。背景平滑時再加上「邊緣輪廓圍起來的區域」：金屬零件放在
+    灰色背景上色差很小，只靠色差會剩下零星碎片，但輪廓邊緣仍然明顯。再用閉運算與填洞把高光造成的缺口補起來。
+    畫面邊緣沒有可參考的背景（零件占滿畫面）時直接報錯，不回報一個沒有依據的數字。"""
+    h, w = bgr.shape[:2]
+    lab = cv2.cvtColor(cv2.GaussianBlur(bgr, (5, 5), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+    m = max(2, int(min(h, w) * 0.03))
+    band = np.zeros((h, w), bool)
+    band[:m] = band[-m:] = True
+    band[:, :m] = band[:, -m:] = True
+    background = np.median(lab[band], axis=0)
+    diff = np.linalg.norm(lab - background, axis=2)
+    if float((diff[band] < _MIN_COLOR_DIFF).mean()) < _BACKGROUND_MIN_FRACTION:
+        raise ModuleError(
+            "畫面邊緣沒有可參考的背景（零件占滿畫面，或背景雜亂），無法計數；請把零件放在素色背景上、四周留一點空白",
+            422,
+        )
+    scaled = np.clip(diff * (255.0 / max(float(diff.max()), 1.0)), 0, 255).astype(np.uint8)
+    otsu, _ = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    floor = _MIN_COLOR_DIFF * 255.0 / max(float(diff.max()), 1.0)
+    mask = (scaled > max(otsu, floor)).astype(np.uint8) * 255
+
+    # 邊緣輪廓：背景平滑（邊緣帶幾乎沒有邊緣）時才用，雜亂背景會到處都是邊緣
+    gradient = np.hypot(cv2.Sobel(lab[:, :, 0], cv2.CV_32F, 1, 0), cv2.Sobel(lab[:, :, 0], cv2.CV_32F, 0, 1))
+    g8 = np.clip(gradient * (255.0 / max(float(gradient.max()), 1.0)), 0, 255).astype(np.uint8)
+    g_threshold, _ = cv2.threshold(g8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    edges = (g8 > g_threshold).astype(np.uint8) * 255
+    if float((edges[band] > 0).mean()) < 0.05:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(3, int(min(h, w) * 0.012)) | 1,) * 2)
+        outline = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, k)
+        regions = _fill_holes(outline)
+        n_regions, region_labels = cv2.connectedComponents(regions)
+        for r in range(1, n_regions):
+            region = region_labels == r
+            if float((mask[region] > 0).mean()) < 0.6:  # 色差已經抓得好好的區域不動它，免得閉運算把相黏零件的頸部填寬
+                mask[region] = 255
+
+    close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(3, int(min(h, w) * 0.012)) | 1,) * 2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close)
+    return cv2.morphologyEx(_fill_holes(mask), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+
+def _segment_parts(bgr: np.ndarray) -> np.ndarray:
+    """回傳標籤圖（0＝背景，1..N＝各零件）。每個連通區域預設是一個零件；只有「有證據」才分開：區域內有兩個以上
+    夠高的距離變換峰（各自至少是最大內切圓半徑的 70%），而且它們之間的頸部明顯比較窄（見 _NECK_MAX_RATIO）。
+    細長零件（螺絲、電阻）的距離變換沿著本體是一條稜線，螺紋牙齒的小峰太低、頸部也不夠窄，不會被切開；
+    兩顆相黏的圓形零件各有一個明顯的峰、中間有頸部，會被分成兩個。"""
+    from skimage.morphology import h_maxima
+    from skimage.segmentation import watershed
+
+    scale = min(1.0, _WORK_SIZE / max(bgr.shape[:2]))
+    work = cv2.resize(bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1.0 else bgr
+    mask = _foreground(work)
+    labels = np.zeros(mask.shape, np.int32)
+    if cv2.countNonZero(mask) == 0:
+        return labels
+
+    dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+    n_comp, comp = cv2.connectedComponents(mask)
+    next_label = 1
+    for c in _real_components(comp, n_comp):
+        region = comp == c
+        radius = float(dist[region].max())
+        seeds = (
+            h_maxima(np.where(region, dist, 0), max(1.0, 0.1 * radius)) & region & (dist >= _PEAK_MIN_RATIO * radius)
+        )
+        seed_labels = cv2.connectedComponents(seeds.astype(np.uint8))[1]
+        if seed_labels.max() <= 1:
+            labels[region] = next_label
+            next_label += 1
+            continue
+        piece = watershed(-dist, seed_labels, mask=region)
+        for group in _merge_wide_necks(piece, dist):
+            labels[np.isin(piece, group)] = next_label
+            next_label += 1
+    if scale < 1.0:
+        labels = cv2.resize(
+            labels.astype(np.float32), (bgr.shape[1], bgr.shape[0]), interpolation=cv2.INTER_NEAREST
+        ).astype(np.int32)
+    return labels
+
+
+_FRAGMENT_MEDIAN_RATIO = 0.1  # 面積低於「其餘零件面積中位數」乘這個比例的碎片丟掉
+_ABSORB_AREA_RATIO = 5  # 較大零件的面積至少是碎片的這麼多倍，碎片才會被併入
+
+
+def _real_components(comp: np.ndarray, n_comp: int) -> list[int]:
+    """前景連通區中真正是「零件」的編號。高光、陰影常在零件旁邊或裡面切出幾個獨立的小塊，它們不是零件：
+    ① 重心落在較大零件的凸包內的小塊，當作該零件的一部分併入（丟掉，不另外計數）；
+    ② 面積遠小於其餘零件中位數的碎片（例如印在零件旁的編號文字）丟掉。"""
+    areas, hulls, centers = {}, {}, {}
+    for c in range(1, n_comp):
+        ys, xs = np.nonzero(comp == c)
+        areas[c] = len(xs)
+        centers[c] = (float(xs.mean()), float(ys.mean()))
+        hulls[c] = cv2.convexHull(np.column_stack([xs, ys]).astype(np.int32))
+    kept = []
+    for c, area in areas.items():
+        absorbed = any(
+            o != c and areas[o] >= _ABSORB_AREA_RATIO * area and cv2.pointPolygonTest(hulls[o], centers[c], False) >= 0
+            for o in areas
+        )
+        if not absorbed:
+            kept.append(c)
+    if len(kept) >= 3:
+        median = float(np.median([areas[c] for c in kept]))
+        kept = [c for c in kept if areas[c] >= _FRAGMENT_MEDIAN_RATIO * median]
+    return kept
+
+
+def _merge_wide_necks(piece: np.ndarray, dist: np.ndarray) -> list[list[int]]:
+    """把 watershed 切出的相鄰區域，頸部不夠窄的併回去；回傳每個零件由哪些區域組成。"""
+    ids = [int(i) for i in np.unique(piece) if i > 0]
+    peak = {i: float(dist[piece == i].max()) for i in ids}
+    area = {i: int((piece == i).sum()) for i in ids}
+    saddle: dict[tuple[int, int], float] = {}
+    for a, b in ((piece[:, :-1], piece[:, 1:]), (piece[:-1, :], piece[1:, :])):
+        da, db = (
+            (dist[:, :-1], dist[:, 1:])
+            if a.shape[0] == piece.shape[0] and a.shape[1] != piece.shape[1]
+            else (dist[:-1, :], dist[1:, :])
+        )
+        touching = (a != b) & (a > 0) & (b > 0)
+        for x, y, height in zip(a[touching], b[touching], np.minimum(da, db)[touching], strict=True):
+            key = (int(min(x, y)), int(max(x, y)))
+            saddle[key] = max(saddle.get(key, 0.0), float(height))
+
+    parent = {i: i for i in ids}
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for (x, y), height in saddle.items():
+        small, large = sorted((area[x], area[y]))
+        if height >= _NECK_MAX_RATIO * min(peak[x], peak[y]) or small < _MIN_PIECE_RATIO * large:
+            parent[find(x)] = find(y)
+    groups: dict[int, list[int]] = {}
+    for i in ids:
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
 
 
 def _binarize_foreground_minority(gray: np.ndarray) -> np.ndarray:
