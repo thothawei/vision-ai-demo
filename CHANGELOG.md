@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### 新增
+- 真實照片評估集（Wikimedia Commons，授權見 `tests/real_samples/SOURCES.md`）：七段顯示器 8 張、零件計數 3 張、指針錶 3 張；實測表現差（七段 0/8、計數 0/3、指針錶 1/3），已如實寫入 `docs/evaluation.md` 與已知限制。
+
 ## [1.0.0]
 
 ### 新增

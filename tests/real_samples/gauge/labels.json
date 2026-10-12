@@ -1,0 +1,12 @@
+{
+  "device": "網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機",
+  "note": "讀值為人工目視（量圓心、刻度端點與指針角度後線性內插），不是儀器校準值，誤差容許約為滿刻度的 4–5%",
+  "samples": [
+    {"file": "pool_gauge_0bar.jpg", "expected": {"讀值": 0.0}, "tolerance": 0.15,
+     "params": {"min_value": 0, "max_value": 3, "min_angle": 143, "max_angle": 47}},
+    {"file": "manometer_104026.jpg", "expected": {"讀值": 9.8}, "tolerance": 0.6,
+     "params": {"min_value": 0, "max_value": 15, "min_angle": 131.6, "max_angle": 42.5}},
+    {"file": "round_thermometer.jpg", "expected": {"讀值": 23.5}, "tolerance": 1.5,
+     "params": {"min_value": -20, "max_value": 60, "min_angle": 149.2, "max_angle": 26.4}}
+  ]
+}

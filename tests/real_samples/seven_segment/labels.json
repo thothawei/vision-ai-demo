@@ -1,0 +1,54 @@
+{
+  "device": "網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機",
+  "note": "數字為人工目視；*_closeup.jpg 是從同一張照片裁出顯示器（操作員實際會拍的近拍），未做任何其他處理；不帶 closeup 的是原始完整場景",
+  "samples": [
+    {
+      "file": "scale_lcd_112.jpg",
+      "expected": {
+        "讀值": "112"
+      }
+    },
+    {
+      "file": "calculator_led.jpg",
+      "expected": {
+        "讀值": "31415927"
+      }
+    },
+    {
+      "file": "beckman_77.jpg",
+      "expected": {
+        "讀值": "77"
+      }
+    },
+    {
+      "file": "led_clock_238.jpg",
+      "expected": {
+        "讀值": "238"
+      }
+    },
+    {
+      "file": "scale_lcd_112_closeup.jpg",
+      "expected": {
+        "讀值": "112"
+      }
+    },
+    {
+      "file": "calculator_led_closeup.jpg",
+      "expected": {
+        "讀值": "31415927"
+      }
+    },
+    {
+      "file": "beckman_77_closeup.jpg",
+      "expected": {
+        "讀值": "77"
+      }
+    },
+    {
+      "file": "led_clock_238_closeup.jpg",
+      "expected": {
+        "讀值": "238"
+      }
+    }
+  ]
+}
