@@ -5,7 +5,7 @@
 
 適用於台中／中科製造業常見產線情境：工具機與精密機械、手工具、螺絲扣件、金屬加工/CNC、PCB 與電子、醫材與藥品包裝。核心辨識完全離線（本機 Ollama／自行訓練的模型），Gemini 免費層只當可選備援。
 
-**目前版本：[v1.0.1](https://github.com/thothawei/vision-ai-demo/releases/tag/v1.0.1)**（[所有版本](https://github.com/thothawei/vision-ai-demo/releases)、[CHANGELOG](CHANGELOG.md)）。請使用 v1.0.1 以上：v1.0.0 的七段顯示器、指針錶、零件計數只用合成圖驗證，真實照片上表現很差，已在 v1.0.1 修正。
+**目前版本：[v1.0.2](https://github.com/thothawei/vision-ai-demo/releases/tag/v1.0.2)**（[所有版本](https://github.com/thothawei/vision-ai-demo/releases)、[CHANGELOG](CHANGELOG.md)）。請使用 v1.0.1 以上：v1.0.0 的七段顯示器、指針錶、零件計數只用合成圖驗證，真實照片上表現很差，已在 v1.0.1 修正。
 
 ## 核心能力
 
