@@ -11,9 +11,11 @@
 - **模型與資料治理**：模型多版本登錄與一鍵回滾（檢驗紀錄記下用了哪個版本）、權重完整性驗證、模型說明卡、圖片保存期限清理、備份與還原、正式的資料庫 migration。
 - **SPC 與品質報表**：X̄-R／I-MR 管制圖、Cp／Cpk、Western Electric 規則；日報／週報（Excel、可列印 PDF）。
 - **品檢紀錄與看板**：追溯欄位（工單／料號／批號／站別／操作員）、原圖與標註圖存檔、人工複判、良率與 NG 柏拉圖。
-- **ERP 串接**：API Key 保護的增量輪詢、NG webhook 通知。
+- **ERP 串接**：API Key 保護的增量輪詢（`since_id`）、複判同步、料號與工單主檔推送、NG webhook 通知；輪詢邏輯有 SQLite 版端到端測試（SQL Server 容器在 Apple Silicon 上無法啟動，見 docs/erp-integration.md）。
 - **產線化輸入**：批次上傳、資料夾監控、短影片抽幀、瀏覽器拍照。
 - **自有資料導入**：自訂異常檢測類別、複判資料回流、門檻調校。
+- **可靠性與可觀測性**：`/healthz`、`/readyz`、系統狀態頁（每個功能是否可用與原因）、持久化工作佇列（重啟後可重試）、單一實例鎖、選用的 Prometheus `/metrics`。
+- **工程品質與部署**：GitHub Actions CI（用詞檢查、ruff、pytest + coverage）、Docker／Compose 容器化、批號容錯比對。
 
 ## 快速開始
 
@@ -42,7 +44,7 @@ cd backend && uvicorn main:app --reload
 ## 文件
 
 - 使用者：[user-guide.md](docs/user-guide.md)、[walkthrough.md](docs/walkthrough.md)、[known-limitations.md](docs/known-limitations.md)
-- 管理者：[admin-guide.md](docs/admin-guide.md)、[erp-integration.md](docs/erp-integration.md)
+- 管理者：[admin-guide.md](docs/admin-guide.md)（含容器化與 Windows 部署）、[erp-integration.md](docs/erp-integration.md)、[evaluation.md](docs/evaluation.md)（真實照片評估結果）
 - 授權：[LICENSE](LICENSE)（AGPL-3.0）、[docs/licenses.md](docs/licenses.md)
 - 開發：[CLAUDE.md](CLAUDE.md)（開發規則與陷阱）、[docs/dev/](docs/dev/)（技術決策、測試紀錄）、[CHANGELOG.md](CHANGELOG.md)
 
@@ -85,11 +87,11 @@ flowchart LR
 | 銘牌 OCR + 結構化（廠牌/型號/序號/製造日期/電壓） | RapidOCR + Ollama／Gemini | — |
 | LED/LCD 七段顯示器數字判讀（OCR 認不出七段字型，改用逐段分析） | OpenCV | 合成 0-9 全對 |
 | 指針錶讀值（指針角度偵測 → 讀值換算） | OpenCV（HoughCircles + HoughLinesP） | 6 個測試角度誤差 <5% |
-| 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，GMP 追溯用途） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
+| 包裝追溯碼檢核（GS1 條碼 vs 印刷批號/效期比對，批號三級容錯：一致/疑似/不一致） | zxing-cpp + RapidOCR + Ollama／Gemini | — |
 | 醫學影像分類展示（**僅供技術展示，非醫療診斷用途**） | PyTorch 小型 CNN（PneumoniaMNIST） | 測試集 ACC 0.886／AUC 0.935 |
 | 組裝防呆／黃金樣本比對（零件有無、方向對不對） | OpenCV ORB + homography 對齊 + SSIM ROI 比對 | 合成情境全對，對齊在 ±15° 旋轉/±20% 縮放下仍成功 |
 | 烤漆/陽極色差 ΔE（CIELAB） | scikit-image CIEDE2000 | 與 CIEDE2000 論文標準測試向量誤差 <0.001 |
-| 出貨標籤 vs 工單比對（料號/數量/批號） | zxing-cpp（條碼優先）+ RapidOCR + Ollama/Gemini | 真打 Ollama 驗證全對/料號不符/條碼優先三種情境 |
+| 出貨標籤 vs 工單比對（料號/數量/批號，料號與批號三級容錯） | zxing-cpp（條碼優先）+ RapidOCR + Ollama/Gemini | 真打 Ollama 驗證全對/料號不符/條碼優先三種情境 |
 | 品檢紀錄與看板（工單/料號/批號追溯、原圖與標註圖存檔、人工複判、良率/NG 原因柏拉圖） | SQLite + Chart.js | — |
 
 各功能對應的原始開發規劃代號（M1-M9）與逐階段實測紀錄，見 [docs/dev/](docs/dev/)。
@@ -249,7 +251,7 @@ cd backend
 uvicorn main:app --reload
 ```
 
-瀏覽器開 <http://127.0.0.1:8000>，前 13 個分頁各對應一個辨識模組，第 14 個分頁是品檢看板。
+瀏覽器開 <http://127.0.0.1:8000> 並登入（首次需要建立管理員，見上方「快速開始」與管理者手冊「帳號與首次啟動」）。左側導覽依分類列出各辨識功能，另有「依配方檢驗」與「管理」（品檢看板、主檔與配方、SPC、模型、系統狀態、使用者、稽核；依角色顯示）。缺權重或 Ollama 時，不可用的功能在導覽中灰掉並顯示原因。
 
 畫面最上方的「工單號／料號／批號／站別／操作員」欄位（存 `localStorage`）會自動帶進每次辨識的追溯資訊；`.env` 的 `SAVE_IMAGES`（預設 `true`）控制要不要把每次辨識的原圖與標註圖存到 `data/images/`。
 
@@ -307,8 +309,12 @@ python scripts/export_reviewed.py --module anomaly --out ./export_anomaly --cate
 ```bash
 source venv/bin/activate
 python tests/samples/make_samples.py   # 產生測試圖，未進版控
-pytest                                  # 單元測試（假 LLM/YOLO/PatchCore），約 10 秒
+pytest                                  # 單元測試（假 LLM/YOLO/PatchCore），約 40 秒；預設不含 live／e2e
 pytest -m live -s                       # 真打本機模型，需先完成上面的安裝/訓練步驟，約 1-2 分鐘
+pytest -m e2e                           # Playwright 端到端截圖流程（需已啟動服務與 CAPTURE_USERNAME／CAPTURE_PASSWORD）
+python scripts/check_wording.py          # 用詞檢查，必須 0 筆
+ruff check && ruff format --check       # 與 CI 相同的 lint／格式檢查
+python scripts/evaluate.py --all        # 真實照片評估集（tests/real_samples/），更新 docs/evaluation.md
 ```
 
 ## 已知限制
@@ -323,22 +329,22 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 - **M7 七段顯示器**：實測 RapidOCR、Tesseract 都認不出七段字型（RapidOCR 偵測不到文字、Tesseract 亂猜成中文），改用 OpenCV 逐段判讀；只在合成測試圖驗證過，真實照片的反光/模糊/歪斜可能影響準確度。
 - **M7 指針錶角度校正**：使用者要自己量測 min_angle/max_angle（0 度＝3 點鐘方向，順時針遞增），圓心找不到時要手動輸入；指針落在非量測弧的「死區」會被夾在邊界值，不會報錯提示超出範圍。
 - **M8-2 分類準確度**：測試集 ACC=0.8862、AUC=0.9346，normal 召回率只有 74.8%（約每 4 張正常片有 1 張被誤判），這是小型教學用 CNN 的真實表現，不是接近完美的模型——這正是為什麼這個功能反覆強調「僅供技術展示，非醫療診斷用途」。
-- **M8-1 包裝檢核只做完全字串/日期相等比對**：OCR 或 LLM 抽取有任何誤差（例如 O/0 混淆）都會被判「不一致」而 NG，需要人工核對細節再判斷。
-- **追溯資訊是自由文字，沒有輸入驗證**：工單號/料號等欄位不檢查格式、不比對任何工單主檔（還沒接 ERP），同一工單打錯字會被當成不同工單，篩選查不到。
-- **品檢看板的 NG 原因柏拉圖是白名單制**：只有 defect/ppe/anomaly/safety/medical_packaging 五個模組定義了「怎麼抽出缺陷類別」，之後新增模組要記得補上，不然不會出現在柏拉圖。
+- **M8-1 包裝與 M12 出貨標籤的批號／料號比對是三級判定**：只差在容易混淆的字元（O↔0、I↔1↔L、S↔5、B↔8、Z↔2）或相似度 ≥ 90 判「疑似」（INFO，需人工確認），其餘不同判 NG。相似度門檻是經驗值，長度 10 的代碼差一個字元剛好落在邊界，導入時請用自家批號格式檢視；短代碼差一個字元（如 LOT001／LOT002）一律判 NG。
+- **追溯資訊欄位本身不檢查格式**：工單號／料號等欄位是自由文字，打錯字會被當成不同工單；不在料號與工單主檔內的工單會標為「臨時檢驗」（`adhoc`），可由 ERP 推送主檔（`/api/master/*:bulk-upsert`）來讓工單有對照。
+- **品檢看板的 NG 原因柏拉圖由註冊表的缺陷抽取規則產生**：新增辨識動作時要在 `core/registry.py` 補 `defect_extractor`（`tests/test_registry.py` 會擋下「會判 NG 卻沒有抽取規則」的動作）；規則補上後歷史紀錄也會反映，但當時沒存進摘要的資訊補不回來。
 - **`CORS_ORIGINS` 改 `.env` 要重啟服務才生效**：白名單在啟動時讀死進中介層，不是每個請求動態重讀。
 - **API key 只接受 `X-API-Key` header**（`?api_key=` 已移除）；瀏覽器下載 CSV 與看圖走登入 cookie。uvicorn 的 access log 仍會印完整網址。
 - **webhook 是保底通知，不是唯一真相來源**：`ERP_WEBHOOK_URL` 送出失敗會重試最多 5 次後放棄，ERP 端仍需要自己跑 `since_id` 輪詢當保底。
 - **`watch_folder.py` 是單執行緒、逐檔處理**：檔案量大或模型推論慢時會排隊，不是平行處理；長駐監看用 `watchdog`，處理中的行程被中斷（例如 Ctrl+C）時該筆檔案不會自動搬移，需要重新丟回 inbox。
 - **批次上傳整批共用同一組額外參數**：例如批次跑 M3 異常檢測，整批圖片必須是同一個 `category`；批次跑危險區域入侵，整批共用同一個 `zone`，沒有辦法每張各自設定。
 - **相機拍照在非 localhost 的 http 網址會被瀏覽器擋掉**：`getUserMedia` 只在安全情境（https 或 localhost）可用，僅用內建假相機裝置（Chromium headless 測試）驗證過拍照→上傳→辨識全流程，未用實體手機/筆電相機測試過。
-- 僅供本機 `localhost` 使用，若要手機或外部裝置存取需另外部署。
-- **自訂類別擬合固定用 CPU、同時只跑一個**：150-250 張照片實測約 150-160 秒；佇列是進程內的 `queue.Queue`，伺服器重啟排隊中的工作會遺失（需要重新上傳）。
+- 預設只開本機 `localhost`；手機或外部裝置存取需自行部署（容器化部署見管理者手冊，但沒有內建 HTTPS，相機拍照需要 HTTPS 或 localhost）。
+- **自訂類別擬合固定用 CPU、同時只跑一個**：150-250 張照片實測約 150-160 秒；工作狀態存在資料庫（`jobs` 表），服務重啟時做到一半的工作標為「已中斷」並可一鍵重試，排隊中的自動接續。同一個資料庫只允許一個服務程序（單一實例鎖），不要用多個 uvicorn worker。
 - **自訂類別關掉了 anomalib 內建的分數正規化**：改用自己的 ROC/百分位數邏輯算門檻，異常分數是 PatchCore 的原始距離值（不是 0~1），不同類別之間的分數不能直接比較大小。
 - **`export_reviewed.py` 匯出的標註是 AI 當時的預測，不是保證正確的標註**：一定要經過人工在 Label Studio／CVAT 校正過才能拿去重訓，直接拿去訓練會讓模型學到自己的錯誤。
 - **M10 組裝防呆的 ROI 比對是 SSIM，只看「有沒有差異」不看「差異是什麼」**：能分辨「缺件」跟「零件裝反」，但沒辦法講出具體是哪種異常；對齊失敗（特徵配對不足或 RANSAC inlier 比例太低）會誠實回傳 `INFO`，不會硬猜 OK/NG。
 - **M11 色差 ΔE 的門檻預設 3.0**：CIEDE2000 業界常見「肉眼可辨但不算嚴重」的邊界，實際產線公差需要依材質/客戶要求調整；同一張照片的標準色區與量測區要在相近光源下拍攝，光源色溫差異會讓 ΔE 失真。
-- **M10/M11/M12 只用合成圖驗證，沒有真實相機拍攝的測試照片**：這個開發環境沒有可互動授權相機的管道（`ffmpeg -f avfoundation` 需要圖形介面才能核准 macOS 相機權限），驗收時已跟使用者確認用合成圖即可；M12 額外真的打過本機 Ollama 驗證 OCR+LLM 抽取邏輯正確。
+- **M2／M7／M10／M11／M12 尚未用真實照片驗證**：目前只用合成圖與少量授權照片測試；`scripts/evaluate.py` 與 `tests/real_samples/` 已就緒，`docs/evaluation.md` 各模組標示「待補真實照片」，補照片後可直接評估。
 - **M12 出貨標籤比對只信任條碼的批號欄位**：料號/數量沒有 GS1 標準對應欄位可以從條碼可靠讀出，一律用 OCR+LLM 讀印刷文字，如果印刷字模糊/字體特殊可能讀錯，需要人工核對「問題」欄位。
 
 ## 專案結構
@@ -347,17 +353,19 @@ pytest -m live -s                       # 真打本機模型，需先完成上�
 vision-ai-demo/
 ├── backend/
 │   ├── main.py                 # FastAPI 入口，掛載各模組 router
-│   ├── core/                   # 共用回應格式、LLM 抽象層、RapidOCR/Tesseract、七段判讀、指針錶、SQLite 檢驗紀錄、API Key 驗證、webhook
+│   ├── core/                   # 共用回應格式、LLM 抽象層、OCR、辨識註冊表、檢驗紀錄、模型登錄、migration、jobs 佇列、健康檢查、SPC／報表、使用者與稽核、批號比對、webhook
 │   ├── schemas/                # M4 文件 schema、M7 銘牌 schema
 │   ├── modules/                # general(M9) / docs(M4) / anomaly(M3) / codes(M1) / measure(M2) / safety(M5+PPE+影片) / defect(M6) / nameplate(M7) / medical(M8) / inspections / batch / assembly(M10) / colordiff(M11) / shipping(M12)
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html               # 分頁式單頁前端（13 個辨識模組 + 品檢看板，各分頁支援多選批次上傳 + 相機拍照）
+│   ├── index.html               # 分頁式單頁前端（導覽依 /api/modules 與角色產生；各分頁支援多選批次上傳 + 相機拍照）
 │   └── vendor/chart.min.js      # Chart.js（MIT），看板圖表用，離線優先不用 CDN
-├── scripts/                    # make_aruco.py、train_anomaly.py、prepare_deeppcb.py、prepare_hardhat.py、train_medmnist.py、watch_folder.py、export_reviewed.py
+├── scripts/                    # 訓練與資料準備、watch_folder、create_admin、backup／restore、cleanup_images、register_model、daily_report、evaluate、capture_screenshots 等
 ├── notebooks/                  # train_pcb_defect.ipynb、train_ppe.ipynb（Colab GPU 版訓練）
 ├── models/                     # 權重，gitignore
 ├── data/                       # SQLite、資料集（MVTec AD / DeepPCB / Hardhat / MedMNIST），gitignore
-├── tests/                      # pytest：單元測試（假模型）+ live 測試（真模型，-m live）
-└── docs/                       # 使用者/管理者文件、授權查證紀錄、erp-integration.md、openapi.json、dev/（決策與測試紀錄）
+├── tests/                      # pytest：單元測試（假模型）+ live（-m live）+ e2e（-m e2e）；real_samples/ 為真實照片評估集
+├── Dockerfile  compose.yaml    # 容器化部署
+├── .github/workflows/ci.yml    # CI
+└── docs/                       # 使用者/管理者文件、授權查證、erp-integration.md、evaluation.md、openapi.json、dev/（決策與測試紀錄）
 ```
