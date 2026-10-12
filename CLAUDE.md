@@ -59,6 +59,7 @@
 - **手動除錯用的臨時腳本也會連到真實資料庫**：在專案目錄用 `python - <<EOF` 匯入 `core.*` 並呼叫會查資料庫的函式（例如 `metrics.render()`），沒設 `INSPECTION_DB` 就會對真實 `data/inspections.db` 跑 migration；臨時腳本一律先設好三個資料路徑環境變數指到暫存。
 - **七段判讀（`core/seven_segment.py`）不可加「判不出就局部重判／猜一個」的後備**：實測會把暗淡的 3、9、7 讀成 8、8、6，而讀錯比 `?` 危險（`?` 判 NG 交人工，讀錯可能判 OK）。判讀流程假設顯示器近拍、單列、大致直立；回歸測試在 `tests/test_seven_segment_real.py`（含真實照片、深字亮底、線段不相連）。
 - **指針錶偵測（`core/gauge.py`）找的是「通過軸心的長直線」，不是「一端靠近圓心的線段」**：很多指針（帶配重、細長）兩端都離圓心很遠；方向由直線決定（不受圓心誤差影響），針尖取兩端中連續前景延伸較長的一端；前景用局部底色的 Lab 色差，不要改回灰階 Otsu（紅針金底會消失）。評估照片的標註要先判斷哪端是配重再讀值（`manometer_104026` 的標註曾因此錯過一次）。
+- **零件計數（`modules/measure/service.py`）別再憑直覺加分割規則**：試過「保留大洞（讓嵌套的環獨立）」與「背景曲面模型（處理暗角）」，用 12 張真實照片＋合成圖逐一開關比較，兩者都是淨負收益（前者讓兩顆相黏圓形併成一個、後者讓木螺丝退步），已移除；改動前先跑 `scripts/evaluate.py --module count`（或 `tests/test_count_real.py`）與 `tests/test_measure.py`。畫面邊緣找不到背景時回 422，不要退回猜測。評估照片的標註要放大確認再數（`bolts_and_nuts` 曾因彩虹色螺栓頭被當成螺帽而標錯）。
 - **會刪資料或覆寫資料的腳本預設只預覽**（`cleanup_images.py`、`restore.py` 要 `--apply`／`--yes`；還原不刪舊資料而是改名保留）；備份不含 `.env`，但含密碼雜湊。
 - **量測值抽取在 `core/measurement_extractors.py`**（依 module 的字典，與缺陷抽取規則同型），由 `log_inspection` 在同一個連線寫入 `measurements`；新增可做 SPC 的特性就在那裡加，不要在各模組 service 裡寫。規格上下限只在結果有存目標與公差時才有（舊紀錄沒有公差 → 無規格）；多孔的孔徑刻意不收。
 - **SPC 的數學都在 `core/spc.py`（純 numpy、標準係數表）**，資料存取在 `core/spc_service.py`，測試用手算數值（A2=0.577、D4=2.114、d2=2.326；I-MR 2.660／3.267／1.128）。Western Electric 規則 4 預設 8 點（原始定義；規劃書寫 7 已與使用者確認改 8），`run_length` 可調。

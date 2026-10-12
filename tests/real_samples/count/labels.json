@@ -1,6 +1,6 @@
 {
   "device": "網路取得的照片（Wikimedia Commons，授權見 SOURCES.md）；非產線相機",
-  "note": "個數為人工目視；螺栓與螺帽彼此靠近但分開擺放，各算一個；two_screws_closeup.jpg 是同一張照片裁出零件區域，未做其他處理",
+  "note": "個數為人工目視；螺栓與螺帽彼此靠近但分開擺放，各算一個；two_screws_closeup.jpg 是同一張照片裁出零件區域，未做其他處理；bolts_and_nuts 的標註 2026-10-12 更正：原標 10，放大後確認右下角彩虹色的是右邊螺栓的頭（同一個零件），不是第 4 顆螺帽，實際是 6 顆螺栓＋3 顆螺帽＝9（標註錯誤，不是為了配合演算法）；four_screws_4、wood_screw_1、resistors_6、resistors_3、gaskets_5 是改計數演算法之前先標註的留出照片（零件分開擺放、背景素色）；two_screws、bolts_and_nuts 是開發時用的（零件彼此接觸或重疊）；【重要】four_screws_4、wood_screw_1、resistors_6、resistors_3、gaskets_5 原本是留出照片，但我之後看著它們的失敗結果調整了分割規則（零件碎片併入、較小區塊併回），所以已不是乾淨的留出集（標為 tuned_on）；ceramic_balls_5、nut_hardware_7、orings_5、bottle_cap_1 是調完規則之後才加入、標註在跑工具之前就定好的新留出照片",
   "samples": [
     {
       "file": "two_screws.jpg",
@@ -11,7 +11,7 @@
     {
       "file": "bolts_and_nuts.jpg",
       "expected": {
-        "計數結果": 10
+        "計數結果": 9
       }
     },
     {
@@ -19,6 +19,68 @@
       "expected": {
         "計數結果": 2
       }
+    },
+    {
+      "file": "four_screws_4.jpg",
+      "expected": {
+        "計數結果": 4
+      },
+      "tuned_on": true
+    },
+    {
+      "file": "wood_screw_1.jpg",
+      "expected": {
+        "計數結果": 1
+      },
+      "tuned_on": true
+    },
+    {
+      "file": "resistors_6.jpg",
+      "expected": {
+        "計數結果": 6
+      },
+      "tuned_on": true
+    },
+    {
+      "file": "resistors_3.jpg",
+      "expected": {
+        "計數結果": 3
+      },
+      "tuned_on": true
+    },
+    {
+      "file": "gaskets_5.jpg",
+      "expected": {
+        "計數結果": 5
+      },
+      "tuned_on": true
+    },
+    {
+      "file": "ceramic_balls_5.jpg",
+      "expected": {
+        "計數結果": 5
+      },
+      "holdout": true
+    },
+    {
+      "file": "nut_hardware_7.jpg",
+      "expected": {
+        "計數結果": 7
+      },
+      "holdout": true
+    },
+    {
+      "file": "orings_5.jpg",
+      "expected": {
+        "計數結果": 5
+      },
+      "holdout": true
+    },
+    {
+      "file": "bottle_cap_1.jpg",
+      "holdout": true,
+      "expect_refusal": true,
+      "note": "瓶蓋占滿畫面、邊緣沒有可參考的背景：模組應該明確拒絕（422）而不是回報一個沒有依據的數字"
     }
   ]
 }
