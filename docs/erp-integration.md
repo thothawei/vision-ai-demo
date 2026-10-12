@@ -205,3 +205,10 @@ public class VisionPollingService
 - `CORS_ORIGINS`（`.env`，逗號分隔）白名單預設只允許 `http://127.0.0.1:8000,http://localhost:8000`；**這個值只在伺服器啟動時讀一次**，改了 `.env` 要重啟服務才生效，不是即時生效的設定。
 - `MAX_UPLOAD_MB`（預設 20）超過回 `413`。
 - 不信任副檔名／Content-Type，一律用 Pillow 實際開檔驗證（`core/image_io.load_image()`），假圖片（副檔名 `.png` 但內容不是圖片）回 `400`。
+
+## 端到端驗證（Phase 24，2026-10-12）
+
+- **SQL Server 容器：Apple Silicon 上跑不起來。** `docker compose --profile erp up -d sqlserver`（`mcr.microsoft.com/mssql/server:2022-latest`，`platform: linux/amd64`，Developer 版）在這台 arm64 Mac 的 Docker Desktop 以 QEMU 模擬執行時，`sqlservr` 啟動即結束（退出碼 1，錯誤 `Invalid mapping of address … in reserved address space`）。Microsoft 官方文件也寫明 Rosetta 2、QEMU 這類模擬環境「未經測試、不支援」（https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-docker ，查證日 2026-10-12）。因此 `docs/erp-integration-sample/` 的 C# 範例**沒有對真的 SQL Server 實跑過**，仍是只驗證過 `dotnet build`。x86_64 的 Linux／Windows 主機上可用上述 compose profile 自行驗證（未在這些平台測過）。
+- **替代驗證（已跑）**：`tests/test_erp_end_to_end.py` 用 SQLite 當 ERP 端資料庫，照第 2 節流程跑完整循環：空資料輪詢 → 3 筆新檢驗 → `since_id` 升冪拉取並 UPSERT → 重複輪詢拉 0 筆（游標生效）→ 事後複判，`since_id` 抓不到、`reviews` 同步後最終判定變 OK 而 AI 判定仍為 NG → ERP 服務重啟後只靠 ERP 資料庫內的游標續傳，5 筆不漏不重複 → ERP 推送料號與工單後，該工單的檢驗不是臨時檢驗且輪詢得到工單號 → 沒帶或帶錯 key 回 401。這證明輪詢邏輯與 API 契約，但**不證明 T-SQL 的 `MERGE` 語法**（SQLite 用 `ON CONFLICT`，邏輯等價）。
+- **SQL Server 授權**：只能用 Developer（僅限開發測試，不可用於正式環境）或 Express（有資源／容量上限）版；`compose.yaml` 的 `MSSQL_PID` 預設 Developer。
+

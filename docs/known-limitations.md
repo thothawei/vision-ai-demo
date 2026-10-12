@@ -106,3 +106,12 @@
   - 0.18.0 之前建立的檢驗紀錄沒有 `created_by`：operator 看不到，qc／admin 看得到。
   - 單機辨識分頁的色差標準仍是每次檢驗傳入；要有可稽核的標準，請把色差設成配方步驟（標準隨版本保存並記入稽核）。
   - 反向代理若改寫 `Host`，跨網站寫入檢查（Origin 必須與 Host 一致）可能誤擋，請保留原始 Host。
+
+## 部署與整合驗證範圍
+
+- **容器**：只在 arm64（Apple Silicon）macOS 的 Docker Desktop 實測；Colima／Podman、x86_64 Linux、Windows 沒有測。
+- **容器內的 LLM**：只驗證 `app` 能連到 `ollama` 容器、系統狀態頁能正確回報「模型沒下載」；**沒有在容器內拉 6GB 的 `qwen3.5:9b` 並跑 LLM 功能**。
+- **ERP 對 SQL Server**：Apple Silicon 上 SQL Server 容器無法啟動，C# 範例沒有對真的 SQL Server 實跑；輪詢邏輯以 SQLite 版端到端測試驗證（見 erp-integration.md「端到端驗證」）。
+- **Windows**：未實測，見管理者手冊「Windows 部署」。
+- **效能基準**（規劃書中的可選項）：這個版本沒有做，沒有任何各模組延遲的發布數字；ONNX 匯出因此也沒有納入。
+

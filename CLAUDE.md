@@ -174,4 +174,4 @@ python scripts/check_wording.py         # 用詞檢查，必須 0 筆
 - [x] Phase 16：產品定位、授權、文件重整。
 - [x] Phase 17：模組註冊表、請求範圍資料、設定集中、前端拆分與分類導覽、logging。
 - [x] Phase 18：使用者、角色、稽核。 [x] Phase 19：主檔與檢驗配方。 [x] Phase 20：SPC 與報表。 [x] Phase 21：模型與資料治理。
-- [x] Phase 22：可靠性與可觀測性。 [ ] Phase 23：真實驗證與 CI。 [ ] Phase 24：容器化與 v1.0.0。
+- [x] Phase 22：可靠性與可觀測性。 [~] Phase 23：容器外的 CI／容錯比對已完成，真實照片評估集待補照片。 [x] Phase 24：容器化、ERP 端到端（SQLite 版）、v1.0.0。

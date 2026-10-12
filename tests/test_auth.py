@@ -426,9 +426,9 @@ def _import_main(env_extra: dict):
 
     env = {k: v for k, v in os.environ.items() if k != "SESSION_SECRET"}
     env.update(env_extra)
-    return subprocess.run(
-        [sys.executable, "-c", "import main"], cwd=ROOT / "backend", env=env, capture_output=True, text=True
-    )
+    # 子程序不能讀專案根目錄的真實 .env（有 SESSION_SECRET 就測不到「沒設定」）；先把 env_file 關掉再匯入
+    code = "from core.settings import Settings; Settings.model_config['env_file'] = None; import main"
+    return subprocess.run([sys.executable, "-c", code], cwd=ROOT / "backend", env=env, capture_output=True, text=True)
 
 
 def test_startup_refuses_without_or_with_short_session_secret():

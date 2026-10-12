@@ -206,6 +206,35 @@ python scripts/backfill_measurements.py
 - 備份與還原：目前請自行備份 `data/`（SQLite 與圖片），還原前先停止服務；自動備份／還原腳本規劃於後續版本。
 - 授權與第三方元件：[licenses.md](licenses.md)；本產品為 AGPL-3.0-or-later。
 
-## 容器執行環境（後續版本）
+## 容器化部署
 
-容器化部署規劃於後續版本；屆時以 Colima／Podman／Docker Engine 為準。Docker Desktop 對大型企業使用需付費訂閱，僅在符合其免費條件時可選用，不作為安裝需求。
+`Dockerfile`（多階段、`python:3.11-slim`、非 root 使用者 uid 1000）與 `compose.yaml`（`app` + `ollama`，另有選用的 `sqlserver`）。`models/` 與 `data/` 是掛載目錄，不打包進映像；映像約 2.5GB（CPU 版 torch，在 Apple Silicon／arm64 Linux 實測建置 6 分半）。
+
+```bash
+cp .env.example .env     # 填入 SESSION_SECRET、API_KEYS（見「帳號與首次啟動」）
+mkdir -p models data     # 放權重與資料；權重取得見 README「安裝」
+docker compose up -d --build
+docker compose exec app python -c "import sys; sys.path.insert(0,'/app/scripts'); import create_admin; create_admin.create_admin('admin','系統管理員','請換成至少 12 字元的密碼')"
+docker compose exec ollama ollama pull qwen3.5:9b     # 約 6GB；只有 LLM 相關功能需要
+```
+
+- 瀏覽器開 http://127.0.0.1:8000。`/healthz` 是容器的 HEALTHCHECK；`/readyz` 與「管理 → 系統狀態」可看每個功能是否可用及原因。
+- `ollama` 服務不對外開埠，`app` 以 `OLLAMA_HOST=http://ollama:11434` 走內部網路連線。
+- 資料庫路徑在 compose 中固定為 `/app/data/...`；**只能跑一個 `app` 容器、容器內不要加 `--workers`**（單一實例鎖，見「背景工作（擬合）與重啟」）。
+- 掛載目錄需要 uid 1000 可寫；Linux 上若是 root 建立的目錄，執行 `sudo chown -R 1000:1000 models data`（macOS 的 Docker Desktop 會自動處理）。
+- 備份：照「備份與還原」的腳本在容器內執行，或直接備份 `data/`（先停止服務）。
+- 沒有 GPU 支援：影像模型固定 CPU 推論；Ollama 的 GPU 加速需自行調整 `compose.yaml`（未測）。
+
+### 容器執行環境的選擇
+
+本產品以免費開源的執行環境為準：macOS 用 Colima（或 Podman）、Linux 用 Docker Engine。**Docker Desktop 對大型企業使用需付費訂閱，僅在符合其免費條件時可選用，不作為安裝需求**，條件以 Docker 官方訂閱條款為準（https://www.docker.com/pricing/ ）。
+實測紀錄的誠實說明：這次驗證（2026-10-12）所用的機器已安裝 Docker Desktop（Server 20.10.17、Compose v2.7.0），**沒有用 Colima／Podman 重跑**；映像與 compose 檔不依賴 Docker Desktop 特有功能，但在 Colima／Podman 上沒有實測。
+
+## Windows 部署（未在 Windows 實測）
+
+沒有 Windows 機器可測。已做的檢查：程式碼沒有使用 `os.path`、寫死的斜線路徑或 `/tmp`，路徑一律 `pathlib`；單一實例鎖在 Windows 改用 `msvcrt`（**只有程式碼審視，沒有執行過**）。建議的做法與已知差異：
+
+- 首選 WSL2（Ubuntu）內用 Linux 的方式安裝或用容器；原生 Windows 安裝步驟與 README 相同，但虛擬環境啟動指令是 `venv\Scripts\activate`，README 範例裡的 `venv/bin/python` 要換成 `venv\Scripts\python`。
+- `scripts/train_anomaly.py` 等會啟動多程序的腳本在 Windows 預設也是 spawn，一律要有 `if __name__ == "__main__":` 保護（現有腳本已有）。
+- 排程（日報等）用「工作排程器」，不是 launchd／cron；`uvicorn --reload` 不建議用於正式環境。
+- 檔名含中文或過長路徑、防毒軟體鎖檔對 SQLite 的影響，沒有驗證。
